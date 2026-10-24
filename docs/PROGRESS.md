@@ -4,7 +4,7 @@
 
 ## Estado do projeto
 
-**Fase A implementada e testada em ambiente local/CI.** Servidor autoritativo Node/TypeScript com PostgreSQL e WebSocket, cliente PWA mobile-first. **Deploy em produção ainda não executado**: falta conectar o repositório a uma conta Railway (ver `docs/DEPLOY_RAILWAY.md`). Fases B–E não iniciadas.
+**Fase A implementada e testada em ambiente local/CI.** Servidor autoritativo Node/TypeScript com PostgreSQL e WebSocket, cliente PWA mobile-first. **Em produção** em https://kingdoms-unbound.vercel.app (Vercel + Supabase, ver `docs/DEPLOY_VERCEL.md`). Fases B–E não iniciadas.
 
 ## Entregue nesta etapa
 
@@ -48,7 +48,7 @@
 - [x] Suporte a Vercel (`server.ts`, `vercel.json`, cliente em `public/`) e a múltiplas instâncias; 3 testes multi-instância.
 - [x] Dockerfile + `railway.json`; imagem simulada localmente (build limpo, só dependências de produção, healthcheck OK).
 - [ ] Teste em **iPhone/Safari físico** — não disponível neste ambiente.
-- [ ] Deploy real no Railway — bloqueado: sem credencial Railway na sessão.
+- [x] Deploy real na Vercel com Supabase; E2E de dois jogadores contra a URL pública: 12/12.
 
 ## Limitações e dívidas conhecidas
 
@@ -60,7 +60,6 @@
 
 ## Próxima ação objetiva
 
-1. Conectar o repositório ao Railway (painel ou `RAILWAY_TOKEN`) e validar o fluxo de duas contas na URL pública.
 2. Testar em iPhone físico (Safari e PWA instalada) e registrar resultados em `TEST_REPORT.md`.
 3. Iniciar Fase B: chunks do mapa, névoa de guerra, tropas e marchas.
 

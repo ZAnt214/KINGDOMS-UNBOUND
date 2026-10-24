@@ -33,6 +33,11 @@
 
 **Não executado:** Safari/WebKit, iPhone físico, PWA instalada, deploy em produção, carga/concorrência em escala, FPS/memória medidos.
 
+## Execução 2026-10-24 — produção (Vercel + Supabase)
+
+**Alvo:** https://kingdoms-unbound.vercel.app (função `gru1`, Supabase sa-east-1). **Comando:** `BASE_URL=… E2E_PROXY=… node tests/e2e/two-players.cjs`.
+**Resultado:** 12/12 PASS (A-01, A-05, A-07, A-09, A-10, A-11, A-12, coordenadas, A-17 emulado, A-16, A-18 parcial, sem erros JS). Também `npm test`: 27/27 (inclui 3 testes multi-instância).
+
 ## Testes da Fase B+
 
 **Estado:** NÃO EXECUTADO (funcionalidades inexistentes).

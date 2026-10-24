@@ -29,9 +29,12 @@ async function signup(page, user) {
 }
 
 (async () => {
-  const browser = await chromium.launch();
-  const ctxA = await browser.newContext({ ...devices['iPhone 13'] });
-  const ctxB = await browser.newContext({ ...devices['iPhone 13'] });
+  // E2E_PROXY permite testar a URL pública a partir de ambientes atrás de proxy.
+  const proxy = process.env.E2E_PROXY ? { server: process.env.E2E_PROXY } : undefined;
+  const browser = await chromium.launch({ proxy });
+  const ctxOpts = { ...devices['iPhone 13'], ignoreHTTPSErrors: Boolean(proxy) };
+  const ctxA = await browser.newContext(ctxOpts);
+  const ctxB = await browser.newContext(ctxOpts);
   const A = await ctxA.newPage();
   const B = await ctxB.newPage();
   const errors = [];
