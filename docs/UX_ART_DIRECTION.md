@@ -62,3 +62,15 @@ Ver decisões técnicas em `docs/adr/0002-cidade-pixijs-arte-vetorial.md` e evid
 - **Vida:** moradores, fumaça, sombras de nuvens, pássaros, obras com andaimes e trabalhadores.
 - **Câmera:** arraste com inércia, pinça centrada nos dedos, limites para não sair do reino, zoom de 0,2 (panorama) a 1,15 (detalhe) e foco automático no edifício selecionado.
 - **HUD:** compacto, escuro com filete dourado, sem emojis; nada cobre a cidade permanentemente.
+
+### Revisão v3 — tom épico e militar
+
+Diretriz: **reino medieval em guerra, não vila de fazenda.**
+
+- Cores saturadas só na heráldica.
+- Pedra e ardósia dominam a cena.
+- Escala monumental nas fortificações.
+- Soldados e fogo dão sinais de vida.
+- Silhuetas verticais (torres, agulhas, estandartes) dão imponência.
+
+Evidências: `docs/evidence/visual-v3/` (inclui `comparativo-v2-v3.jpg`).

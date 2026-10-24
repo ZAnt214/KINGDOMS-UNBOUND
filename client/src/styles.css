@@ -73,9 +73,9 @@ h3 {
 .btn {
   appearance: none;
   border: 1px solid var(--edge);
-  background: linear-gradient(#4a3829, #33271d);
+  background: linear-gradient(#3a3029, #221c17);
   color: var(--text);
-  border-radius: 10px;
+  border-radius: 3px;
   padding: 10px 14px;
   font-size: 0.95rem;
   font-weight: 600;
@@ -88,9 +88,12 @@ h3 {
   font-size: 0.8rem;
 }
 .btn.primary {
-  background: linear-gradient(#f6cf6a, #c8932c);
-  color: #2a1b0b;
-  border-color: #8a6119;
+  background: linear-gradient(#e2bd5e, #9c7426);
+  color: #1b1208;
+  border-color: #5e4412;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  font-family: 'Cinzel', Georgia, serif;
   box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.4);
 }
 .btn.danger {
@@ -338,16 +341,17 @@ textarea:focus {
   align-items: center;
   gap: 8px;
   min-width: 0;
-  padding: 3px 12px 3px 3px;
-  border-radius: 999px;
-  background: linear-gradient(90deg, rgba(27, 20, 16, 0.92), rgba(27, 20, 16, 0.55));
-  border: 1px solid rgba(217, 173, 72, 0.45);
-  box-shadow: 0 2px 10px rgba(0, 0, 0, 0.35);
+  padding: 3px 14px 3px 3px;
+  border-radius: 4px 14px 4px 4px;
+  background: linear-gradient(90deg, rgba(16, 13, 11, 0.95), rgba(16, 13, 11, 0.6));
+  border: 1px solid rgba(201, 162, 74, 0.7);
+  box-shadow: inset 0 0 0 2px rgba(0, 0, 0, 0.55), inset 0 0 0 3px rgba(201, 162, 74, 0.18), 0 2px 12px rgba(0, 0, 0, 0.5);
 }
 .gov-portrait {
   width: 40px;
   height: 40px;
-  border-radius: 50%;
+  border-radius: 3px;
+  clip-path: polygon(0 0, 100% 0, 100% 72%, 50% 100%, 0 72%);
   display: grid;
   place-items: center;
   border: 2px solid #d9ad48;
@@ -421,9 +425,9 @@ textarea:focus {
 .res {
   position: relative;
   overflow: hidden;
-  background: linear-gradient(rgba(27, 20, 16, 0.88), rgba(14, 10, 7, 0.88));
-  border: 1px solid rgba(217, 173, 72, 0.28);
-  border-radius: 10px;
+  background: linear-gradient(rgba(22, 18, 15, 0.94), rgba(10, 8, 6, 0.94));
+  border: 1px solid rgba(201, 162, 74, 0.45);
+  border-radius: 3px;
   padding: 3px 6px 4px 3px;
   display: grid;
   grid-template-columns: auto 1fr;
@@ -469,10 +473,10 @@ textarea:focus {
   align-items: center;
   gap: 6px;
   appearance: none;
-  border: 1px solid rgba(217, 173, 72, 0.6);
-  background: rgba(27, 20, 16, 0.9);
+  border: 1px solid rgba(201, 162, 74, 0.75);
+  background: rgba(14, 11, 9, 0.94);
   color: var(--text);
-  border-radius: 999px;
+  border-radius: 3px;
   padding: 5px 12px 6px 8px;
   font-size: 0.78rem;
   font-variant-numeric: tabular-nums;
@@ -509,15 +513,26 @@ textarea:focus {
   -webkit-user-select: none;
 }
 .city-host {
-  background: #2c4a22;
+  background: #1f2b1b;
 }
-.city-host::after {
-  /* vinheta: concentra o olhar no centro e funde a cena ao HUD */
+.city-host::before {
+  /* gradação de cor: céu de fim de tarde no alto, chão mais escuro embaixo */
   content: '';
   position: absolute;
   inset: 0;
+  z-index: 1;
   pointer-events: none;
-  background: radial-gradient(ellipse at 50% 55%, rgba(0, 0, 0, 0) 55%, rgba(10, 8, 5, 0.42) 100%);
+  background: linear-gradient(180deg, rgba(255, 168, 90, 0.16) 0%, rgba(255, 168, 90, 0.04) 30%, rgba(0, 0, 0, 0) 55%, rgba(8, 10, 14, 0.28) 100%);
+  mix-blend-mode: soft-light;
+}
+.city-host::after {
+  /* vinheta pesada: concentra o olhar no centro e funde a cena ao HUD */
+  content: '';
+  position: absolute;
+  inset: 0;
+  z-index: 1;
+  pointer-events: none;
+  background: radial-gradient(ellipse at 50% 52%, rgba(0, 0, 0, 0) 45%, rgba(6, 5, 4, 0.62) 100%);
 }
 .stage-loading {
   position: absolute;
@@ -528,7 +543,7 @@ textarea:focus {
   gap: 12px;
   color: var(--muted);
   font-family: 'Cinzel', Georgia, serif;
-  background: radial-gradient(ellipse at 50% 45%, #3a5a2c, #1b2a14);
+  background: radial-gradient(ellipse at 50% 45%, #33392a, #12160f);
 }
 .spinner {
   width: 34px;
@@ -560,8 +575,8 @@ textarea:focus {
   grid-template-columns: repeat(4, 1fr);
   gap: 4px;
   padding: 7px calc(10px + var(--sr)) calc(7px + var(--sb)) calc(10px + var(--sl));
-  background: linear-gradient(rgba(27, 20, 16, 0.94), rgba(14, 10, 7, 0.98));
-  border-top: 1px solid rgba(217, 173, 72, 0.55);
+  background: linear-gradient(rgba(20, 17, 14, 0.97), rgba(8, 7, 5, 0.99));
+  border-top: 1px solid rgba(201, 162, 74, 0.75);
   box-shadow: 0 -6px 24px rgba(0, 0, 0, 0.45), inset 0 1px 0 rgba(255, 230, 170, 0.08);
 }
 .hud-bottom button {
@@ -623,9 +638,11 @@ textarea:focus {
   right: calc(8px + var(--sr));
   bottom: calc(76px + var(--sb));
   z-index: 7;
-  background: linear-gradient(#33261c, #211812);
-  border: 1px solid rgba(217, 173, 72, 0.55);
-  border-radius: 18px;
+  background: linear-gradient(#26201b, #15110e);
+  border: 1px solid rgba(201, 162, 74, 0.75);
+  border-radius: 4px;
+  outline: 1px solid rgba(0, 0, 0, 0.8);
+  outline-offset: -4px;
   padding: 14px;
   box-shadow: 0 -6px 30px rgba(0, 0, 0, 0.55), inset 0 1px 0 rgba(255, 230, 170, 0.1);
   max-height: 58%;
@@ -661,8 +678,8 @@ textarea:focus {
   height: 92px;
   object-fit: contain;
   flex: none;
-  border-radius: 12px;
-  background: radial-gradient(ellipse at 50% 70%, #5f8d3c, #2f4a22);
+  border-radius: 3px;
+  background: radial-gradient(ellipse at 50% 70%, #4a5434, #1c2216);
   border: 1px solid rgba(217, 173, 72, 0.4);
   padding: 4px;
 }
@@ -670,9 +687,10 @@ textarea:focus {
   display: inline-block;
   font-size: 0.72rem;
   font-weight: 800;
+  letter-spacing: 0.04em;
   color: #1b1410;
-  background: linear-gradient(#ffe08a, #d9ad48);
-  border-radius: 999px;
+  background: linear-gradient(#e8c66a, #a8802c);
+  border-radius: 2px;
   padding: 2px 10px;
 }
 .effect {

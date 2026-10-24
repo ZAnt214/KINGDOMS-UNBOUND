@@ -56,6 +56,17 @@
 
 **Não executado:** FPS e memória em iPhone real, Safari/WebKit e PWA instalada.
 
+## Execução 2026-10-24 — revisão visual v3 (épico/militar)
+
+| Verificação | Resultado |
+|---|---|
+| `npm run typecheck` | PASS |
+| `npm test` | 36/36 PASS |
+| E2E dois jogadores contra o build v3 | 12/12 PASS |
+| Cena WebGL pronta (Chromium sem GPU) | ~1,5 s |
+| Fallback sem WebGL | PASS (Canvas 2D) |
+| Evidências | `docs/evidence/visual-v3/01…07`, `comparativo-v2-v3.jpg` (níveis dos estágios 2/3 ajustados no banco **local**) |
+
 ## Testes da Fase B+
 
 **Estado:** NÃO EXECUTADO (funcionalidades inexistentes).

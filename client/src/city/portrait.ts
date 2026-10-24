@@ -2,7 +2,7 @@ import { buildingStage } from '../../../shared/cityLayout';
 import type { BuildingType, CivilizationDef } from '../../../shared/rules';
 import { farmSvg, goldMineSvg, quarrySvg, sawmillSvg, warehouseSvg } from './art/buildings';
 import { plotSvg } from './art/props';
-import { townHallSvg } from './art/townHall';
+import { paletteFor, townHallSvg } from './art/townHall';
 
 const cache = new Map<string, string>();
 
@@ -12,7 +12,7 @@ export function buildingPortrait(b: BuildingType, level: number, civ: Civilizati
   const key = `${b}:${b === 'town_hall' ? level : stage}:${civ.id}`;
   const hit = cache.get(key);
   if (hit) return hit;
-  const pal = { roof: civ.color, accent: civ.accent, stone: '#b9ae99' };
+  const pal = paletteFor(civ.color, civ.accent);
   const st = Math.max(1, stage) as 1 | 2 | 3;
   const svg =
     stage === 0
@@ -27,7 +27,7 @@ export function buildingPortrait(b: BuildingType, level: number, civ: Civilizati
               ? sawmillSvg(st, pal)
               : b === 'quarry'
                 ? quarrySvg(st, pal)
-                : goldMineSvg(st);
+                : goldMineSvg(st, pal);
   const url = `data:image/svg+xml;charset=utf-8,${encodeURIComponent(svg.toString().svg)}`;
   cache.set(key, url);
   return url;

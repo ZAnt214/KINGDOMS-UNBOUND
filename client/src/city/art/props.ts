@@ -3,9 +3,9 @@ import { doorOn, iso, shade, Svg, timberOn, windowOn } from '../svg';
 /** Casa de morador (decoração) — três variantes de arquitetura. */
 export function cottageSvg(variant: number, roof: string): Svg {
   const s = new Svg(`cot${variant}`);
-  const plaster = s.plaster(variant === 1 ? '#e8d6b0' : '#efe4ca');
-  const stone = s.stone('#a89d88', 0.7);
-  const tiles = s.tiles(variant === 2 ? '#8e4a2f' : shade(roof, -0.05));
+  const plaster = s.plaster(variant === 1 ? '#a39478' : '#ad9f82');
+  const stone = s.stone('#857f75', 0.7);
+  const tiles = variant === 1 ? s.tiles(roof) : s.thatch(variant === 2 ? '#5e5236' : '#6e5f3c');
   const w = variant === 1 ? 0.75 : 0.62;
   const d = variant === 1 ? 0.55 : 0.62;
   s.shadow(-w, -d, w, d, 80, 0.3);
@@ -15,14 +15,14 @@ export function cottageSvg(variant: number, roof: string): Svg {
   });
   s.box(-w - 0.04, -d - 0.04, w + 0.04, d + 0.04, 18, 44, plaster, null, {
     left: (g, ww) => {
-      timberOn(g, ww, 0, 26, '#55361f');
-      windowOn(g, 10, 7, 11, 13, { shutters: '#5d7a3a' });
+      timberOn(g, ww, 0, 26, '#2e2116');
+      windowOn(g, 10, 7, 11, 13, { shutters: '#2e261c' });
     },
-    right: (g, ww) => timberOn(g, ww, 0, 26, '#55361f'),
+    right: (g, ww) => timberOn(g, ww, 0, 26, '#2e2116'),
   });
   s.gable(-w - 0.04, -d - 0.04, w + 0.04, d + 0.04, 44, variant === 1 ? 40 : 48, tiles, variant === 1 ? 'x' : 'y', plaster);
   if (variant !== 2) {
-    s.box(-w * 0.5, -0.1, -w * 0.5 + 0.18, 0.08, 70, 96, s.stone('#8f8574', 0.5), s.stone('#3a332c', 0.5));
+    s.box(-w * 0.5, -0.1, -w * 0.5 + 0.18, 0.08, 70, 96, s.stone('#6e685f', 0.5), s.stone('#2a2520', 0.5));
   }
   return s;
 }
@@ -30,13 +30,13 @@ export function cottageSvg(variant: number, roof: string): Svg {
 export function wellSvg(): Svg {
   const s = new Svg('well');
   s.shadow(-0.4, -0.4, 0.4, 0.4, 60, 0.25);
-  const t = s.tower(0, 0, 0.36, 0, 18, '#a89d88');
+  const t = s.tower(0, 0, 0.36, 0, 18, '#857f75');
   s.ellipse(t.sx, t.top, t.rx * 0.78, t.ry * 0.78, '#1f3340');
   s.ellipse(t.sx - 4, t.top - 1, t.rx * 0.3, t.ry * 0.2, '#6d8fa6', 'opacity="0.6"');
   s.line([t.sx - t.rx * 0.9, t.top], [t.sx - t.rx * 0.9, t.top - 40], '#5b3b22', 3);
   s.line([t.sx + t.rx * 0.9, t.top], [t.sx + t.rx * 0.9, t.top - 40], '#4a2f1b', 3);
-  s.path(`M${t.sx - t.rx * 1.2} ${t.top - 36} L${t.sx} ${t.top - 54} L${t.sx + t.rx * 1.2} ${t.top - 36} Z`, '#8e4a2f');
-  s.path(`M${t.sx} ${t.top - 54} L${t.sx + t.rx * 1.2} ${t.top - 36} L${t.sx} ${t.top - 36} Z`, '#6b3420');
+  s.path(`M${t.sx - t.rx * 1.2} ${t.top - 36} L${t.sx} ${t.top - 54} L${t.sx + t.rx * 1.2} ${t.top - 36} Z`, '#4a4f55');
+  s.path(`M${t.sx} ${t.top - 54} L${t.sx + t.rx * 1.2} ${t.top - 36} L${t.sx} ${t.top - 36} Z`, '#33373c');
   s.line([t.sx, t.top - 34], [t.sx, t.top - 12], '#3a2a1a', 1.2);
   s.raw(`<rect x="${t.sx - 4}" y="${t.top - 14}" width="8" height="7" fill="#6b4a2c"/>`);
   return s;
@@ -48,7 +48,7 @@ export function stallSvg(color: string): Svg {
   const wood = s.planks('#7a5232');
   s.box(-0.45, -0.3, 0.45, 0.3, 0, 16, wood, s.planks('#8a6240'));
   // mercadorias
-  const goods = ['#d9534f', '#f2c14e', '#7cb342', '#e08e3c'];
+  const goods = ['#8a3a2e', '#a88a3a', '#5d6e32', '#8a5a2e'];
   for (let i = 0; i < 6; i++) {
     const [x, y] = iso(-0.3 + (i % 3) * 0.3, -0.12 + Math.floor(i / 3) * 0.22, 16);
     s.ellipse(x, y - 3, 5, 4, goods[i % goods.length]);
@@ -66,7 +66,7 @@ export function stallSvg(color: string): Svg {
   for (let i = 0; i < stripes; i++) {
     const a = -0.55 + (1.1 * i) / stripes;
     const b = a + 1.1 / stripes;
-    s.poly([p(a, 0.42, 38), p(b, 0.42, 38), p(b, -0.34, 52), p(a, -0.34, 52)], i % 2 ? '#f4ead6' : color);
+    s.poly([p(a, 0.42, 38), p(b, 0.42, 38), p(b, -0.34, 52), p(a, -0.34, 52)], i % 2 ? '#bdb29a' : color);
   }
   s.poly([p(-0.55, 0.42, 38), p(0.55, 0.42, 38), p(0.55, -0.34, 52), p(-0.55, -0.34, 52)], s.linear('awn', [[0, '#1a1410', 0.25], [1, '#fff6dc', 0.1]]));
   for (let i = 0; i < stripes; i++) {
@@ -74,7 +74,7 @@ export function stallSvg(color: string): Svg {
     const b = a + 1.1 / stripes;
     const [x0, y0] = p(a, 0.42, 38);
     const [x1, y1] = p(b, 0.42, 38);
-    s.path(`M${x0} ${y0} L${x1} ${y1} Q${(x0 + x1) / 2} ${(y0 + y1) / 2 + 9} ${x0} ${y0} Z`, i % 2 ? '#f4ead6' : shade(color, -0.1));
+    s.path(`M${x0} ${y0} L${x1} ${y1} Q${(x0 + x1) / 2} ${(y0 + y1) / 2 + 9} ${x0} ${y0} Z`, i % 2 ? '#bdb29a' : shade(color, -0.1));
   }
   return s;
 }
@@ -138,5 +138,93 @@ export function plotSvg(size: number): Svg {
   for (const [x, y] of pts) {
     s.raw(`<rect x="${x - 2}" y="${y - 16}" width="4" height="16" fill="#6b4a2c"/>`);
   }
+  return s;
+}
+
+/** Tenda de campanha com flâmula heráldica. */
+export function tentSvg(banner: string): Svg {
+  const s = new Svg(`tent${banner}`);
+  s.shadow(-0.5, -0.4, 0.5, 0.4, 60, 0.3);
+  const canvas = '#b3a68a';
+  const p = (x: number, y: number, z: number) => iso(x, y, z);
+  // tenda de cumeeira ao longo de x
+  s.poly([p(-0.5, 0.4, 0), p(0.5, 0.4, 0), p(0.5, 0, 52), p(-0.5, 0, 52)], canvas);
+  s.poly([p(-0.5, 0.4, 0), p(0.5, 0.4, 0), p(0.5, 0, 52), p(-0.5, 0, 52)], s.linear('tnt', [[0, '#0e0c0a', 0.3], [1, '#ffe0b0', 0.1]]));
+  s.poly([p(0.5, -0.4, 0), p(0.5, 0.4, 0), p(0.5, 0, 52)], shade(canvas, -0.35));
+  s.poly([p(0.5, -0.1, 0), p(0.5, 0.1, 0), p(0.5, 0, 30)], '#1a140e');
+  for (const t of [-0.25, 0.25]) s.line(p(t, 0.4, 0), p(t, 0, 52), shade(canvas, -0.25), 1.2, 'opacity="0.7"');
+  s.line(p(-0.5, 0, 52), p(0.5, 0, 52), '#5a4a32', 2.4);
+  const [fx, fy] = p(0.5, 0, 52);
+  s.line([fx, fy], [fx, fy - 26], '#2a1e14', 1.8);
+  s.path(`M${fx} ${fy - 26} l16 4 l-16 5 z`, banner);
+  return s;
+}
+
+/** Trabuco de cerco estacionado. */
+export function trebuchetSvg(): Svg {
+  const s = new Svg('treb');
+  s.shadow(-0.6, -0.4, 0.6, 0.4, 90, 0.3);
+  const wood = s.planks('#4a3423');
+  s.box(-0.6, -0.35, 0.6, -0.2, 0, 10, wood, wood, { edge: false });
+  s.box(-0.6, 0.2, 0.6, 0.35, 0, 10, wood, wood, { edge: false });
+  for (const yy of [-0.28, 0.28]) {
+    s.line(iso(-0.45, yy, 10), iso(0, yy, 96), '#3d2b1c', 5);
+    s.line(iso(0.45, yy, 10), iso(0, yy, 96), '#33241a', 5);
+  }
+  const [ax, ay] = iso(0, 0, 96);
+  s.line([ax - 60, ay + 30], [ax + 42, ay - 22], '#4a3423', 5);
+  s.raw(`<rect x="${ax + 30}" y="${ay - 30}" width="22" height="20" fill="#3a3a3a" stroke="#1e1e1e" stroke-width="1.5"/>`);
+  s.line([ax - 60, ay + 30], [ax - 62, ay + 58], '#8c7a5a', 1.2);
+  s.ellipse(ax, ay, 5, 5, '#2a2622');
+  s.extend(ax - 66, ay - 34);
+  return s;
+}
+
+/** Cavalete de armas (lanças e escudos). */
+export function weaponRackSvg(banner: string): Svg {
+  const s = new Svg(`rack${banner}`);
+  s.ellipse(4, 0, 24, 8, '#0b0d08', `opacity="0.3" filter="${s.blur(3)}"`);
+  s.line([-18, 0], [-18, -30], '#3d2b1c', 3);
+  s.line([18, 6], [18, -24], '#33241a', 3);
+  s.line([-18, -26], [18, -20], '#4a3423', 3);
+  for (let i = 0; i < 5; i++) {
+    const x = -14 + i * 7;
+    s.line([x, 2 + i], [x + 3, -46 + i], '#3a2a1a', 1.8);
+    s.path(`M${x + 1.8} ${-46 + i} l1.2 -7 l1.2 7 z`, '#b9bcc0');
+  }
+  for (const [x, y] of [
+    [-10, -6],
+    [8, -2],
+  ]) {
+    s.path(`M${x - 6} ${y - 14} h12 v9 q0 6 -6 9 q-6 -3 -6 -9 z`, banner, 'stroke="#c9a24a" stroke-width="1.2"');
+  }
+  s.extend(-22, -56);
+  return s;
+}
+
+export function dummySvg(): Svg {
+  const s = new Svg('dummy');
+  s.ellipse(3, 0, 10, 4, '#0b0d08', `opacity="0.35" filter="${s.blur(2)}"`);
+  s.line([0, 0], [0, -40], '#3d2b1c', 3);
+  s.line([-12, -30], [12, -30], '#3d2b1c', 3);
+  s.path('M-7 -34 Q0 -38 7 -34 L6 -16 Q0 -13 -6 -16 Z', '#8c7a56');
+  s.ellipse(0, -40, 6, 6, '#9a8862');
+  s.line([-5, -26], [5, -22], '#5a4a32', 1.2);
+  return s;
+}
+
+export function targetSvg(): Svg {
+  const s = new Svg('target');
+  s.ellipse(4, 0, 12, 4, '#0b0d08', `opacity="0.35" filter="${s.blur(2)}"`);
+  s.line([-6, 0], [0, -30], '#3d2b1c', 2.6);
+  s.line([6, 0], [0, -30], '#33241a', 2.6);
+  for (const [r, c] of [
+    [14, '#d9c9a0'],
+    [10, '#8a3a2e'],
+    [6, '#d9c9a0'],
+    [2.6, '#8a3a2e'],
+  ] as const) s.ellipse(0, -30, r, r * 1.05, c);
+  s.line([-2, -32], [10, -40], '#3a2a1a', 1.2);
+  s.extend(-16, -46);
   return s;
 }

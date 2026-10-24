@@ -109,25 +109,47 @@ export class Svg {
 
   // ---- materiais (padrões em coordenadas locais da face) ----
 
+  /** Silhar de granito irregular: fiadas de alturas variadas, rejunte escuro, manchas. */
   stone(color: string, scale = 1): Material {
     const id = this.def(`stone${color}${scale}`, (id) => {
-      const w = 26 * scale;
-      const h = 12 * scale;
+      const W = 52 * scale;
       const r = rng(color.length * 977 + Math.round(scale * 10));
-      const bricks: string[] = [];
-      for (let row = 0; row < 2; row++) {
-        const off = row ? -w / 2 : 0;
-        for (let i = 0; i < 3; i++) {
-          const tone = shade(color, (r() - 0.5) * 0.18);
-          bricks.push(
-            `<rect x="${f(off + i * w + 0.8)}" y="${f(row * h + 0.8)}" width="${f(w - 1.6)}" height="${f(h - 1.6)}" rx="${f(1.6 * scale)}" fill="${tone}"/>`,
-          );
-          bricks.push(
-            `<rect x="${f(off + i * w + 1.5)}" y="${f(row * h + 1.2)}" width="${f(w - 4)}" height="${f(1.4 * scale)}" fill="${shade(tone, 0.12)}" opacity="0.7"/>`,
-          );
+      const rows = [11, 14, 9, 13].map((v) => v * scale);
+      const H = rows.reduce((a, b) => a + b, 0);
+      const out: string[] = [];
+      let y = 0;
+      rows.forEach((h, ri) => {
+        let x = ri % 2 ? -W * 0.3 : 0;
+        while (x < W) {
+          const w = (12 + r() * 18) * scale;
+          const tone = shade(color, (r() - 0.55) * 0.26);
+          out.push(`<rect x="${f(x + 0.9)}" y="${f(y + 0.9)}" width="${f(w - 1.8)}" height="${f(h - 1.8)}" rx="${f(0.7 * scale)}" fill="${tone}"/>`);
+          out.push(`<rect x="${f(x + 1.4)}" y="${f(y + 1.2)}" width="${f(w - 3.2)}" height="${f(1.1 * scale)}" fill="${shade(tone, 0.14)}" opacity="0.55"/>`);
+          out.push(`<rect x="${f(x + 1)}" y="${f(y + h - 2.6 * scale)}" width="${f(w - 2)}" height="${f(1.4 * scale)}" fill="${shade(tone, -0.25)}" opacity="0.6"/>`);
+          if (r() > 0.82) out.push(`<path d="M${f(x + w * 0.3)} ${f(y + 2)} l${f(2 * scale)} ${f(h * 0.4)} l${f(-1.5 * scale)} ${f(h * 0.3)}" stroke="${shade(tone, -0.45)}" stroke-width="0.7" fill="none"/>`);
+          x += w;
         }
+        y += h;
+      });
+      // manchas de tempo e musgo
+      for (let i = 0; i < 4; i++) out.push(`<ellipse cx="${f(r() * W)}" cy="${f(r() * H)}" rx="${f(6 + r() * 8)}" ry="${f(3 + r() * 5)}" fill="${r() > 0.6 ? '#4f5a3a' : '#2c2823'}" opacity="0.14"/>`);
+      return `<pattern id="${id}" patternUnits="userSpaceOnUse" width="${f(W)}" height="${f(H)}"><rect width="${f(W)}" height="${f(H)}" fill="${shade(color, -0.5)}"/>${out.join('')}</pattern>`;
+    });
+    return { fill: `url(#${id})`, base: color };
+  }
+
+  /** Palha escura para telhados de camponeses. */
+  thatch(color: string): Material {
+    const id = this.def(`thatch${color}`, (id) => {
+      const r = rng(color.length * 53 + 9);
+      const out: string[] = [];
+      for (let i = 0; i < 40; i++) {
+        const x = r() * 40;
+        const y = r() * 24;
+        out.push(`<line x1="${f(x)}" y1="${f(y)}" x2="${f(x + (r() - 0.5) * 3)}" y2="${f(y + 6 + r() * 4)}" stroke="${shade(color, (r() - 0.5) * 0.35)}" stroke-width="1.2"/>`);
       }
-      return `<pattern id="${id}" patternUnits="userSpaceOnUse" width="${f(w * 2)}" height="${f(h * 2)}"><rect width="${f(w * 2)}" height="${f(h * 2)}" fill="${shade(color, -0.35)}"/>${bricks.join('')}</pattern>`;
+      out.push(`<rect y="0" width="40" height="1.6" fill="${shade(color, -0.4)}" opacity="0.6"/>`);
+      return `<pattern id="${id}" patternUnits="userSpaceOnUse" width="40" height="12" patternTransform="scale(1,-1)"><rect width="40" height="12" fill="${color}"/>${out.join('')}</pattern>`;
     });
     return { fill: `url(#${id})`, base: color };
   }
@@ -249,8 +271,8 @@ export class Svg {
   ) {
     const h = z1 - z0;
     this.extendPts([iso(x0, y1, z0), iso(x1, y1, z0), iso(x1, y0, z0), iso(x0, y0, z1), iso(x1, y0, z1), iso(x0, y1, z1)]);
-    const shR = this.linear('shR', [[0, '#1a1410', 0.5], [1, '#1a1410', 0.32]]);
-    const shL = this.linear('shL', [[0, '#1a1410', 0.22], [0.3, '#1a1410', 0.04], [1, '#fff3d6', 0.06]]);
+    const shR = this.linear('shR', [[0, '#0e0c0a', 0.62], [1, '#0e0c0a', 0.44]]);
+    const shL = this.linear('shL', [[0, '#0e0c0a', 0.3], [0.35, '#0e0c0a', 0.08], [1, '#ffd9a0', 0.08]]);
     // face direita (x = x1), à sombra
     this.rightFace(x1, y0, y1, z0, (g, w) => {
       g.raw(`<rect x="0" y="${f(-h)}" width="${f(w)}" height="${f(h)}" fill="${side.fill}"/>`);
@@ -360,29 +382,55 @@ export class Svg {
     this.raw(`<g clip-path="url(#${id})"><rect x="${f(sx - rx)}" y="${f(top - ry)}" width="${f(rx * 2)}" height="${f(h + ry * 2)}" fill="${mat.fill}"/></g>`);
     this.path(
       body,
-      this.linear('cyl', [[0, '#fff3d6', 0.16], [0.35, '#1a1410', 0], [0.75, '#1a1410', 0.38], [1, '#1a1410', 0.55]], 1, 0),
+      this.linear('cyl', [[0, '#ffd9a0', 0.14], [0.3, '#0e0c0a', 0], [0.7, '#0e0c0a', 0.45], [1, '#0e0c0a', 0.66]], 1, 0),
     );
     this.ellipse(sx, top, rx, ry, shade(stone, -0.1));
     return { sx, top, rx, ry };
   }
 
-  /** Coroamento com ameias sobre torre cilíndrica. */
+  /** Coroamento com mata-cães (balanço sobre consolos) e ameias altas. */
   crenels(sx: number, top: number, rx: number, ry: number, stone: string) {
-    const n = 9;
-    // anel de pedra
-    this.ellipse(sx, top, rx * 1.08, ry * 1.08, shade(stone, -0.05));
-    this.ellipse(sx, top + 2, rx * 0.8, ry * 0.8, shade(stone, -0.45));
-    for (let i = 0; i < n; i++) {
-      const a = Math.PI * (i / (n - 1));
-      const x = sx - Math.cos(a) * rx * 1.02;
-      const y = top + Math.sin(a) * ry * 1.02;
-      const w = rx * 0.2;
-      const lit = Math.cos(a) > 0.2;
-      this.raw(
-        `<rect x="${f(x - w / 2)}" y="${f(y - 11)}" width="${f(w)}" height="11" rx="1" fill="${lit ? shade(stone, 0.05) : shade(stone, -0.3)}"/>`,
-      );
-      this.extend(x, y - 11);
+    const ox = rx * 1.12;
+    const oy = ry * 1.12;
+    // consolos (mata-cães) sob o parapeito
+    const n = 12;
+    for (let i = 0; i <= n; i++) {
+      const a = Math.PI * (i / n);
+      const x = sx - Math.cos(a) * ox;
+      const y = top + 16 + Math.sin(a) * oy;
+      const lit = Math.cos(a) > 0;
+      this.raw(`<path d="M${f(x - 3)} ${f(y - 2)} h6 l-1.5 10 h-3 z" fill="${lit ? shade(stone, -0.1) : shade(stone, -0.45)}"/>`);
     }
+    this.path(
+      `M${f(sx - ox)} ${f(top)} L${f(sx - ox)} ${f(top + 16)} A${f(ox)} ${f(oy)} 0 0 0 ${f(sx + ox)} ${f(top + 16)} L${f(sx + ox)} ${f(top)} Z`,
+      this.linear('par', [[0, shade(stone, 0.05)], [0.45, shade(stone, -0.15)], [1, shade(stone, -0.5)]], 1, 0),
+    );
+    this.ellipse(sx, top, ox, oy, shade(stone, -0.05));
+    // piso do adarve em lajes de pedra
+    this.ellipse(sx, top + 3, ox * 0.82, oy * 0.82, shade(stone, -0.32));
+    this.ellipse(sx, top + 5, ox * 0.7, oy * 0.62, shade(stone, -0.22));
+    const m = 11;
+    for (let i = 0; i < m; i++) {
+      const a = Math.PI * (i / (m - 1));
+      const x = sx - Math.cos(a) * ox * 0.98;
+      const y = top + Math.sin(a) * oy * 0.98;
+      const w = ox * 0.17;
+      const lit = Math.cos(a) > 0.15;
+      this.raw(`<rect x="${f(x - w / 2)}" y="${f(y - 15)}" width="${f(w)}" height="15" fill="${lit ? shade(stone, 0.04) : shade(stone, -0.4)}"/>`);
+      this.raw(`<rect x="${f(x - w / 2)}" y="${f(y - 15)}" width="${f(w)}" height="2.4" fill="${shade(stone, 0.18)}" opacity="0.7"/>`);
+      this.extend(x, y - 16);
+    }
+    this.extend(sx - ox, top + oy + 26);
+  }
+
+  /** Braseiro de ferro (as chamas são partículas animadas no motor). */
+  brazier(x: number, y: number) {
+    this.ellipse(x + 2, y, 9, 3.5, '#0e0c0a', `opacity="0.4" filter="${this.blur(2)}"`);
+    for (const dx of [-5, 0, 5]) this.line([x, y - 14], [x + dx, y], '#24201c', 2);
+    this.path(`M${f(x - 9)} ${f(y - 18)} h18 l-3 6 h-12 z`, '#2f2a25');
+    this.ellipse(x, y - 18, 9, 3, '#ff8a2a');
+    this.ellipse(x, y - 18, 22, 14, this.radial('ember', [[0, '#ffb04a', 0.55], [1, '#ff7a1a', 0]]));
+    this.extend(x - 22, y - 34);
   }
 
   /** Telhado cônico de torre. */
@@ -408,23 +456,36 @@ export class Svg {
         `stroke="${shade(color, -0.4)}" stroke-width="1" opacity="0.5"`,
       );
     }
-    this.path(d, this.linear('cone', [[0, '#fff3d6', 0.22], [0.45, '#1a1410', 0], [1, '#1a1410', 0.5]], 1, 0));
+    this.path(d, this.linear('cone', [[0, '#ffd9a0', 0.18], [0.4, '#0e0c0a', 0], [1, '#0e0c0a', 0.6]], 1, 0));
   }
 
-  /** Bandeira/estandarte (desenho estático; o balanço é animado no motor). */
+  /** Estandarte de guerra: mastro com travessa, pano longo com cauda de andorinha e brasão. */
   banner(x: number, y: number, h: number, color: string, accent: string) {
-    this.line([x, y], [x, y - h], '#3b2a1a', 2.4);
-    this.ellipse(x, y - h - 2, 2.6, 2.6, '#d8b356');
-    const fy = y - h + 4;
-    this.path(`M${f(x)} ${f(fy)} l18 2 l-3 10 l3 10 l-18 -2 z`, color);
-    this.path(`M${f(x + 3)} ${f(fy + 7)} l9 1 l-1 6 l-8 -1 z`, accent, 'opacity="0.9"');
-    this.extend(x + 20, fy + 22);
+    const k = Math.max(0.8, h / 40);
+    this.line([x, y], [x, y - h - 6 * k], '#2a1e14', 2.6 * k);
+    this.path(`M${f(x - 3 * k)} ${f(y - h - 6 * k)} l${f(3 * k)} ${f(-7 * k)} l${f(3 * k)} ${f(7 * k)} z`, '#c9a24a');
+    const top = y - h;
+    const w = 14 * k;
+    const len = Math.min(h * 0.75, 34 * k);
+    this.line([x - 1, top], [x + w + 2, top], '#2a1e14', 2 * k);
+    const cloth = `M${f(x)} ${f(top)} h${f(w)} v${f(len)} l${f(-w / 2)} ${f(-6 * k)} l${f(-w / 2)} ${f(6 * k)} z`;
+    this.path(cloth, color);
+    this.path(cloth, this.linear('bnr', [[0, '#ffe0b0', 0.18], [0.5, '#000000', 0], [1, '#000000', 0.4]], 1, 0));
+    this.path(cloth, 'none', `stroke="#c9a24a" stroke-width="${f(1.1 * k)}" opacity="0.85"`);
+    // brasão: escudo com divisa
+    const cx = x + w / 2;
+    const cy = top + len * 0.38;
+    this.path(`M${f(cx - 4 * k)} ${f(cy - 4 * k)} h${f(8 * k)} v${f(4 * k)} q0 ${f(4 * k)} ${f(-4 * k)} ${f(6 * k)} q${f(-4 * k)} ${f(-2 * k)} ${f(-4 * k)} ${f(-6 * k)} z`, accent);
+    this.path(`M${f(cx - 4 * k)} ${f(cy + 1 * k)} l${f(4 * k)} ${f(-3 * k)} l${f(4 * k)} ${f(3 * k)}`, 'none', `stroke="${color}" stroke-width="${f(1.4 * k)}"`);
+    this.extend(x - 4 * k, top - 14 * k);
+    this.extend(x + w + 3, top + len + 2);
   }
 
   /** Sombra de contato + sombra projetada (luz do alto à esquerda). */
   shadow(x0: number, y0: number, x1: number, y1: number, height: number, strength = 0.32) {
-    const k = height / 110;
-    const off: [number, number] = [0.9 * k, -0.35 * k];
+    // sol baixo de fim de tarde: sombras mais longas e densas
+    const k = height / 78;
+    const off: [number, number] = [0.95 * k, -0.45 * k];
     const foot: V[] = [iso(x0, y0), iso(x1, y0), iso(x1, y1), iso(x0, y1)];
     const cast: V[] = [
       iso(x0 + off[0], y0 + off[1]),
@@ -434,7 +495,7 @@ export class Svg {
     ];
     const hull = convexHull([...foot, ...cast]);
     this.extendPts(hull);
-    this.poly(hull, '#10120a', `opacity="${strength}" filter="${this.blur(7)}"`);
+    this.poly(hull, '#0b0d08', `opacity="${Math.min(0.6, strength * 1.45)}" filter="${this.blur(6)}"`);
     const pad = 0.15;
     this.poly([iso(x0 - pad, y0 - pad), iso(x1 + pad, y0 - pad), iso(x1 + pad, y1 + pad), iso(x0 - pad, y1 + pad)], '#10120a', `opacity="0.28" filter="${this.blur(4)}"`);
   }
@@ -512,7 +573,7 @@ export function doorOn(g: Svg, x: number, w: number, h: number, wood = '#6b4325'
 }
 
 /** Enxaimel: vigas de madeira aparentes sobre reboco. */
-export function timberOn(g: Svg, w: number, z0: number, h: number, color = '#4a2f1b') {
+export function timberOn(g: Svg, w: number, z0: number, h: number, color = '#2e2116') {
   const t = 3.2;
   g.raw(`<rect x="0" y="${f(-z0 - t)}" width="${f(w)}" height="${t}" fill="${color}"/>`);
   g.raw(`<rect x="0" y="${f(-(z0 + h))}" width="${f(w)}" height="${t}" fill="${color}"/>`);

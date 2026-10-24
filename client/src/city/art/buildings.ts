@@ -37,8 +37,8 @@ function logPile(s: Svg, x: number, y: number, rows: number) {
 export function warehouseSvg(stage: 1 | 2 | 3, p: Palette): Svg {
   const s = new Svg(`wh${stage}`);
   const stone = s.stone(p.stone);
-  const plaster = s.plaster('#e9dcbc');
-  const roof = s.tiles(shade(p.roof, -0.08));
+  const plaster = s.stone(shade(p.stone, 0.04));
+  const roof = s.tiles(p.roof);
   const hz = stage === 3 ? 70 : 56;
   s.shadow(-1.4, -1.2, 1.3, 1.1, 120, 0.32);
   if (stage >= 2) {
@@ -64,12 +64,11 @@ export function warehouseSvg(stage: 1 | 2 | 3, p: Palette): Svg {
   });
   s.box(-1.15, -0.9, 1.1, 1.0, hz, hz + 30, plaster, null, {
     left: (g, w) => {
-      timberOn(g, w, 0, 30);
-      windowOn(g, w / 2 - 7, 7, 14, 16, { shutters: '#5d7a3a' });
+      g.raw(`<rect x="0" y="-4" width="${w}" height="4" fill="#2c2823" opacity="0.5"/>`);
+      windowOn(g, w / 2 - 7, 7, 14, 16, { shutters: '#2e261c' });
     },
     right: (g, w) => {
-      timberOn(g, w, 0, 30);
-      g.raw(`<rect x="${w / 2 - 10}" y="-28" width="20" height="22" fill="#2a1a0e"/>`);
+      g.raw(`<rect x="${w / 2 - 10}" y="-28" width="20" height="22" fill="#1a120b"/>`);
     },
   });
   s.gable(-1.15, -0.9, 1.1, 1.0, hz + 30, 62, roof, 'y', plaster);
@@ -91,15 +90,15 @@ export function farmSvg(stage: 1 | 2 | 3, p: Palette): Svg {
   const fx1 = 1.6;
   const fy0 = 0.05;
   const fy1 = 1.7;
-  s.poly([iso(fx0, fy0), iso(fx1, fy0), iso(fx1, fy1), iso(fx0, fy1)], '#7a5a34');
+  s.poly([iso(fx0, fy0), iso(fx1, fy0), iso(fx1, fy1), iso(fx0, fy1)], '#54422c');
   const rows = 9;
   for (let i = 0; i < rows; i++) {
     const t = fx0 + 0.15 + ((fx1 - fx0 - 0.3) * i) / (rows - 1);
-    s.line(iso(t, fy0 + 0.1), iso(t, fy1 - 0.1), '#5e4326', 3);
+    s.line(iso(t, fy0 + 0.1), iso(t, fy1 - 0.1), '#3e3020', 3);
     for (let k = 0; k < 7; k++) {
       const yy = fy0 + 0.2 + ((fy1 - fy0 - 0.4) * k) / 6;
       const [cx, cy] = iso(t + 0.06, yy);
-      const ripe = stage >= 2 ? '#d9b552' : '#7fae45';
+      const ripe = stage >= 2 ? '#a89048' : '#66763a';
       s.path(`M${cx - 3} ${cy} q3 -${9 + r() * 4} 6 0 z`, k % 2 ? ripe : shade(ripe, -0.12));
     }
   }
@@ -116,25 +115,25 @@ export function farmSvg(stage: 1 | 2 | 3, p: Palette): Svg {
   fence([fx1, fy0], [fx1, fy1]);
   // celeiro
   s.shadow(-1.2, -1.5, 0.6, -0.1, 110, 0.32);
-  const planks = s.planks('#9a3b2c');
+  const planks = s.planks('#4f3b2b');
   s.box(-1.15, -1.45, 0.55, -0.15, 0, 48, planks, null, {
     left: (g, w) => {
-      g.raw(`<rect x="${w / 2 - 22}" y="-40" width="44" height="40" fill="#5e2219"/>`);
-      g.raw(`<path d="M${w / 2 - 22} -40 L${w / 2 + 22} 0 M${w / 2 + 22} -40 L${w / 2 - 22} 0" stroke="#efe2c4" stroke-width="3"/>`);
-      g.raw(`<rect x="${w / 2 - 22}" y="-40" width="44" height="40" fill="none" stroke="#efe2c4" stroke-width="3"/>`);
+      g.raw(`<rect x="${w / 2 - 22}" y="-40" width="44" height="40" fill="#1e1610"/>`);
+      g.raw(`<rect x="${w / 2 - 20}" y="-38" width="18" height="38" fill="#3a2a1d" transform="skewY(-8)"/>`);
+      g.raw(`<rect x="${w / 2 - 24}" y="-44" width="48" height="5" fill="#2a1e14"/>`);
     },
-    right: (g, w) => windowOn(g, w / 2 - 7, 22, 14, 14, { lit: false, frame: '#efe2c4' }),
+    right: (g, w) => windowOn(g, w / 2 - 7, 22, 14, 14, { lit: true, frame: '#2a1e14' }),
   });
-  s.gable(-1.15, -1.45, 0.55, -0.15, 48, 52, s.tiles('#6b4a3a'), 'y', planks);
+  s.gable(-1.15, -1.45, 0.55, -0.15, 48, 56, s.thatch('#6e5f3c'), 'y', planks);
   if (stage >= 2) {
     // silo
-    const t = s.tower(0.95, -1.05, 0.38, 0, 84, '#c9bfae');
-    s.cone(t.sx, t.top, t.rx, t.ry, 30, '#8a8f93');
+    const t = s.tower(0.95, -1.05, 0.38, 0, 84, '#8a857c');
+    s.cone(t.sx, t.top, t.rx, t.ry, 30, '#4a4f55');
   }
   if (stage >= 3) {
     // moinho de vento (as velas giram no motor)
-    const t = s.tower(-1.55, -0.2, 0.32, 0, 70, '#d8cbb0');
-    s.cone(t.sx, t.top, t.rx, t.ry, 34, '#6b4a3a');
+    const t = s.tower(-1.55, -0.2, 0.32, 0, 70, '#8f8a80');
+    s.cone(t.sx, t.top, t.rx, t.ry, 34, '#3f454d');
     const hx = t.sx + 6;
     const hy = t.top - 18;
     for (let i = 0; i < 4; i++) {
@@ -144,7 +143,7 @@ export function farmSvg(stage: 1 | 2 | 3, p: Palette): Svg {
       s.line([hx, hy], [ex, ey], '#5b3b22', 2.4);
       const nx = -Math.sin(a) * 7;
       const ny = Math.cos(a) * 7;
-      s.poly([[hx + Math.cos(a) * 12, hy + Math.sin(a) * 12], [ex, ey], [ex + nx, ey + ny], [hx + Math.cos(a) * 12 + nx, hy + Math.sin(a) * 12 + ny]], '#efe2c4', 'opacity="0.92" stroke="#8a6a46" stroke-width="0.8"');
+      s.poly([[hx + Math.cos(a) * 12, hy + Math.sin(a) * 12], [ex, ey], [ex + nx, ey + ny], [hx + Math.cos(a) * 12 + nx, hy + Math.sin(a) * 12 + ny]], '#b8ab8c', 'opacity="0.92" stroke="#4a3a28" stroke-width="0.8"');
     }
     s.ellipse(hx, hy, 4, 4, '#3b2a1c');
   }
@@ -156,8 +155,8 @@ export function farmSvg(stage: 1 | 2 | 3, p: Palette): Svg {
 export function sawmillSvg(stage: 1 | 2 | 3, p: Palette): Svg {
   const s = new Svg(`saw${stage}`);
   s.shadow(-1.3, -1.2, 0.9, 0.7, 100, 0.3);
-  const wood = s.planks('#8a6240');
-  const plaster = s.plaster('#e6d6b2');
+  const wood = s.planks('#4f3b2b');
+  const plaster = s.plaster('#9c8e72');
   // galpão aberto com serra
   s.box(-1.2, -1.15, 0.85, 0.15, 0, 18, s.stone('#9d927e', 0.7), s.planks('#a07a4a', false));
   const posts: [number, number][] = [
@@ -178,7 +177,7 @@ export function sawmillSvg(stage: 1 | 2 | 3, p: Palette): Svg {
     const a = (i / 12) * Math.PI * 2;
     s.line([bx + Math.cos(a) * 10, by + Math.sin(a) * 10], [bx + Math.cos(a + 0.2) * 13, by + Math.sin(a + 0.2) * 13], '#9aa0a6', 1.6);
   }
-  s.gable(-1.25, -1.2, 0.9, 0.2, 70, 46, s.tiles(shade(p.roof, -0.15)), 'x', plaster);
+  s.gable(-1.25, -1.2, 0.9, 0.2, 70, 50, s.tiles(p.roof), 'x', plaster);
   logPile(s, 0.6, 0.85, stage === 1 ? 2 : 3);
   if (stage >= 2) logPile(s, -0.8, 1.0, 2);
   if (stage >= 3) {
@@ -198,7 +197,7 @@ export function quarrySvg(stage: 1 | 2 | 3, p: Palette): Svg {
   const r = rng(stage * 29 + 1);
   s.shadow(-1.4, -1.4, 1.2, 1.0, 90, 0.28);
   // paredão rochoso em terraços
-  const rockC = '#a39a8a';
+  const rockC = '#857f75';
   const layers = stage + 1;
   for (let i = 0; i < layers; i++) {
     const a = 1.3 - i * 0.28;
@@ -231,7 +230,7 @@ export function quarrySvg(stage: 1 | 2 | 3, p: Palette): Svg {
   return s;
 }
 
-export function goldMineSvg(stage: 1 | 2 | 3): Svg {
+export function goldMineSvg(stage: 1 | 2 | 3, p: Palette): Svg {
   const s = new Svg(`gm${stage}`);
   s.shadow(-1.2, -1.2, 1.1, 1.0, 80, 0.28);
   // colina rochosa
@@ -239,12 +238,12 @@ export function goldMineSvg(stage: 1 | 2 | 3): Svg {
   const h = 60 + stage * 14;
   s.extend(hx - 96, hy - h - 6);
   s.extend(hx + 96, hy + 54);
-  s.path(`M${hx - 92} ${hy + 30} Q${hx - 70} ${hy - h * 0.7} ${hx - 10} ${hy - h} Q${hx + 50} ${hy - h * 0.9} ${hx + 92} ${hy + 24} Q${hx} ${hy + 52} ${hx - 92} ${hy + 30} Z`, '#8a7f6e');
-  s.path(`M${hx - 10} ${hy - h} Q${hx + 50} ${hy - h * 0.9} ${hx + 92} ${hy + 24} Q${hx + 40} ${hy + 40} ${hx + 6} ${hy + 40} Q${hx + 20} ${hy - h * 0.4} ${hx - 10} ${hy - h} Z`, '#6e6457');
-  s.path(`M${hx - 92} ${hy + 30} Q${hx - 70} ${hy - h * 0.7} ${hx - 10} ${hy - h} Q${hx - 40} ${hy - h * 0.5} ${hx - 60} ${hy + 10} Z`, '#a29684', 'opacity="0.8"');
+  s.path(`M${hx - 92} ${hy + 30} Q${hx - 70} ${hy - h * 0.7} ${hx - 10} ${hy - h} Q${hx + 50} ${hy - h * 0.9} ${hx + 92} ${hy + 24} Q${hx} ${hy + 52} ${hx - 92} ${hy + 30} Z`, '#6e675c');
+  s.path(`M${hx - 10} ${hy - h} Q${hx + 50} ${hy - h * 0.9} ${hx + 92} ${hy + 24} Q${hx + 40} ${hy + 40} ${hx + 6} ${hy + 40} Q${hx + 20} ${hy - h * 0.4} ${hx - 10} ${hy - h} Z`, '#504a42');
+  s.path(`M${hx - 92} ${hy + 30} Q${hx - 70} ${hy - h * 0.7} ${hx - 10} ${hy - h} Q${hx - 40} ${hy - h * 0.5} ${hx - 60} ${hy + 10} Z`, '#857d70', 'opacity="0.8"');
   for (let i = 0; i < 8; i++) {
     const a = i / 8;
-    s.ellipse(hx - 70 + a * 140, hy - 10 - Math.sin(a * Math.PI) * h * 0.5, 6, 3.5, '#5d8a3a', 'opacity="0.7"');
+    s.ellipse(hx - 70 + a * 140, hy - 10 - Math.sin(a * Math.PI) * h * 0.5, 6, 3.5, '#4a5a32', 'opacity="0.6"');
   }
   // entrada escorada em madeira
   const ex = hx + 18;
@@ -269,10 +268,10 @@ export function goldMineSvg(stage: 1 | 2 | 3): Svg {
   s.ellipse(ex - 30, ey - 36, 9, 9, s.radial('mglow', [[0, '#ffcf73', 0.6], [1, '#ffcf73', 0]]));
   s.raw(`<rect x="${ex - 33}" y="${ey - 40}" width="6" height="8" fill="#ffd27a"/>`);
   if (stage >= 2) {
-    s.box(-1.15, 0.3, -0.45, 0.95, 0, 34, s.planks('#7a5232'), null, {
+    s.box(-1.15, 0.3, -0.45, 0.95, 0, 34, s.planks('#4f3b2b'), null, {
       left: (g, w) => doorOn(g, w / 2 - 9, 18, 24, '#5a3a20', '#9d927e'),
     });
-    s.gable(-1.15, 0.3, -0.45, 0.95, 34, 26, s.tiles('#6b4a3a'), 'y', s.planks('#7a5232'));
+    s.gable(-1.15, 0.3, -0.45, 0.95, 34, 26, s.tiles(p.roof), 'y', s.planks('#4f3b2b'));
   }
   return s;
 }
@@ -295,5 +294,35 @@ export function villagerSvg(tunic: string, hat: boolean, carry: 'none' | 'sack' 
     s.ellipse(7, -18.5, 3.6, 1.6, '#d9534f');
   }
   s.extend(-8, -37);
+  return s;
+}
+
+/** Soldado: elmo, cota de malha, tabardo heráldico e arma. */
+export function soldierSvg(tabard: string, weapon: 'spear' | 'shield' | 'bow'): Svg {
+  const s = new Svg(`sol${tabard}${weapon}`);
+  s.ellipse(1, 0, 8, 2.8, '#0b0d08', `opacity="0.4" filter="${s.blur(1.2)}"`);
+  if (weapon === 'spear') {
+    s.line([7, 2], [7, -50], '#3a2a1a', 1.8);
+    s.path('M5 -50 L7 -58 L9 -50 Z', '#b9bcc0');
+  }
+  s.raw('<rect x="-4" y="-10" width="3.4" height="10" rx="1" fill="#2a2622"/><rect x="0.8" y="-10" width="3.4" height="10" rx="1" fill="#211e1a"/>');
+  // cota de malha
+  s.path('M-7 -10 L-6 -25 Q0 -29 6 -25 L7 -10 Z', '#6d7075');
+  // tabardo
+  s.path('M-4.5 -9 L-4.5 -24 L4.5 -24 L4.5 -9 L0 -6 Z', tabard);
+  s.path('M0 -24 L4.5 -24 L4.5 -9 L0 -6 Z', '#000000', 'opacity="0.25"');
+  s.raw('<rect x="-1" y="-22" width="2" height="9" fill="#e9dcb8" opacity="0.8"/><rect x="-3" y="-19" width="6" height="2" fill="#e9dcb8" opacity="0.8"/>');
+  s.ellipse(0, -29, 4.4, 4.6, '#d6a985');
+  // elmo com nasal
+  s.path('M-5 -29 Q0 -38 5 -29 L5 -27 L-5 -27 Z', '#8d9196');
+  s.path('M0 -36 Q5 -33 5 -29 L5 -27 L0 -27 Z', '#5f6368');
+  s.raw('<rect x="-0.7" y="-29" width="1.4" height="5" fill="#5f6368"/>');
+  if (weapon === 'shield') {
+    s.path('M-12 -24 h9 v9 q0 6 -4.5 8 q-4.5 -2 -4.5 -8 z', tabard, 'stroke="#c9a24a" stroke-width="1.2"');
+    s.line([6, -12], [12, -30], '#b9bcc0', 2);
+  }
+  if (weapon === 'bow') s.path('M7 -36 Q13 -22 7 -8', 'none', 'stroke="#4a3220" stroke-width="1.6"');
+  s.extend(-13, -60);
+  s.extend(13, 3);
   return s;
 }

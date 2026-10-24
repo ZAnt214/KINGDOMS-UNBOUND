@@ -1,274 +1,290 @@
-import { doorOn, iso, shade, Svg, timberOn, windowOn } from '../svg';
+import { doorOn, iso, type Material, shade, Svg, windowOn } from '../svg';
 
 export interface Palette {
+  /** Ardósia dos telhados (levemente tingida pela civilização). */
   roof: string;
+  /** Cor heráldica da civilização (estandartes, brasões). */
+  banner: string;
   accent: string;
   stone: string;
 }
 
-const STONE_DARK = '#8f8574';
-const WOOD = '#5b3a22';
+const GOLD = '#c9a24a';
 
-function lantern(s: Svg, x: number, y: number, z: number) {
-  const [sx, sy] = iso(x, y, z);
-  s.line([sx, sy], [sx, sy - 26], '#2b2118', 2);
-  s.raw(`<rect x="${sx - 4}" y="${sy - 36}" width="8" height="11" rx="2" fill="#2b2118"/>`);
-  s.raw(`<rect x="${sx - 2.6}" y="${sy - 34.5}" width="5.2" height="8" rx="1" fill="#ffd27a"/>`);
-  s.ellipse(sx, sy - 30, 10, 10, s.radial('glow', [[0, '#ffcf73', 0.55], [1, '#ffcf73', 0]]));
-  s.extend(sx - 10, sy - 40);
+/** Mistura de duas cores hex. */
+export function mix(a: string, b: string, t: number) {
+  const pa = parseInt(a.slice(1), 16);
+  const pb = parseInt(b.slice(1), 16);
+  const c = (sh: number) => Math.round(((pa >> sh) & 255) * (1 - t) + ((pb >> sh) & 255) * t);
+  return `#${((1 << 24) | (c(16) << 16) | (c(8) << 8) | c(0)).toString(16).slice(1)}`;
 }
 
-function planter(s: Svg, x: number, y: number, z: number) {
-  const [sx, sy] = iso(x, y, z);
-  s.raw(`<rect x="${sx - 7}" y="${sy - 7}" width="14" height="7" rx="1.5" fill="#7a5a3a"/>`);
-  const cols = ['#d94f5c', '#f2c14e', '#e8eef2', '#c86bd6'];
-  for (let i = 0; i < 6; i++) {
-    s.ellipse(sx - 6 + i * 2.4, sy - 9 - (i % 2) * 2, 2.6, 2.4, i % 2 ? '#3f7a34' : '#4f8f3c');
-    s.ellipse(sx - 5 + i * 2.2, sy - 11 - (i % 3), 1.3, 1.3, cols[i % cols.length]);
+export function paletteFor(civColor: string, civAccent: string): Palette {
+  return { roof: mix('#3f454d', civColor, 0.22), banner: civColor, accent: civAccent, stone: '#8f8a80' };
+}
+
+/** Ameias em torno de uma caixa (lados de trás primeiro, pela ordem do pintor). */
+export function squareCrenels(
+  s: Svg,
+  x0: number,
+  y0: number,
+  x1: number,
+  y1: number,
+  z: number,
+  mat: Material,
+  h = 16,
+  part: 'all' | 'back' | 'front' = 'all',
+) {
+  const m = 0.15;
+  const t = 0.1;
+  const step = 0.34;
+  const top = s.stone(shade(mat.base, 0.08), 0.6);
+  const back = part !== 'front';
+  const front = part !== 'back';
+  // parapeito com mata-cães (balanço) nas faces visíveis
+  if (back) s.box(x0 - 0.06, y0 - 0.06, x1 + 0.06, y1 + 0.06, z - 14, z, mat, null, {
+    left: (g, w) => {
+      for (let u = 4; u < w - 4; u += 11) g.raw(`<path d="M${u} 0 h6 l-1.5 9 h-3 z" fill="#2a2620"/>`);
+    },
+    right: (g, w) => {
+      for (let u = 4; u < w - 4; u += 11) g.raw(`<path d="M${u} 0 h6 l-1.5 9 h-3 z" fill="#1d1a16"/>`);
+    },
+    edge: false,
+  });
+  if (part === 'all') s.poly([iso(x0, y0, z), iso(x1, y0, z), iso(x1, y1, z), iso(x0, y1, z)], '#24201b');
+  const along = (a0: number, a1: number, fixed: number, axis: 'x' | 'y') => {
+    for (let a = a0 + 0.08; a <= a1 - m + 0.01; a += step) {
+      if (axis === 'x') s.box(a, fixed - t / 2, a + m, fixed + t / 2, z, z + h, mat, top, { edge: false });
+      else s.box(fixed - t / 2, a, fixed + t / 2, a + m, z, z + h, mat, top, { edge: false });
+    }
+  };
+  if (back) {
+    along(x0, x1, y0 + t / 2, 'x');
+    along(y0, y1, x0 + t / 2, 'y');
+  }
+  if (front) {
+    along(y0, y1, x1 - t / 2, 'y');
+    along(x0, x1, y1 - t / 2, 'x');
   }
 }
 
-/** Escadaria de pedra subindo até a plataforma (lado +x). */
+/** Guarita suspensa (bartizana) num canto, com cone de ardósia. */
+function bartizan(s: Svg, x: number, y: number, z: number, stone: string, roof: string) {
+  const [sx, sy] = iso(x, y, z);
+  const rx = 18;
+  const ry = 9;
+  s.path(`M${sx - rx} ${sy} Q${sx} ${sy + 30} ${sx + rx} ${sy} Z`, shade(stone, -0.35));
+  s.raw(`<rect x="${sx - rx}" y="${sy - 34}" width="${rx * 2}" height="34" fill="${shade(stone, -0.05)}"/>`);
+  s.raw(`<rect x="${sx - rx}" y="${sy - 34}" width="${rx * 2}" height="34" fill="${s.linear('bz', [[0, '#ffd9a0', 0.12], [0.5, '#0e0c0a', 0.1], [1, '#0e0c0a', 0.6]], 1, 0)}"/>`);
+  s.raw(`<rect x="${sx - 2}" y="${sy - 26}" width="4" height="14" fill="#14110e"/>`);
+  s.ellipse(sx, sy - 34, rx, ry, shade(stone, -0.1));
+  s.cone(sx, sy - 34, rx * 0.95, ry * 0.95, 46, roof);
+  s.extend(sx - rx - 4, sy - 84);
+}
+
+/** Seteira vertical em face local. */
+function slit(g: Svg, x: number, y: number, h = 18) {
+  g.raw(`<rect x="${x - 2}" y="${-y - h}" width="4" height="${h}" fill="#110e0b"/><rect x="${x - 5}" y="${-y - h / 2 - 1.5}" width="10" height="3" fill="#110e0b"/>`);
+}
+
+function band(g: Svg, w: number, y: number, stone: string) {
+  g.raw(`<rect x="0" y="${-y - 4}" width="${w}" height="4" fill="${shade(stone, 0.12)}"/><rect x="0" y="${-y}" width="${w}" height="1.5" fill="#1d1a16" opacity="0.6"/>`);
+}
+
+/** Escadaria monumental subindo até a plataforma (lado +x). */
 function stairs(s: Svg, x: number, y0: number, y1: number, zTop: number, steps: number, stone: string) {
-  const mat = s.stone(stone, 0.6);
-  const depth = 0.22;
+  const mat = s.stone(stone, 0.55);
+  const depth = 0.2;
   for (let i = steps - 1; i >= 0; i--) {
     const zt = (zTop * (i + 1)) / steps;
     const xs = x + (steps - 1 - i) * depth;
-    s.box(xs, y0, xs + depth, y1, 0, zt, mat, s.stone(shade(stone, 0.08), 0.6), { edge: false });
+    s.box(xs, y0, xs + depth, y1, 0, zt, mat, s.stone(shade(stone, 0.1), 0.55), { edge: false });
   }
 }
 
-/** Plataforma de pedra com cobertura em lajotas. */
-function terrace(s: Svg, a: number, z: number, stone: string) {
-  s.box(-a, -a, a, a, 0, z, s.stone(STONE_DARK, 0.75), s.stone(shade(stone, 0.12), 1.3));
+/** Plataforma em talude com parapeito ameado nas bordas frontais (abertura na escadaria). */
+function bailey(s: Svg, a: number, z: number, stone: string, gapY: number) {
+  const dark = s.stone(shade(stone, -0.22), 0.8);
+  s.box(-a, -a, a, a, 0, z, dark, s.stone(shade(stone, 0.02), 1.2));
+  const mat = s.stone(stone, 0.6);
+  const top = s.stone(shade(stone, 0.1), 0.6);
+  // parapeito baixo nas bordas traseiras e frontais
+  const wall = (x0: number, y0: number, x1: number, y1: number) => s.box(x0, y0, x1, y1, z, z + 12, mat, top, { edge: false });
+  wall(-a, -a, a, -a + 0.12);
+  wall(-a, -a, -a + 0.12, a);
+  wall(-a, a - 0.12, a, a);
+  wall(a - 0.12, -a, a, -gapY);
+  wall(a - 0.12, gapY, a, a);
+}
+
+export interface HallFx {
+  /** Fogos de braseiro (tile relativo ao lote e altura z). */
+  fires: [number, number, number][];
+  smoke: [number, number, number][];
+}
+
+export function hallFx(stage: 1 | 2 | 3): HallFx {
+  const zT = stage === 1 ? 16 : stage === 2 ? 18 : 22;
+  const a = stage === 1 ? 2 : stage === 2 ? 2.3 : 2.6;
+  return {
+    fires: [
+      [a + 0.55, -0.85, 18],
+      [a + 0.55, 0.85, 18],
+      [a - 0.25, -a + 0.25, zT + 12 + 18],
+      [a - 0.25, a - 0.25, zT + 12 + 18],
+    ],
+    smoke: stage === 1 ? [[-0.5, -1.2, zT + 196]] : [],
+  };
 }
 
 export function townHallSvg(stage: 1 | 2 | 3, level: number, p: Palette): Svg {
   const s = new Svg(`th${stage}`);
   const stone = p.stone;
   const roof = s.tiles(p.roof);
-  const plaster = s.plaster('#efe2c4');
-  const stoneMat = s.stone(stone);
-  const half = stage === 1 ? 2 : stage === 2 ? 2.3 : 2.6;
+  const mat = s.stone(stone);
+  const a = stage === 1 ? 2 : stage === 2 ? 2.3 : 2.6;
+  const zT = stage === 1 ? 16 : stage === 2 ? 18 : 22;
+  const keepH = stage === 1 ? 190 : stage === 2 ? 250 : 320;
 
-  s.shadow(-half, -half, half, half, stage === 1 ? 150 : stage === 2 ? 200 : 240, 0.34);
-  const zT = stage === 3 ? 14 : 10;
-  terrace(s, half, zT, stone);
+  s.shadow(-a, -a, a, a, keepH, 0.42);
+  bailey(s, a, zT, stone, 0.6);
 
-  if (stage === 1) {
-    // torre do sino (atrás, à direita)
-    s.box(0.25, -1.85, 1.05, -1.05, zT, zT + 128, stoneMat, null, {
-      left: (g, w) => windowOn(g, w / 2 - 6, 96, 12, 18, { arch: true, lit: false }),
-      right: (g, w) => windowOn(g, w / 2 - 6, 96, 12, 18, { arch: true, lit: false }),
-    });
-    s.pyramid(0.25, -1.85, 1.05, -1.05, zT + 128, 58, roof);
-    const [bx, by] = iso(0.65, -1.45, zT + 186);
-    s.banner(bx, by + 4, 22, p.roof, p.accent);
-
-    // corpo principal: térreo em pedra, andar superior em enxaimel
-    const x0 = -1.65;
-    const x1 = 1.05;
-    const y0 = -1.25;
-    const y1 = 1.25;
-    s.box(x0, y0, x1, y1, zT, zT + 40, stoneMat, null, {
-      left: (g, w) => {
-        for (let i = 0; i < 3; i++) windowOn(g, 22 + i * ((w - 60) / 2), 8, 16, 24, { arch: true });
-      },
-      right: (g, w) => {
-        doorOn(g, w / 2 - 17, 34, 38);
-        windowOn(g, 14, 10, 12, 18, { arch: true });
-        windowOn(g, w - 26, 10, 12, 18, { arch: true });
-      },
-    });
-    s.box(x0 - 0.08, y0 - 0.08, x1 + 0.08, y1 + 0.08, zT + 40, zT + 78, plaster, null, {
-      left: (g, w) => {
-        timberOn(g, w, 0, 38);
-        for (let i = 0; i < 4; i++) windowOn(g, 16 + i * ((w - 50) / 3), 9, 14, 18, { shutters: shade(p.roof, -0.1) });
-      },
-      right: (g, w) => {
-        timberOn(g, w, 0, 38);
-        windowOn(g, w / 2 - 9, 9, 18, 20, { arch: true });
-      },
-    });
-    s.gable(x0 - 0.08, y0 - 0.08, x1 + 0.08, y1 + 0.08, zT + 78, 74, roof, 'x', plaster);
-    // chaminé
-    s.box(-1.2, -0.45, -0.92, -0.17, zT + 112, zT + 150, s.stone(STONE_DARK, 0.6), s.stone('#3a332c', 0.5));
-    // lucarna (água-furtada) na água frontal
-    const dx = -0.35;
-    s.box(dx - 0.28, 0.55, dx + 0.28, 0.85, zT + 96, zT + 118, plaster, null, {
-      left: (g, w) => windowOn(g, w / 2 - 6, 4, 12, 14, { arch: true }),
-    });
-    s.gable(dx - 0.28, 0.35, dx + 0.28, 0.85, zT + 118, 18, roof, 'y', plaster, 0.06);
-    stairs(s, 1.13, -0.45, 0.45, zT, 4, stone);
-    lantern(s, 1.6, -0.75, zT);
-    lantern(s, 1.6, 0.75, zT);
-    if (level >= 2) {
-      planter(s, 1.3, 1.1, zT);
-      planter(s, -0.6, 1.55, zT);
-    }
-    if (level >= 3) {
-      const [fx, fy] = iso(1.7, 1.7, zT);
-      s.banner(fx, fy, 46, p.roof, p.accent);
-    }
-    return s;
+  // ---- torre de menagem (ao fundo, canto -x -y) ----
+  const k0 = stage === 1 ? -1.75 : stage === 2 ? -2.05 : -2.3;
+  const k1 = stage === 1 ? -0.25 : stage === 2 ? -0.2 : -0.1;
+  if (stage === 3) {
+    // torre redonda traseira direita, maciça
+    const t = s.tower(1.55, -1.95, 0.62, zT, 260, stone);
+    s.crenels(t.sx, t.top, t.rx, t.ry, stone);
+    s.cone(t.sx, t.top - 15, t.rx * 1.02, t.ry * 1.02, 120, p.roof);
+    s.banner(t.sx, t.top - 135, 30, p.banner, p.accent);
   }
-
-  if (stage === 2) {
-    const x0 = -2.0;
-    const x1 = 1.25;
-    const y0 = -1.55;
-    const y1 = 0.9;
-    // torre do relógio central (atrás)
-    const tx0 = -0.75;
-    const ty0 = -1.95;
-    s.box(tx0, ty0, tx0 + 1, ty0 + 1, zT, zT + 210, stoneMat, null, {
-      left: (g, w) => {
-        g.raw(`<circle cx="${w / 2}" cy="-176" r="15" fill="#efe6cf" stroke="#3b2a1c" stroke-width="3"/>`);
-        g.raw(`<line x1="${w / 2}" y1="-176" x2="${w / 2}" y2="-187" stroke="#2b2118" stroke-width="2.4"/><line x1="${w / 2}" y1="-176" x2="${w / 2 + 8}" y2="-172" stroke="#2b2118" stroke-width="2"/>`);
-        windowOn(g, w / 2 - 6, 120, 12, 22, { arch: true, lit: false });
-      },
-      right: (g, w) => windowOn(g, w / 2 - 6, 150, 12, 22, { arch: true, lit: false }),
-    });
-    s.pyramid(tx0 - 0.06, ty0 - 0.06, tx0 + 1.06, ty0 + 1.06, zT + 210, 84, roof);
-    const [sx, sy] = iso(tx0 + 0.5, ty0 + 0.5, zT + 294);
-    s.line([sx, sy], [sx, sy - 14], '#d8b356', 2.4);
-    s.banner(sx, sy - 10, 20, p.roof, p.accent);
-
-    s.box(x0, y0, x1, y1, zT, zT + 56, stoneMat, null, {
-      left: (g, w) => {
-        for (let i = 0; i < 4; i++) windowOn(g, 18 + i * ((w - 52) / 3), 12, 16, 30, { arch: true });
-      },
-      right: (g, w) => {
-        doorOn(g, w / 2 - 20, 40, 48);
-        windowOn(g, 16, 14, 14, 26, { arch: true });
-        windowOn(g, w - 30, 14, 14, 26, { arch: true });
-      },
-    });
-    s.box(x0 - 0.08, y0 - 0.08, x1 + 0.08, y1 + 0.08, zT + 56, zT + 100, plaster, null, {
-      left: (g, w) => {
-        timberOn(g, w, 0, 44);
-        for (let i = 0; i < 5; i++) windowOn(g, 14 + i * ((w - 46) / 4), 12, 14, 20, { shutters: shade(p.roof, -0.1) });
-      },
-      right: (g, w) => {
-        timberOn(g, w, 0, 44);
-        windowOn(g, 20, 12, 14, 20, { shutters: shade(p.roof, -0.1) });
-        windowOn(g, w - 34, 12, 14, 20, { shutters: shade(p.roof, -0.1) });
-      },
-    });
-    s.gable(x0 - 0.08, y0 - 0.08, x1 + 0.08, y1 + 0.08, zT + 100, 84, roof, 'x', plaster);
-    // ala frontal esquerda
-    s.box(-2.0, 0.9, -0.55, 2.2, zT, zT + 50, stoneMat, null, {
-      left: (g, w) => {
-        windowOn(g, w / 2 - 22, 12, 14, 26, { arch: true });
-        windowOn(g, w / 2 + 8, 12, 14, 26, { arch: true });
-      },
-      right: (g, w) => windowOn(g, w / 2 - 7, 12, 14, 24, { arch: true }),
-    });
-    s.box(-2.06, 0.84, -0.49, 2.26, zT + 50, zT + 82, plaster, null, {
-      left: (g, w) => {
-        timberOn(g, w, 0, 32);
-        windowOn(g, w / 2 - 7, 8, 14, 18, { shutters: shade(p.roof, -0.1) });
-      },
-      right: (g, w) => timberOn(g, w, 0, 32),
-    });
-    s.gable(-2.06, 0.84, -0.49, 2.26, zT + 82, 60, roof, 'y', plaster);
-    s.box(0.1, -1.25, 0.38, -0.97, zT + 150, zT + 196, s.stone(STONE_DARK, 0.6), s.stone('#3a332c', 0.5));
-    stairs(s, 1.33, -0.55, 0.55, zT, 5, stone);
-    lantern(s, 1.95, -0.9, zT);
-    lantern(s, 1.95, 0.9, zT);
-    planter(s, 1.5, 1.2, zT);
-    planter(s, 0.2, 1.9, zT);
-    const [fx, fy] = iso(2.05, 2.05, zT);
-    s.banner(fx, fy, 52, p.roof, p.accent);
-    if (level >= 5) {
-      const [gx, gy] = iso(2.05, -2.05, zT);
-      s.banner(gx, gy, 52, p.roof, p.accent);
-    }
-    if (level >= 6) {
-      const [hx, hy] = iso(-2.2, 2.2, zT);
-      s.banner(hx, hy, 52, p.roof, p.accent);
-    }
-    return s;
-  }
-
-  // estágio 3: palácio-fortaleza
-  const gold = '#d9ad48';
-  const x0 = -2.1;
-  const x1 = 1.4;
-  const y0 = -1.7;
-  const y1 = 1.2;
-  // torre redonda traseira direita
-  const t1 = s.tower(1.25, -1.75, 0.62, zT, 250, stone);
-  s.cone(t1.sx, t1.top, t1.rx, t1.ry, 110, p.roof);
-  s.line([t1.sx, t1.top - 110], [t1.sx, t1.top - 128], gold, 3);
-  s.banner(t1.sx, t1.top - 120, 22, p.roof, p.accent);
-  // torre de menagem central
-  s.box(-1.3, -2.1, 0.0, -0.8, zT, zT + 250, stoneMat, null, {
+  s.box(k0, k0, k1, k1, zT, zT + keepH, mat, null, {
     left: (g, w) => {
-      windowOn(g, w / 2 - 8, 200, 16, 30, { arch: true });
-      windowOn(g, w / 2 - 8, 140, 16, 30, { arch: true });
-    },
-    right: (g, w) => windowOn(g, w / 2 - 8, 200, 16, 30, { arch: true }),
-  });
-  s.box(-1.38, -2.18, 0.08, -0.72, zT + 250, zT + 262, s.stone(shade(stone, 0.05), 0.7), null);
-  s.pyramid(-1.38, -2.18, 0.08, -0.72, zT + 262, 120, roof);
-  const [kx, ky] = iso(-0.65, -1.45, zT + 382);
-  s.line([kx, ky], [kx, ky - 22], gold, 3.4);
-  s.ellipse(kx, ky - 24, 4, 4, gold);
-  // salão principal em pedra lavrada
-  s.box(x0, y0, x1, y1, zT, zT + 112, stoneMat, null, {
-    left: (g, w) => {
-      for (let i = 0; i < 5; i++) {
-        windowOn(g, 16 + i * ((w - 50) / 4), 16, 18, 40, { arch: true });
-        windowOn(g, 18 + i * ((w - 50) / 4), 72, 14, 26, { arch: true });
-      }
-      g.raw(`<rect x="0" y="-62" width="${w}" height="5" fill="${shade(stone, 0.18)}"/>`);
+      band(g, w, keepH * 0.34, stone);
+      band(g, w, keepH * 0.68, stone);
+      slit(g, w * 0.25, keepH * 0.15);
+      slit(g, w * 0.75, keepH * 0.15);
+      windowOn(g, w / 2 - 7, keepH * 0.42, 14, 26, { arch: true });
+      windowOn(g, w / 2 - 7, keepH * 0.76, 14, 22, { arch: true, lit: false });
+      slit(g, w * 0.2, keepH * 0.5);
+      slit(g, w * 0.8, keepH * 0.5);
     },
     right: (g, w) => {
-      doorOn(g, w / 2 - 25, 50, 64);
-      g.raw(`<rect x="${w / 2 - 34}" y="-84" width="68" height="10" fill="${shade(stone, 0.2)}"/>`);
-      g.raw(`<circle cx="${w / 2}" cy="-96" r="11" fill="${p.roof}" stroke="${gold}" stroke-width="2.5"/>`);
-      windowOn(g, 14, 20, 16, 36, { arch: true });
-      windowOn(g, w - 30, 20, 16, 36, { arch: true });
+      band(g, w, keepH * 0.34, stone);
+      band(g, w, keepH * 0.68, stone);
+      slit(g, w / 2, keepH * 0.2);
+      windowOn(g, w / 2 - 7, keepH * 0.5, 14, 24, { arch: true, lit: false });
+      slit(g, w / 2, keepH * 0.78);
     },
   });
-  s.box(x0 - 0.05, y0 - 0.05, x1 + 0.05, y1 + 0.05, zT + 112, zT + 122, s.stone(shade(stone, 0.1), 0.7), null);
-  s.gable(x0 - 0.05, y0 - 0.05, x1 + 0.05, y1 + 0.05, zT + 122, 96, roof, 'x', stoneMat);
-  // pináculos dourados na cumeeira
-  for (const t of [0.15, 0.5, 0.85]) {
-    const [px, py] = iso(x0 + (x1 - x0) * t, (y0 + y1) / 2, zT + 218);
-    s.line([px, py], [px, py - 16], gold, 2.6);
-    s.ellipse(px, py - 17, 3, 3, gold);
+  squareCrenels(s, k0, k0, k1, k1, zT + keepH + 14, mat);
+  if (stage >= 2) {
+    // telhado em pavilhão dentro do parapeito + guaritas nos cantos
+    s.pyramid(k0 + 0.18, k0 + 0.18, k1 - 0.18, k1 - 0.18, zT + keepH + 14, stage === 3 ? 150 : 110, roof, 0);
+    for (const [x, y] of [
+      [k1, k0],
+      [k0, k1],
+      [k1, k1],
+    ] as const) {
+      bartizan(s, x, y, zT + keepH + 2, stone, p.roof);
+    }
+    const [px, py] = iso((k0 + k1) / 2, (k0 + k1) / 2, zT + keepH + 14 + (stage === 3 ? 150 : 110));
+    s.line([px, py], [px, py - 24], GOLD, 3);
+    s.ellipse(px, py - 26, 4, 4, GOLD);
+    s.banner(px, py - 26, 36, p.banner, p.accent);
+  } else {
+    const [bx, by] = iso((k0 + k1) / 2, (k0 + k1) / 2, zT + keepH + 14);
+    s.banner(bx, by, 52, p.banner, p.accent);
   }
-  // torre redonda frontal esquerda
-  const t2 = s.tower(-2.15, 1.35, 0.6, zT, 200, stone);
-  s.cone(t2.sx, t2.top, t2.rx, t2.ry, 104, p.roof);
-  s.line([t2.sx, t2.top - 104], [t2.sx, t2.top - 120], gold, 3);
-  s.banner(t2.sx, t2.top - 112, 22, p.roof, p.accent);
-  stairs(s, 1.48, -0.7, 0.7, zT, 6, stone);
-  for (const yy of [-1.1, 1.1]) {
-    // estátuas nos patamares
-    const [sx, sy] = iso(2.2, yy, zT);
-    s.raw(`<rect x="${sx - 7}" y="${sy - 16}" width="14" height="16" fill="${shade(stone, 0.1)}"/>`);
-    s.raw(`<path d="M${sx - 4} ${sy - 16} l1 -18 a3 3 0 0 1 6 0 l1 18 z" fill="#c9c2b2"/>`);
-    s.ellipse(sx, sy - 38, 4, 4.5, '#c9c2b2');
-    s.extend(sx, sy - 44);
+
+  // ---- torre de escada redonda no canto frontal da menagem ----
+  {
+    const t = s.tower(k1, k1, stage === 3 ? 0.42 : 0.34, zT, keepH + 36, stone);
+    const g = s.uid('');
+    void g;
+    s.raw(`<rect x="${t.sx - 2}" y="${t.top + 40}" width="4" height="16" fill="#110e0b"/><rect x="${t.sx - 2}" y="${t.top + 100}" width="4" height="16" fill="#110e0b"/>`);
+    s.crenels(t.sx, t.top, t.rx, t.ry, stone);
+    s.cone(t.sx, t.top - 15, t.rx * 1.05, t.ry * 1.05, 70 + stage * 10, p.roof);
   }
-  lantern(s, 2.3, -0.5, zT);
-  lantern(s, 2.3, 0.5, zT);
-  planter(s, 1.9, 1.7, zT);
-  planter(s, -0.4, 2.3, zT);
-  const banners = level >= 9 ? 3 : 2;
-  const spots: [number, number][] = [[2.45, 2.45], [2.45, -2.45], [-2.45, 2.45]];
-  for (let i = 0; i < banners; i++) {
-    const [bx, by] = iso(spots[i][0], spots[i][1], zT);
-    s.banner(bx, by, 60, p.roof, p.accent);
+
+  // ---- salão nobre (frente, voltado à praça) ----
+  const hx0 = stage === 1 ? -0.15 : -0.1;
+  const hx1 = stage === 1 ? 1.3 : stage === 2 ? 1.55 : 1.75;
+  const hy0 = stage === 1 ? -1.45 : -1.6;
+  const hy1 = stage === 1 ? 1.25 : stage === 2 ? 1.55 : 1.8;
+  const hallH = stage === 1 ? 86 : stage === 2 ? 104 : 124;
+  s.box(hx0, hy0, hx1, hy1, zT, zT + hallH, mat, null, {
+    left: (g, w) => {
+      band(g, w, hallH * 0.55, stone);
+      const n = stage === 1 ? 2 : 3;
+      for (let i = 0; i < n; i++) {
+        const x = (w * (i + 1)) / (n + 1);
+        windowOn(g, x - 8, 14, 16, hallH * 0.42, { arch: true });
+        slit(g, x, hallH * 0.64);
+      }
+      // contrafortes
+      for (let i = 0; i <= n; i++) {
+        const x = (w * (i + 0.5)) / (n + 1) - 4;
+        g.raw(`<rect x="${x}" y="${-hallH * 0.8}" width="8" height="${hallH * 0.8}" fill="${shade(stone, -0.18)}"/><rect x="${x}" y="${-hallH * 0.8}" width="3" height="${hallH * 0.8}" fill="${shade(stone, 0.05)}"/>`);
+      }
+    },
+    right: (g, w) => {
+      band(g, w, hallH * 0.62, stone);
+      const dw = stage === 1 ? 38 : stage === 2 ? 46 : 54;
+      const dh = stage === 1 ? 50 : stage === 2 ? 60 : 72;
+      doorOn(g, w / 2 - dw / 2, dw, dh, '#3e2a1a', shade(stone, 0.1));
+      // brasão sobre o portal
+      g.raw(`<path d="M${w / 2 - 12} ${-dh - 30} h24 v13 q0 11 -12 16 q-12 -5 -12 -16 z" fill="${p.banner}" stroke="${GOLD}" stroke-width="2"/>`);
+      g.raw(`<path d="M${w / 2 - 6} ${-dh - 24} h12 v6 q0 6 -6 8 q-6 -2 -6 -8 z" fill="${p.accent}"/>`);
+      slit(g, 16, hallH * 0.4);
+      slit(g, w - 16, hallH * 0.4);
+      windowOn(g, 10, hallH * 0.7, 12, 18, { arch: true, lit: false });
+      windowOn(g, w - 22, hallH * 0.7, 12, 18, { arch: true, lit: false });
+    },
+  });
+  // parapeito ameado e telhado íngreme de ardósia emergindo por trás das ameias
+  squareCrenels(s, hx0, hy0, hx1, hy1, zT + hallH + 14, mat, 14, 'back');
+  s.gable(hx0 + 0.16, hy0 + 0.16, hx1 - 0.16, hy1 - 0.16, zT + hallH + 4, stage === 1 ? 74 : 92, roof, 'y', mat, 0.02);
+  squareCrenels(s, hx0, hy0, hx1, hy1, zT + hallH + 14, mat, 14, 'front');
+
+  if (stage === 3) {
+    // torre redonda dianteira esquerda + pináculos
+    const t = s.tower(-1.95, 1.95, 0.6, zT, 230, stone);
+    for (const dy of [60, 140]) s.raw(`<rect x="${t.sx - 2}" y="${t.top + dy}" width="4" height="18" fill="#110e0b"/>`);
+    s.crenels(t.sx, t.top, t.rx, t.ry, stone);
+    s.cone(t.sx, t.top - 15, t.rx * 1.02, t.ry * 1.02, 112, p.roof);
+    s.banner(t.sx, t.top - 127, 30, p.banner, p.accent);
+  }
+
+  stairs(s, a, -0.6, 0.6, zT, 6, stone);
+  // braseiros e estandartes de guerra na entrada
+  for (const yy of [-0.85, 0.85]) {
+    const [bx, by] = iso(a + 0.55, yy, 0);
+    s.brazier(bx, by);
+  }
+  for (const [x, y] of [
+    [a - 0.25, -a + 0.25],
+    [a - 0.25, a - 0.25],
+  ] as const) {
+    const [bx, by] = iso(x, y, zT + 12);
+    s.brazier(bx, by);
+  }
+  const flags = stage === 1 ? (level >= 3 ? 2 : 1) : stage === 2 ? (level >= 6 ? 3 : 2) : level >= 9 ? 4 : 3;
+  const spots: [number, number][] = [
+    [a - 0.3, 0.95],
+    [a - 0.3, -0.95],
+    [-a + 0.3, a - 0.3],
+    [a - 0.3, -a + 0.4],
+  ];
+  for (let i = 0; i < flags; i++) {
+    const [fx, fy] = iso(spots[i][0], spots[i][1], zT + 12);
+    s.banner(fx, fy, 56 + stage * 8, p.banner, p.accent);
   }
   if (level >= 10) {
-    const [cx, cy] = iso(-0.65, -1.45, zT + 404);
-    s.path(`M${cx - 10} ${cy} l4 -12 l6 7 l6 -7 l4 12 z`, gold);
-    s.extend(cx - 10, cy - 14);
+    // nível máximo: cota de ouro nas ameias da menagem
+    const [cx, cy] = iso(k1, k1, zT + keepH + 30);
+    s.path(`M${cx - 10} ${cy} l4 -12 l6 7 l6 -7 l4 12 z`, GOLD, 'stroke="#7a5a1a" stroke-width="1"');
   }
   return s;
 }

@@ -44,3 +44,27 @@ A cidade em Canvas 2D com primitivas geométricas (caixas, pirâmides, losangos)
 - Fazer os edifícios da Fase B (quartéis, academia, hospital) nos lotes reservados.
 - Levar o mapa-múndi para o mesmo pipeline PixiJS + SVG.
 - Gerar atlas em tempo de build (PNG) para reduzir o custo de inicialização no iPhone.
+
+## Revisão v3 — direção épica e militar (2026-10-24)
+
+A v2 foi avaliada como "fazendinha/cartoon casual". Mudanças, mantendo o mesmo motor e as mesmas regras:
+
+- **Paleta e luz:** granito frio (`#8f8a80`) em silhar irregular com rejunte escuro. Telhados em ardósia escura com só 22% da cor da civilização. Gramado oliva dessaturado. Sombras longas de sol baixo (fim de tarde). Gradação de cor e vinheta pesada em CSS (`mix-blend-mode: soft-light`, sem custo de filtro WebGL). A cor da civilização ficou restrita à heráldica (estandartes, brasões, tabardos).
+- **Prefeitura → castelo:**
+  - Nv 1–3: torre de menagem com salão nobre ameado.
+  - Nv 4–6: menagem com telhado em pavilhão e guaritas suspensas.
+  - Nv 7–10: cidadela com torres redondas maciças, pináculos e brasões.
+
+  Em todos os estágios, a plataforma passa a ser um pátio murado (bailey) com braseiros e estandartes de guerra.
+- **Fortificação:**
+  - muralha de 104 px com talude, mata-cães, ameias altas e seteiras;
+  - torres de canto de 176 px e intermediárias com braseiro;
+  - guarita monumental com torres gêmeas, grade levadiça e ponte levadiça;
+  - **fosso** pintado ao redor das muralhas.
+- **Presença militar:**
+  - soldados (elmo, cota de malha, tabardo heráldico, lança/escudo/arco) marchando em colunas;
+  - sentinelas patrulhando o passadiço das muralhas;
+  - acampamento diante do portão com tendas, trabuco, cavalete de armas, bonecos de treino e alvos;
+  - chamas animadas (partículas aditivas) nos braseiros.
+- **Camponeses sóbrios:** casas de pedra e palha escura, celeiro de madeira envelhecida, quase sem flores.
+- **HUD heráldico:** retrato do governador em forma de escudo, cantos retos, molduras duplas em ouro velho e botão principal em caixa-alta Cinzel.

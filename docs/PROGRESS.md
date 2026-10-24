@@ -59,6 +59,7 @@
 - [x] Sem rótulos permanentes; seleção contextual com foco de câmera; indicador de melhoria disponível.
 - [x] HUD redesenhado (ícones SVG próprios, fonte Cinzel local, painel com retrato do edifício).
 - [x] Plano urbano por dados com lotes reservados; testes unitários do layout.
+- [x] Revisão v3 (tom épico/militar): castelo em 3 estágios, muralhas monumentais com fosso, soldados e sentinelas, acampamento, braseiros animados, paleta sombria, HUD heráldico.
 - [ ] Medição de FPS/memória e teste em iPhone/Safari real.
 - [ ] Mapa-múndi no mesmo pipeline visual; animação de estandartes/água.
 

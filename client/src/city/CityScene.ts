@@ -7,11 +7,11 @@ import { Application, Container, Graphics, Sprite, Text, Texture } from 'pixi.js
 import { BUILDING_TYPES, BUILDINGS, type BuildingLevels, type BuildingType, type CivilizationDef } from '../../../shared/rules';
 import { CITY_GRID, COTTAGES, cityTier, plotFor, plotSize, buildingStage, visiblePlots, WALL_HALF } from '../../../shared/cityLayout';
 import { Camera } from '../camera';
-import { farmSvg, goldMineSvg, quarrySvg, sawmillSvg, villagerSvg, warehouseSvg } from './art/buildings';
+import { farmSvg, goldMineSvg, quarrySvg, sawmillSvg, soldierSvg, villagerSvg, warehouseSvg } from './art/buildings';
 import { bushSvg, fenceSvg, haySvg, oakSvg, pineSvg, rocksSvg } from './art/nature';
-import { barrelsSvg, cartSvg, cottageSvg, lampSvg, plotSvg, stallSvg, wellSvg } from './art/props';
-import { type Palette, townHallSvg } from './art/townHall';
-import { gatehouseSvg, wallSegmentSvg, wallTowerSvg } from './art/walls';
+import { barrelsSvg, cartSvg, cottageSvg, dummySvg, lampSvg, plotSvg, stallSvg, targetSvg, tentSvg, trebuchetSvg, weaponRackSvg, wellSvg } from './art/props';
+import { hallFx, type Palette, paletteFor, townHallSvg } from './art/townHall';
+import { gatehouseSvg, WALL_H, wallFx, wallSegmentSvg, wallTowerSvg } from './art/walls';
 import { CHUNK, CHUNK_RES, type GroundSpec, P, paintChunk, WORLD_BOUNDS } from './ground';
 import { iso, rng, Svg } from './svg';
 
@@ -84,6 +84,10 @@ export interface SceneInput {
 
 interface Walker {
   sprite: Sprite;
+  /** Altura em px (guardas no passadiço da muralha). */
+  z?: number;
+  /** Membros de tropa marcham sem pausas aleatórias. */
+  drill?: boolean;
   path: [number, number][];
   seg: number;
   t: number;
@@ -122,6 +126,8 @@ export class CityScene {
   private walkers: Walker[] = [];
   private puffs: Puff[] = [];
   private chimneys: [number, number, number][] = [];
+  private fires: [number, number, number][] = [];
+  private flames: { g: Sprite; life: number; max: number }[] = [];
   private puffTex!: Texture;
   private clouds: Sprite[] = [];
   private birds: Graphics | null = null;
@@ -145,7 +151,7 @@ export class CityScene {
     await this.app.init({
       resizeTo: host,
       antialias: true,
-      backgroundColor: 0x2c4a22,
+      backgroundColor: 0x1f2b1b,
       resolution: Math.min(2, window.devicePixelRatio || 1),
       autoDensity: true,
       preference: 'webgl',
@@ -208,7 +214,7 @@ export class CityScene {
 
   private palette(): Palette {
     const civ = this.input.civ;
-    return { roof: civ.color, accent: civ.accent, stone: '#b9ae99' };
+    return paletteFor(civ.color, civ.accent);
   }
 
   private async rebuild() {
@@ -273,9 +279,9 @@ export class CityScene {
       wallHalf: R,
       roads: this.roads,
       plaza,
+      moat: R,
       fields: [
         { dx: R + 5, dy: 6.5, w: 4.5, d: 3.2, crop: 0 },
-        { dx: R + 5, dy: -6, w: 4.5, d: 3.6, crop: 1 },
         { dx: R + 9.5, dy: 7, w: 3.5, d: 3, crop: 2 },
         { dx: -3, dy: R + 5, w: 3.4, d: 4.2, crop: 3 },
         { dx: 4.5, dy: R + 5, w: 3.6, d: 4, crop: 1 },
@@ -309,6 +315,7 @@ export class CityScene {
     this.construction = null;
     this.constructionFor = null;
     this.chimneys = [];
+    this.fires = wallFx(R);
     const add = async (key: string, build: () => Svg, dx: number, dy: number, res = 1.25, depthBias = 0, scale = 1, flip = false) => {
       const t = await raster(key, build, res);
       const [wx, wy] = P(dx, dy);
@@ -334,16 +341,22 @@ export class CityScene {
       [-R, R],
       [R, R],
     ]) {
-      jobs.push(add(`tc${pal.roof}`, () => wallTowerSvg('corner', stone, pal.roof, pal.accent), cx, cy, 1.4, 5));
+      jobs.push(add(`tc${pal.roof}`, () => wallTowerSvg('corner', stone, pal.roof, pal.banner, pal.accent), cx, cy, 1.4, 5));
     }
     for (let k = -R + 6; k <= R - 6; k += 6) {
       if (Math.abs(k) < 3) continue;
-      jobs.push(add('tm', () => wallTowerSvg('mid', stone, pal.roof, pal.accent), k, -R, 1.4, 5));
-      jobs.push(add('tm', () => wallTowerSvg('mid', stone, pal.roof, pal.accent), -R, k, 1.4, 5));
-      jobs.push(add('tm', () => wallTowerSvg('mid', stone, pal.roof, pal.accent), k, R, 1.4, 5));
-      jobs.push(add('tm', () => wallTowerSvg('mid', stone, pal.roof, pal.accent), R, k, 1.4, 5));
+      const mid = () => wallTowerSvg('mid', stone, pal.roof, pal.banner, pal.accent);
+      for (const [tx, ty] of [
+        [k, -R],
+        [-R, k],
+        [k, R],
+        [R, k],
+      ] as const) {
+        jobs.push(add('tm', mid, tx, ty, 1.4, 5));
+        this.fires.push([tx, ty, 158]);
+      }
     }
-    jobs.push(add(`gate${pal.roof}`, () => gatehouseSvg(stone, pal.roof, pal.accent), R, 0, 1.5, 5));
+    jobs.push(add(`gate${pal.roof}`, () => gatehouseSvg(stone, pal.roof, pal.banner, pal.accent), R, 0, 1.5, 5));
 
     // casas, praça e adereços
     for (const c of COTTAGES.filter((c) => c.tier <= tier)) {
@@ -351,8 +364,24 @@ export class CityScene {
       if (c.variant !== 2) this.chimneys.push([c.dx - (c.variant === 1 ? 0.375 : 0.31) + 0.09, c.dy - 0.01, 96]);
     }
     jobs.push(add('well', wellSvg, 4.6, -1.9, 1.5));
-    jobs.push(add('stallR', () => stallSvg('#b03a2e'), 5.4, 0.9, 1.5));
-    jobs.push(add('stallB', () => stallSvg('#2f6fb3'), 5.6, -1.5, 1.5));
+    jobs.push(add('stallR', () => stallSvg('#6a2a22'), 5.4, 0.9, 1.5));
+    jobs.push(add(`stall${pal.banner}`, () => stallSvg(pal.banner), 5.6, -1.5, 1.5));
+    // acampamento militar diante do portão
+    const camp: [string, () => Svg, number, number][] = [
+      [`tent${pal.banner}`, () => tentSvg(pal.banner), R + 4.2, -4.2],
+      [`tent${pal.banner}`, () => tentSvg(pal.banner), R + 5.6, -5.4],
+      [`tent${pal.banner}`, () => tentSvg(pal.banner), R + 4.0, -6.6],
+      [`tent${pal.banner}`, () => tentSvg(pal.banner), R + 7.0, -4.0],
+      [`tent${pal.banner}`, () => tentSvg(pal.banner), R + 6.8, -7.0],
+      ['treb', trebuchetSvg, R + 3.4, -2.7],
+      [`rack${pal.banner}`, () => weaponRackSvg(pal.banner), R + 5.4, -3.0],
+      ['dummy', dummySvg, R + 6.6, -2.6],
+      ['dummy', dummySvg, R + 7.4, -2.9],
+      ['target', targetSvg, R + 8.4, -5.0],
+      ['target', targetSvg, R + 8.6, -6.2],
+    ];
+    for (const [key, build, dx, dy] of camp) jobs.push(add(key, build, dx, dy, 1.5));
+    this.fires.push([R + 5.2, -4.6, 18]);
     jobs.push(add('barrels', barrelsSvg, -3.0, -3.0, 1.5));
     jobs.push(add('cart', cartSvg, R + 1.6, 1.2, 1.5));
     for (const [dx, dy] of [
@@ -378,7 +407,10 @@ export class CityScene {
     const r = rng(7 + tier);
     const blocked = (dx: number, dy: number, margin: number) => {
       const m = Math.max(Math.abs(dx), Math.abs(dy));
-      if (Math.abs(m - R) < 1.4 + margin) return true;
+      // muralha + fosso
+      if (dx > R - 1.4 && dx < R + 2.4 + margin && Math.abs(dy) < R + 2.4) return true;
+      if (Math.abs(m - R) < 2.3 + margin) return true;
+      if (dx > R + 2.5 && dx < R + 9.5 && dy < -1.8 && dy > -8) return true;
       if (dx > R - 2 && Math.abs(dy) < 2.2) return true;
       for (const p of visiblePlots(this.input.levels)) {
         const h = p.size[2] / 2 + 0.6 + margin;
@@ -464,7 +496,7 @@ export class CityScene {
           case 'quarry':
             return quarrySvg(st, pal);
           case 'gold_mine':
-            return goldMineSvg(st);
+            return goldMineSvg(st, pal);
         }
       };
       const tex = await raster(key, build, b === 'town_hall' ? 1.8 : 1.5);
@@ -477,8 +509,12 @@ export class CityScene {
       this.buildingSprites.set(b, { sprite, tex, key });
       if (b === 'town_hall') {
         this.chimneys = this.chimneys.filter((c) => c[2] < 150);
-        if (stage === 1) this.chimneys.push([plot.dx - 1.06, plot.dy - 0.31, 160]);
-        if (stage === 2) this.chimneys.push([plot.dx + 0.24, plot.dy - 1.11, 206]);
+        this.fires = this.fires.filter((f) => !(f as [number, number, number] & { hall?: boolean }).hall);
+        if (stage > 0) {
+          const fx = hallFx(stage as 1 | 2 | 3);
+          for (const [x, y, z] of fx.smoke) this.chimneys.push([plot.dx + x, plot.dy + y, z]);
+          for (const [x, y, z] of fx.fires) this.fires.push(Object.assign([plot.dx + x, plot.dy + y, z] as [number, number, number], { hall: true }));
+        }
       }
     }
   }
@@ -500,7 +536,7 @@ export class CityScene {
     const [wx, wy] = P(plot.dx, plot.dy);
     c.addChild(spriteOf(tex, wx, wy));
     // trabalhadores martelando
-    const worker = await raster('v-work', () => villagerSvg('#7a6a4a', true, 'none'), 2);
+    const worker = await raster('v-work', () => villagerSvg('#5b4a3a', true, 'none'), 2);
     for (const [ox, oy] of [
       [size / 2 + 0.3, 0.2],
       [0.3, size / 2 + 0.35],
@@ -558,8 +594,8 @@ export class CityScene {
     for (let i = 0; i < 4; i++) {
       const s = new Sprite(this.cloudTex());
       s.anchor.set(0.5);
-      s.alpha = 0.16;
-      s.tint = 0x0a1408;
+      s.alpha = 0.22;
+      s.tint = 0x050805;
       s.scale.set(3 + i * 0.6, 1.6 + i * 0.3);
       s.position.set(WORLD_BOUNDS.x0 + ((i * 1700) % (WORLD_BOUNDS.x1 - WORLD_BOUNDS.x0)), -900 + i * 520);
       this.fx.addChild(s);
@@ -567,25 +603,48 @@ export class CityScene {
     }
     for (const w of this.walkers) w.sprite.destroy();
     this.walkers = [];
-    const variants: [string, boolean, 'none' | 'sack' | 'basket'][] = [
-      ['#5a7fb3', false, 'sack'],
-      ['#a8483a', true, 'basket'],
-      ['#6f8f3a', false, 'none'],
-      ['#8a5aa8', true, 'none'],
-      ['#c08a3e', false, 'basket'],
+    const pal = this.palette();
+    const peasants: [string, boolean, 'none' | 'sack' | 'basket'][] = [
+      ['#5b4a3a', false, 'sack'],
+      ['#4a4f3a', true, 'basket'],
+      ['#3e4a52', false, 'none'],
+      ['#6a4a3a', true, 'none'],
     ];
     const r = rng(99 + R);
-    const n = 6 + this.tier * 3;
-    void Promise.all(variants.map(([c, h, k]) => raster(`v${c}${h}${k}`, () => villagerSvg(c, h, k), 2))).then((texes) => {
+    const peasantN = 4 + this.tier * 2;
+    void (async () => {
+      const ptex = await Promise.all(peasants.map(([c, h, k]) => raster(`v${c}${h}${k}`, () => villagerSvg(c, h, k), 2)));
+      const stex = await Promise.all((['spear', 'shield', 'bow'] as const).map((w) => raster(`sol${pal.banner}${w}`, () => soldierSvg(pal.banner, w), 2)));
       if (this.destroyed) return;
-      for (let i = 0; i < n; i++) {
-        const path = this.roads[Math.floor(r() * this.roads.length)];
-        const tex = texes[i % texes.length];
+      const spawn = (tex: Tex, w: Omit<Walker, 'sprite'>) => {
         const sprite = spriteOf(tex, 0, 0);
         this.objects.addChild(sprite);
-        this.walkers.push({ sprite, path, seg: Math.floor(r() * (path.length - 1)), t: r(), dir: r() > 0.5 ? 1 : -1, speed: 0.55 + r() * 0.35, phase: r() * 10, pause: 0 });
+        this.walkers.push({ sprite, ...w });
+      };
+      for (let i = 0; i < peasantN; i++) {
+        const path = this.roads[Math.floor(r() * this.roads.length)];
+        spawn(ptex[i % ptex.length], { path, seg: Math.floor(r() * (path.length - 1)), t: r(), dir: r() > 0.5 ? 1 : -1, speed: 0.5 + r() * 0.3, phase: r() * 10, pause: 0 });
       }
-    });
+      // tropas marchando em coluna pela avenida principal
+      const squads = 1 + this.tier;
+      for (let q = 0; q < squads; q++) {
+        const path = this.roads[q % 2 === 0 ? 0 : 1 + (q % (this.roads.length - 1))];
+        const t0 = r();
+        const dir = q % 2 ? -1 : 1;
+        for (let i = 0; i < 4; i++) {
+          spawn(stex[i % 2], { path, seg: 0, t: Math.max(0, Math.min(1, t0 - i * 0.07 * dir)), dir, speed: 0.62, phase: i * 1.7, pause: 0, drill: true });
+        }
+      }
+      // sentinelas no passadiço das muralhas
+      const posts: [number, number, number, number][] = [];
+      for (let k = -R + 2.5; k <= R - 2.5; k += 4.5) {
+        posts.push([k, -R, k + 1.6, -R], [-R, k, -R, k + 1.6], [k, R, k + 1.6, R]);
+        if (Math.abs(k) > 3) posts.push([R, k, R, k + 1.4]);
+      }
+      for (const [x0, y0, x1, y1] of posts) {
+        spawn(stex[r() > 0.5 ? 0 : 2], { path: [[x0, y0], [x1, y1]], seg: 0, t: r(), dir: r() > 0.5 ? 1 : -1, speed: 0.22, phase: r() * 10, pause: r() * 3, z: WALL_H });
+      }
+    })();
   }
 
   private softCircle(): Texture {
@@ -653,7 +712,7 @@ export class CityScene {
     const H = this.app.screen.height;
     const cx = bs.sprite.x;
     const cy = bs.sprite.y - bs.tex.oy * 0.35;
-    this.focus = { x: cx, y: cy + (H * 0.2) / this.cam.zoom };
+    this.focus = { x: cx, y: cy + (H * 0.1) / this.cam.zoom };
   }
 
   /** Projeção do topo de um edifício em coordenadas de tela (para painéis DOM). */
@@ -693,21 +752,21 @@ export class CityScene {
           w.dir = (w.dir * -1) as 1 | -1;
           w.seg = Math.max(0, Math.min(w.path.length - 2, w.seg));
           w.t = w.dir > 0 ? 0 : 1;
-          w.pause = 1 + Math.random() * 3;
-          if (Math.random() < 0.5) w.path = this.roads[Math.floor(Math.random() * this.roads.length)];
+          w.pause = w.drill ? 0.4 : 1 + Math.random() * 3;
+          if (!w.drill && w.z === undefined && Math.random() < 0.5) w.path = this.roads[Math.floor(Math.random() * this.roads.length)];
           w.seg = Math.max(0, Math.min(w.path.length - 2, w.seg));
         }
         continue;
       }
       const dx = a[0] + (b[0] - a[0]) * w.t;
       const dy = a[1] + (b[1] - a[1]) * w.t;
-      const off = Math.sin(w.phase) * 0.18;
+      const off = w.z !== undefined ? 0 : w.drill ? 0.12 * Math.sin(w.phase) : Math.sin(w.phase) * 0.18;
       const [px, py] = P(dx + off, dy - off);
-      const bob = Math.abs(Math.sin(this.time * 9 + w.phase)) * 2.2;
-      w.sprite.position.set(px, py - bob);
+      const bob = Math.abs(Math.sin(this.time * (w.drill ? 10 : 9) + w.phase)) * 2.2;
+      w.sprite.position.set(px, py - bob - (w.z ?? 0));
       const goingRight = (b[0] - a[0] - (b[1] - a[1])) * w.dir > 0;
       w.sprite.scale.x = (goingRight ? 1 : -1) * Math.abs(w.sprite.scale.y);
-      w.sprite.zIndex = (dx + dy) * 100 + 2;
+      w.sprite.zIndex = (dx + dy) * 100 + (w.z !== undefined ? 8 : 2);
     }
     // fumaça das chaminés
     if (Math.random() < s * 3.5 * Math.max(1, this.chimneys.length / 3)) {
@@ -730,6 +789,32 @@ export class CityScene {
       p.g.scale.set(0.25 + p.life * 0.35);
       p.g.alpha = Math.max(0, 0.55 - p.life * 0.16);
       if (p.life > 3.4) {
+        p.g.destroy();
+        return false;
+      }
+      return true;
+    });
+    // chamas dos braseiros (partículas aditivas)
+    for (const f of this.fires) {
+      if (Math.random() > s * 9) continue;
+      const [x, y] = iso(f[0], f[1], f[2]);
+      const g = new Sprite(this.puffTex);
+      g.anchor.set(0.5);
+      g.blendMode = 'add';
+      g.tint = Math.random() > 0.5 ? 0xff8a2a : 0xffc04a;
+      g.position.set(x + (Math.random() - 0.5) * 8, y);
+      g.scale.set(0.16 + Math.random() * 0.08);
+      this.fx.addChild(g);
+      this.flames.push({ g, life: 0, max: 0.45 + Math.random() * 0.35 });
+    }
+    this.flames = this.flames.filter((p) => {
+      p.life += s;
+      const k = p.life / p.max;
+      p.g.y -= 46 * s;
+      p.g.x += Math.sin(this.time * 12 + p.g.y) * 0.3;
+      p.g.scale.set(Math.max(0.02, (0.2 - k * 0.16) * (1 + Math.sin(this.time * 30) * 0.05)));
+      p.g.alpha = Math.max(0, 1 - k);
+      if (k >= 1) {
         p.g.destroy();
         return false;
       }
@@ -859,9 +944,11 @@ function scaffoldSvg(size: number): Svg {
 
 function arrowSvg(): Svg {
   const s = new Svg('arrow');
-  s.ellipse(0, 0, 26, 26, '#1b1410', 'opacity="0.35"');
-  s.ellipse(0, -2, 24, 24, s.linear('arr', [[0, '#9be37f'], [1, '#3e9a3a']]), 'stroke="#f6ead0" stroke-width="3"');
-  s.path('M0 -18 L14 -2 L6 -2 L6 12 L-6 12 L-6 -2 L-14 -2 Z', '#ffffff');
+  // medalhão de ferro com aro dourado e divisa verde
+  s.ellipse(0, 2, 27, 27, '#0b0a08', 'opacity="0.45"');
+  s.ellipse(0, -2, 25, 25, s.linear('arrR', [[0, '#f0d27a'], [1, '#8a6420']]));
+  s.ellipse(0, -2, 20, 20, s.linear('arrB', [[0, '#3a3530'], [1, '#15120f']]));
+  s.path('M0 -16 L13 -1 L6 -1 L6 11 L-6 11 L-6 -1 L-13 -1 Z', s.linear('arrG', [[0, '#a8e08a'], [1, '#4e9a3e']]), 'stroke="#10200c" stroke-width="1.2"');
   return s;
 }
 
