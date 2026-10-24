@@ -10,19 +10,29 @@ Ambiente: Linux, Node v24.22.1, SQLite real em arquivos temporários, HTTP local
 |---|---|
 | A-01–03 | PASS backend: contas/cookies/cidades/saldos separados, mesmo reino; terceiro não membro e quarto em outro reino |
 | A-04–06, A-20 | PASS backend: cobrança única sob duas requisições concorrentes; payload adulterado negado; requisitos; obra termina offline após reinício real |
-| A-07–08 | PASS backend/SSE: mesmas cidades públicas, atualizações sem reload; renderização visual pendente |
+| A-07–08 | PASS backend/SSE: mesmas cidades públicas, atualizações sem reload; renderização do mapa confirmada em screenshot do CI |
 | A-09–10 | PASS backend/SSE: criar, solicitar, aprovar, membros, promoção e bloqueio de não líder |
 | A-11–12 | PASS SSE: mensagens reino/aliança recebidas pelo outro cliente sem nova consulta manual |
 | A-13 | PASS backend: global visível ao jogador do outro reino; cidades/canal de reino continuam isolados. Stream cross-realm específico não exercitado |
 | A-14 | PASS backend: histórico persistente, cursor, páginas sem sobreposição, eventos novos |
 | A-15–16 | PASS backend/SSE: C bloqueado; saída de B remove histórico/canal e mensagens posteriores da conexão já aberta |
 | A-17 | PASS reconexão HTTP/SSE após restart; Safari minimizar/retomar NÃO TESTADO |
-| A-18–19 | BLOQUEADO: navegador indisponível; teclado, pinça, arraste, orientação e visual não validados |
+| A-18–19 | PARCIAL: viewport/ausência de overflow e botões de zoom/centralizar passaram em Chromium mobile; teclado iOS, pinça/arraste por gesto e orientação ainda não validados |
 | Extras | PASS: origem externa negada, sessão revogada, cursor inválido, flood limit, ledger somado igual ao saldo |
 
-**E2E de navegador: BLOQUEADO, não PASS.** `tests/browser.mjs` foi criado e tentado; parou no lançamento por ausência de Chromium. Download via Playwright falhou com “End of central directory record signature not found” (ZIP truncado). [Erro da tentativa](evidence/browser-attempt.txt). Nenhuma interação visual desse script foi executada. Os testes HTTP não comprovam usabilidade nem renderização.
+**Tentativa local inicial de E2E: BLOQUEADA (superada por execução remota abaixo).** `tests/browser.mjs` foi criado e tentado; parou no lançamento por ausência de Chromium. Download via Playwright falhou com “End of central directory record signature not found” (ZIP truncado). [Erro da tentativa](evidence/browser-attempt.txt). Nenhuma interação visual desse script foi executada. Os testes HTTP não comprovam usabilidade nem renderização.
 
-Sem benchmark, teste de carga, restore de backup, execução Docker, CI remoto confirmado ou deploy. Não há alegação de milhares de jogadores, Safari validado, arte final ou Fase A completa.
+Sem benchmark, teste de carga, restore de backup, execução Docker ou deploy. Não há alegação de milhares de jogadores, Safari validado, arte final ou Fase A completa.
+
+## E2E remoto — PASS em 2026-10-24
+
+SHA testado: `ab41cc5683cc595229d0fe91b42dcc7096be72bd`. Ubuntu GitHub-hosted, Node 24.22.1, Playwright 1.62.1, Chromium headless. [Run 40088529990](https://github.com/ZAnt214/KINGDOMS-UNBOUND/actions/runs/40088529990): jobs `integration` e `browser` concluídos com sucesso. Artefato `phase-a-mobile` ID 12557574534. Não é Safari nem dispositivo físico.
+
+O script `tests/browser.mjs` criou dois browser contexts independentes com cookies separados e viewport 390×844. Usou os formulários reais para cadastro, iniciou fazenda, recarregou e confirmou a fila, criou aliança, solicitou/aprovou ingresso, trocou mensagem de aliança sem reload, verificou duas cidades e ausência de overflow horizontal, acionou zoom/centralizar, alternou offline/online e recarregou a sessão. Nenhum erro de página foi capturado. O teste não espera a construção terminar: essa conclusão é coberta pelos testes backend de relógio real.
+
+[Captura do mapa mobile](evidence/phase-a-mobile.png) baixada do artefato e inspecionada. Arte isométrica é provisória; interface legível no viewport testado. Não foram medidos FPS/memória nem comprovadas todas as interações de toque. A configuração offline/online seguida de reload testa recuperação; não equivale à suspensão/retomada real do Safari.
+
+Os commits posteriores a esse SHA apenas preservam/atualizam documentação e evidências, sem alterar o runtime testado.
 
 ---
 ## Baseline original (abaixo, mantido como registro anterior)

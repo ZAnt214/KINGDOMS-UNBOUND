@@ -41,7 +41,7 @@ Backup nesta versão: parar o processo de forma limpa antes de copiar o diretór
 
 Ações: build; alliance.create/apply/approve/reject/rank/leave; chat. Exemplos em `tests/integration.test.js`. Respostas de erro trazem `error` e `requestId`. Credencial fica no cookie, não no localStorage. Ao perder uma resposta, repetir **a mesma chave e payload**. O cliente faz uma repetição automática em falha de transporte; não manter fila offline de comandos.
 
-## Teste visual opcional (ainda bloqueado nesta execução)
+## Teste visual opcional (validado no CI)
 
 ```sh
 npm install --no-save --package-lock=false playwright@1.62.1
@@ -51,4 +51,4 @@ node tests/browser.mjs
 
 Este teste cria duas sessões de navegador e banco temporário, executa o fluxo social/construção/chat e grava screenshot em `artifacts/phase-a-mobile.png`. Dependência opcional não faz parte do runtime. Para usar um pacote Playwright já instalado, defina PLAYWRIGHT_MODULE para o index.mjs dele. Binários precisam estar presentes.
 
-Não foi possível executar a UI no ambiente desta entrega: download de Chromium resultou em arquivo truncado. Logs em `docs/evidence/browser-attempt.txt`. Teclado iOS, pinça real, suspensão Safari, FPS/memória, orientação e instalação PWA ainda precisam de teste.
+Não foi possível executar a UI no ambiente local: download de Chromium resultou em arquivo truncado. A mesma suíte passou posteriormente no runner GitHub Actions: https://github.com/ZAnt214/KINGDOMS-UNBOUND/actions/runs/40088529990. Logs em `docs/evidence/browser-attempt.txt`. Teclado iOS, pinça real, suspensão Safari, FPS/memória, orientação e instalação PWA ainda precisam de teste.

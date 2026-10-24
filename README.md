@@ -2,7 +2,7 @@
 
 **MMO persistente de estratégia, civilizações, cidades, alianças e guerras territoriais.**
 
-> Status atual: **Fase A iniciada — backend multiplayer local implementado e testado; UI e deploy ainda não validados**. A documentação de produto permanece como meta, não como declaração de conclusão.
+> Status atual: **Fase A iniciada — núcleo multiplayer testado localmente e com dois navegadores no CI; Safari físico e deploy pendentes**. A documentação de produto permanece como meta, não como declaração de conclusão.
 
 ## Executar a primeira fatia
 

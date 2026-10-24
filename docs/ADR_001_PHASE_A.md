@@ -12,7 +12,7 @@ Base remota: `b1c7e70a220f869c59f8168f3f35296952393d34` (main). Todos os 14 arqu
 - SQLite em arquivo com WAL, foreign keys, constraints e `BEGIN IMMEDIATE`. Migração versionada `migrations/001_core.sql`. Escolha para disponibilizar agora persistência real e teste reproduzível sem credenciais externas. **Não equivale ao PostgreSQL pretendido na arquitetura**, nem suporta múltiplas réplicas deste servidor. Migração PostgreSQL e teste de concorrência entre processos são próximos marcos.
 - REST para intenções e **SSE/EventSource** para snapshots autorizados. Comunicação real, de baixa frequência, suficiente para construção/chat da fatia A. **Não implementa WebSocket**. Cada conexão recebe exclusivamente estado permitido e revalida sessão/membership em cada envio. A cada comando confirmado e a cada 2s há snapshot. Reconexão envia snapshot completo, sem depender de replay de eventos antigos. ID de transporte reinicia com processo; não é versão durável. `revision` vem da auditoria de comandos, não inclui ticks econômicos; clientes substituem snapshot completo em ordem de conexão, sem aplicar deltas.
 - Canvas 2D para cidade/mapa isométrico original, UI HTML/CSS sem framework. Esta é arte provisória, não polimento comercial. PixiJS/WebGL, chunks, LOD, culling, streaming por interesse e escala permanecem pendentes.
-- Servidor de longa duração com disco persistente. Não colocar esta aplicação em função serverless efêmera. Dockerfile e workflow adicionados, mas Docker/build hospedado/CI remoto não foram executados nesta entrega.
+- Servidor de longa duração com disco persistente. Não colocar esta aplicação em função serverless efêmera. Dockerfile e workflow adicionados. CI remoto de integração e Chromium passou; imagem Docker e deploy não foram testados.
 
 ## Regras originais v1, não números de Rise of Kingdoms
 
@@ -36,6 +36,6 @@ Limites conhecidos: rate limit de IP usa socket (atrás de proxy todos podem com
 
 ## Evidência e próxima decisão
 
-`tests/integration.test.js` valida sessões, eventos, transações, ACL e restart. Teste de processo usa relógio real e servidor parado por aproximadamente 16s. Teste de navegador incluído em `tests/browser.mjs`, execução bloqueada por ausência de binário e falha no download. Não confundir integração HTTP com E2E visual.
+`tests/integration.test.js` valida sessões, eventos, transações, ACL e restart. Teste de processo usa relógio real e servidor parado por aproximadamente 16s. Teste de navegador em `tests/browser.mjs`: tentativa local bloqueada por ausência de binário/download, depois PASS no GitHub Actions com dois contextos Chromium mobile. Consulte TEST_REPORT para URL e SHA; não equivale a Safari físico.
 
-Próximas decisões: validar UI em Chromium/WebKit e Safari físico; corrigir UX observada; escolher hospedagem com volume/backup; migrar PostgreSQL e introduzir interest management/deltas antes de ampliar população. Só então avançar módulos B.
+Próximas decisões: expandir validação da UI para WebKit e Safari físico; corrigir UX observada; escolher hospedagem com volume/backup; migrar PostgreSQL e introduzir interest management/deltas antes de ampliar população. Só então avançar módulos B.

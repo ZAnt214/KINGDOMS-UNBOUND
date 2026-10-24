@@ -1,6 +1,6 @@
 # MATRIZ DE SISTEMAS E RASTREABILIDADE
 
-Legenda de estágio: **P** planejado; **E** em execução; **T** implementado e testado; **B** bloqueado. No baseline todos eram P. Atualização de 2026-10-24: E indica implementação parcial (backend validado, UI/critério completo pendente); nenhum sistema integrado recebeu T sem E2E visual.
+Legenda de estágio: **P** planejado; **E** em execução; **T** implementado e testado; **B** bloqueado. No baseline todos eram P. Atualização de 2026-10-24: E indica implementação parcial (backend e fluxo visual básico validados, critérios completos ainda pendentes); os sistemas compostos permanecem E até todos seus critérios serem cobertos.
 
 | Sistema | Etapa | Dependências principais | Estado |
 |---|---|---|---|
@@ -77,11 +77,11 @@ O comportamento exato de Rise of Kingdoms deve ser consultado em fontes pública
 
 | ID | Código / contrato | Evidência | Pendência |
 |---|---|---|---|
-| A-IDENTITY | server.js register/login/logout; users/sessions/governors | teste A-01–03 | UI/E2E, recuperação de conta |
+| A-IDENTITY | server.js register/login/logout; users/sessions/governors | teste A-01–03 | Safari físico, recuperação de conta |
 | A-ECONOMY | game.js command build / settle / produce; ledger/queues; rules.js | A-04–06/20 e processo com relógio real | visual, cancelamento, PostgreSQL |
 | A-MAP | snapshot cities filtrado pelo reino; Canvas app.js | A-07–08 HTTP/SSE | chunks/deltas, gestos validados, arte |
 | A-ALLIANCE | comandos alliance.*; members/applications; PERMISSIONS | A-09–10/15–16 | convites, transferência/dissolução, configuração por aliança |
 | A-CHAT | command chat; messages cursor; events SSE | A-11–16 | WebSocket, coord. clicável, não lidas persistentes, moderação |
-| A-CLIENT | public/*, tests/browser.mjs | syntax PASS; browser BLOCKED | Chromium/WebKit/Safari, performance |
+| A-CLIENT | public/*, tests/browser.mjs | syntax PASS; browser Chromium mobile PASS | WebKit/Safari, performance |
 
 Implementação de todos estes IDs na branch/PR `work/phase-a-core`. Nenhum ID de B–E implementado. Referência de execução: [TEST_REPORT](TEST_REPORT.md); limites arquiteturais: [ADR](ADR_001_PHASE_A.md).
