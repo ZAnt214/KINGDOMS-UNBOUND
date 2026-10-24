@@ -3,9 +3,9 @@ import { doorOn, iso, shade, Svg, timberOn, windowOn } from '../svg';
 /** Casa de morador (decoração) — três variantes de arquitetura. */
 export function cottageSvg(variant: number, roof: string): Svg {
   const s = new Svg(`cot${variant}`);
-  const plaster = s.plaster(variant === 1 ? '#a39478' : '#ad9f82');
-  const stone = s.stone('#857f75', 0.7);
-  const tiles = variant === 1 ? s.tiles(roof) : s.thatch(variant === 2 ? '#5e5236' : '#6e5f3c');
+  const plaster = s.plaster(variant === 1 ? '#e9d9b6' : '#f1e2bd');
+  const stone = s.stone('#d8c9a7', 0.7);
+  const tiles = s.tiles(variant === 1 ? roof : variant === 2 ? '#d48c48' : '#bf5d3c');
   const w = variant === 1 ? 0.75 : 0.62;
   const d = variant === 1 ? 0.55 : 0.62;
   s.shadow(-w, -d, w, d, 80, 0.3);
@@ -30,7 +30,7 @@ export function cottageSvg(variant: number, roof: string): Svg {
 export function wellSvg(): Svg {
   const s = new Svg('well');
   s.shadow(-0.4, -0.4, 0.4, 0.4, 60, 0.25);
-  const t = s.tower(0, 0, 0.36, 0, 18, '#857f75');
+  const t = s.tower(0, 0, 0.36, 0, 18, '#d8c9a7');
   s.ellipse(t.sx, t.top, t.rx * 0.78, t.ry * 0.78, '#1f3340');
   s.ellipse(t.sx - 4, t.top - 1, t.rx * 0.3, t.ry * 0.2, '#6d8fa6', 'opacity="0.6"');
   s.line([t.sx - t.rx * 0.9, t.top], [t.sx - t.rx * 0.9, t.top - 40], '#5b3b22', 3);
@@ -226,5 +226,23 @@ export function targetSvg(): Svg {
   ] as const) s.ellipse(0, -30, r, r * 1.05, c);
   s.line([-2, -32], [10, -40], '#3a2a1a', 1.2);
   s.extend(-16, -46);
+  return s;
+}
+
+/** Jardim ornamental; não representa prédio, produção ou tropa do jogador. */
+export function gardenSvg(): Svg {
+  const s=new Svg('garden');
+  const stone=s.plaster('#e9dab6');
+  s.box(-.9,-.6,.9,.6,0,5,stone,s.plaster('#79a84c'));
+  for(const y of [-.48,.48]) {
+    s.box(-.8,y-.08,.8,y+.08,5,15,s.plaster('#459445'),s.plaster('#81bd4e'));
+    for(let x=-.7;x<.8;x+=.18) { const [px,py]=iso(x,y,17);s.ellipse(px,py,3,2,'#efd993'); }
+  }
+  const t=s.tower(0,0,.24,5,12,'#e7d6ad');
+  s.ellipse(t.sx,t.top,t.rx*.8,t.ry*.8,'#63bbc3');
+  s.line([t.sx,t.top],[t.sx,t.top-22],'#e5dbbb',5);
+  s.ellipse(t.sx,t.top-24,10,5,'#d3b97a');
+  s.path(`M${t.sx-8} ${t.top-23} Q${t.sx-14} ${t.top-12} ${t.sx-9} ${t.top} M${t.sx+8} ${t.top-23} Q${t.sx+14} ${t.top-12} ${t.sx+9} ${t.top}`,'none','stroke="#bbf3ea" stroke-width="2" opacity=".8"');
+  s.extend(t.sx-15,t.top-30);
   return s;
 }

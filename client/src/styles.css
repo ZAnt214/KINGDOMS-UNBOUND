@@ -515,24 +515,9 @@ textarea:focus {
 .city-host {
   background: #1f2b1b;
 }
-.city-host::before {
-  /* gradação de cor: céu de fim de tarde no alto, chão mais escuro embaixo */
-  content: '';
-  position: absolute;
-  inset: 0;
-  z-index: 1;
-  pointer-events: none;
-  background: linear-gradient(180deg, rgba(255, 168, 90, 0.16) 0%, rgba(255, 168, 90, 0.04) 30%, rgba(0, 0, 0, 0) 55%, rgba(8, 10, 14, 0.28) 100%);
-  mix-blend-mode: soft-light;
-}
 .city-host::after {
-  /* vinheta pesada: concentra o olhar no centro e funde a cena ao HUD */
-  content: '';
-  position: absolute;
-  inset: 0;
-  z-index: 1;
-  pointer-events: none;
-  background: radial-gradient(ellipse at 50% 52%, rgba(0, 0, 0, 0) 45%, rgba(6, 5, 4, 0.62) 100%);
+  content: ''; position: absolute; inset: 0; pointer-events: none;
+  background: radial-gradient(ellipse at 50% 48%, transparent 65%, rgba(22,49,42,.13));
 }
 .stage-loading {
   position: absolute;
@@ -990,4 +975,38 @@ textarea:focus {
     animation: none !important;
     transition: none !important;
   }
+}
+
+/* City v4: open field of view, enamel controls and warm limestone framing. */
+.hud-top { background: linear-gradient(rgba(23,49,49,.36), transparent); }
+.gov-card { background: linear-gradient(110deg,#183f50ed,#183f5080); border-color:#e4c57f; border-radius: 8px 24px 24px 8px; }
+.gov-portrait { width:48px; height:52px; }
+.res { background:linear-gradient(#183f50dd,#173345d9);border-color:#dcc38988;border-radius:7px; }
+.hud-bottom { left:auto; width:360px; max-width:100%; background:none; border:0; box-shadow:none; gap:12px; padding-bottom:calc(10px + var(--sb)); }
+.hud-bottom button { color:#fff3d6; gap:5px; text-shadow:0 2px 3px #14333b; background:none; }
+.hud-bottom button svg { box-sizing:content-box; padding:13px; border-radius:50%; border:2px solid #efd18a; background:linear-gradient(145deg,#459aaf,#1f657c 45%,#153f59); box-shadow:inset 0 0 0 3px #244b5f,inset 0 5px 8px #ffffff45,0 3px 0 #805f35,0 5px 10px #183d4260; }
+.hud-bottom button.on { background:none;color:#ffe29c; }
+.hud-bottom button.on svg { background:linear-gradient(145deg,#58afbd,#347e8f 45%,#205d70); border-color:#fff0b3; }
+.hud-bottom button.on::before { display:none; }
+.city-camera { position:absolute; right:calc(12px + var(--sr)); bottom:calc(110px + var(--sb)); z-index:3; display:flex; flex-direction:column; gap:7px; }
+.city-camera button { min-width:44px; min-height:44px; border-radius:50%; border:2px solid #e5c785; background:linear-gradient(#347b8b,#1c465c); color:#fff0cc; font-size:22px; box-shadow:0 3px 6px #12363d55; cursor:pointer; }
+.city-camera button:last-child { font-size:18px; }
+@media (min-width:800px) {
+ .hud-top { flex-direction:row; align-items:flex-start; gap:24px; padding:calc(14px + var(--st)) calc(16px + var(--sr)) 30px calc(16px + var(--sl)); }
+ .hud-row { flex:0 1 320px; }
+ .resources { flex:1; max-width:700px; margin-left:auto; }
+ .res { min-height:44px; padding-left:9px; }
+ .res-val { font-size:1rem; }
+ .queue-chip { position:absolute; top:calc(84px + var(--st)); left:calc(16px + var(--sl)); width:270px; }
+ .hud-bottom { width:390px; }
+}
+@media (max-height:500px) and (orientation:landscape) {
+ .hud-top {flex-direction:row;gap:10px;}
+ .hud-row {width:220px;flex:none;}
+ .resources {flex:1;}
+ .gov-realm,.res-rate {display:none;}
+ .gov-portrait {width:32px;height:38px;}
+ .hud-bottom {width:300px;gap:6px;padding-top:0;}
+ .hud-bottom button svg {padding:8px;}
+ .city-camera {bottom:92px;}
 }

@@ -74,3 +74,16 @@ Diretriz: **reino medieval em guerra, não vila de fazenda.**
 - Silhuetas verticais (torres, agulhas, estandartes) dão imponência.
 
 Evidências: `docs/evidence/visual-v3/` (inclui `comparativo-v2-v3.jpg`).
+
+## Revisão v4 — cidade clara com palácio de cobre (2026-10-24)
+
+Esta revisão substitui a paleta escura da v3 na cidade WebGL, a pedido do usuário após comparar cinco capturas de referência. As capturas orientam composição, luminosidade e legibilidade; nenhum asset de terceiros foi incorporado.
+
+- Pedra calcária clara com blocos maiores, sombras frias suaves, gramado luminoso e vegetação verde.
+- Palácio original com arcadas, alas, lanterna central e cúpula com nervuras douradas; mantém três estágios por nível real.
+- Coberturas esmaltadas na cor da civilização, casas com cerâmica quente, jardins ornamentais com fontes.
+- Avenidas angulares calçadas e praça; removido o fosso escuro para aproximar a leitura de cidade das referências diurnas.
+- HUD com medalhões esmaltados, recursos compactos e composição horizontal em telas largas. Apenas ações implementadas são expostas.
+- Zoom por botões e enquadramento geral além dos gestos existentes; correção do reenquadramento na mudança de orientação.
+
+**Limite de fidelidade:** esta é arte vetorial original rasterizada, ainda abaixo do acabamento de assets 3D pré-renderizados das referências. A cidade contém seis tipos funcionais; a densidade de dezenas de edifícios e as batalhas da referência não foram simuladas como se estivessem implementadas. O fallback Canvas e o mapa mundial mantêm a arte anterior. Nenhuma alegação de performance em iPhone físico.

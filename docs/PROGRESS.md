@@ -80,3 +80,11 @@
 
 - `docs/adr/0001-stack-fase-a.md` — stack, Canvas 2D em vez de PixiJS, Railway com 1 réplica.
 - Valores de balanceamento em `shared/rules.ts` (`RULES_VERSION = 1`) são decisões próprias iniciais, não números de outros jogos.
+
+## 2026-10-24 — Revisão visual v4 a partir das referências do usuário
+
+Implementada na branch `work/city-reference-art`, baseada em `claude/fase-a-railway` no commit `1561141`. A `main` continua sendo documental; esta revisão não substitui a implementação multiplayer por uma demonstração.
+
+Alterados palácio, materiais, terreno, vegetação, caminhos, jardins e HUD; adicionados controles reais de câmera e atualização em resize. Também removidos indicadores órfãos ao reconstruir a cidade por mudança de estágio. Estado, custos, filas e APIs de servidor preservados.
+
+Validação: TypeScript, nove testes de layout, build cliente/servidor e harness visual Chromium com APIs de teste interceptadas. Capturas em `docs/evidence/city-v4/`. Integração PostgreSQL indisponível localmente; ver TEST_REPORT. Revisão disponibilizada para análise por PR; não implica merge ou deploy. Acabamento ainda não equivale à referência comercial; faltam assets mais ricos, densidade de prédios funcionais, animações de personagens e validação Safari físico.

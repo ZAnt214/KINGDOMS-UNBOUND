@@ -74,3 +74,15 @@
 ## Como manter este arquivo
 
 Para cada execução registrar: data, branch/SHA, ambiente e versões, passos, resultado observado, evidências, status PASS/FAIL/BLOCKED. Uma checklist escrita **não** é evidência de execução.
+
+## Cidade v4 — 2026-10-24
+
+- `npm run typecheck`: PASS.
+- `npx vitest run tests/unit`: PASS, 9 testes de ocupação e limites urbanos.
+- `npm run build`: PASS, cliente Vite e servidor esbuild.
+- `tests/e2e/city-visual.cjs`: PASS em Chromium headless com SwiftShader. Usa fixtures explicitamente locais ao Playwright, sem adicionar modo demo ao jogo.
+- Verificados: renderização WebGL, clique no corpo da prefeitura, painel correto, envio de intenção de melhoria com chave de idempotência, fila retornada pela fixture, zoom e visão geral, limites de viewport e alvos de 44px em 390×844 e 844×390, screenshots dos três estágios e ausência de erros JavaScript.
+- `npm test`: NÃO passou localmente: PostgreSQL ausente (`ECONNREFUSED localhost:5432`). 9 unitários passaram; 27 testes de integração não executaram. Não considerar a revisão como nova certificação de multiplayer.
+- Sem teste Safari/WebKit nem aparelho físico. Sem benchmark de FPS/memória. Fallback Canvas conserva arte antiga.
+
+Reprodução visual: instalar Playwright no ambiente de QA, iniciar `npm run dev:client -- --host 127.0.0.1`, executar `node tests/e2e/city-visual.cjs`. Variáveis opcionais: `VISUAL_URL`, `VISUAL_OUTPUT`, `PLAYWRIGHT_MODULE`, `CHROME_PATH`. O runner não faz login nem altera contas reais. Capturas são **fixtures de QA**, identificadas pelo governador “Teste visual”, e não evidência de população ou economia multiplayer.
