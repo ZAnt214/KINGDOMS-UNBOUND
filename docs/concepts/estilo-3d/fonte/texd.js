@@ -277,3 +277,38 @@ export function leafNoiseColor(geo, base) {
   }
   geo.setAttribute('color', new THREE.Float32BufferAttribute(cols, 3));
 }
+
+/** Reboco pintado: manchas suaves, sujeira na base, pequenas rachaduras. */
+export function plaster(base) {
+  return pair('pl' + base, 512, (g, h, n) => {
+    const r = rng(base.length * 3 + 11);
+    g.fillStyle = base;
+    g.fillRect(0, 0, n, n);
+    h.fillStyle = '#909090';
+    h.fillRect(0, 0, n, n);
+    for (let k = 0; k < 90; k++) {
+      const x = r() * n, y = r() * n, rad = 20 + r() * 90;
+      const gr = g.createRadialGradient(x, y, 0, x, y, rad);
+      const light = r() > 0.5;
+      gr.addColorStop(0, light ? 'rgba(255,250,235,0.16)' : 'rgba(150,110,60,0.12)');
+      gr.addColorStop(1, 'rgba(0,0,0,0)');
+      g.fillStyle = gr;
+      g.fillRect(x - rad, y - rad, rad * 2, rad * 2);
+      const hv = light ? 'rgba(255,255,255,0.12)' : 'rgba(0,0,0,0.12)';
+      const hg = h.createRadialGradient(x, y, 0, x, y, rad * 0.5);
+      hg.addColorStop(0, hv);
+      hg.addColorStop(1, 'rgba(0,0,0,0)');
+      h.fillStyle = hg;
+      h.fillRect(x - rad, y - rad, rad * 2, rad * 2);
+    }
+    for (let k = 0; k < 10; k++) {
+      g.strokeStyle = 'rgba(110,80,50,0.35)';
+      g.lineWidth = 1;
+      g.beginPath();
+      let x = r() * n, y = r() * n;
+      g.moveTo(x, y);
+      for (let s = 0; s < 5; s++) { x += (r() - 0.5) * 20; y += 4 + r() * 10; g.lineTo(x, y); }
+      g.stroke();
+    }
+  }, 13, 8);
+}
