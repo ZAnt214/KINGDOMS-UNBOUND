@@ -1,5 +1,10 @@
 {
   "$schema": "https://openapi.vercel.sh/vercel.json",
   "installCommand": "npm ci --include=dev",
-  "buildCommand": "npm run build:client"
+  "buildCommand": "npm run build:client",
+  "functions": {
+    "server.ts": {
+      "includeFiles": "public/**"
+    }
+  }
 }
