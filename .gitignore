@@ -1,5 +1,7 @@
 node_modules/
 dist/
+public/
+.vercel/
 .env
 *.log
 test-results/

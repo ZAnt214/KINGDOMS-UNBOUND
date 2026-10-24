@@ -30,7 +30,7 @@ npm test                          # integração contra Postgres real (TEST_DATA
 npm run test:e2e                  # dois navegadores reais contra BASE_URL (servidor rodando)
 ```
 
-Deploy: [docs/DEPLOY_RAILWAY.md](docs/DEPLOY_RAILWAY.md). Decisões de stack: [ADR 0001](docs/adr/0001-stack-fase-a.md).
+Deploy: [Vercel](docs/DEPLOY_VERCEL.md) ou [Railway](docs/DEPLOY_RAILWAY.md). Decisões de stack: [ADR 0001](docs/adr/0001-stack-fase-a.md).
 
 ## Estrutura do código
 

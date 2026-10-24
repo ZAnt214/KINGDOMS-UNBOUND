@@ -4,7 +4,7 @@ import path from 'node:path';
 import express from 'express';
 import { authMiddleware, csrfGuard } from './auth.js';
 import { config } from './config.js';
-import type { Db } from './db.js';
+import { createPool, type Db } from './db.js';
 import { errorMiddleware } from './http.js';
 import { Hub } from './hub.js';
 import { migrate, seedWorld } from './migrate.js';
@@ -16,9 +16,16 @@ import { CityService } from './services/city.js';
 export const log = (msg: string, extra: Record<string, unknown> = {}) =>
   console.log(JSON.stringify({ level: 'info', time: new Date().toISOString(), msg, ...extra }));
 
-export async function createGameServer(db: Db, opts: { staticDir?: string } = {}) {
-  await migrate(db, log);
-  await seedWorld(db);
+export async function createGameServer(db: Db, opts: { staticDir?: string; directUrl?: string } = {}) {
+  // Migrações usam conexão direta: advisory locks não sobrevivem a poolers em modo transação.
+  const directUrl = opts.directUrl ?? config.directDatabaseUrl;
+  const direct = createPool(directUrl, 1);
+  try {
+    await migrate(direct, log);
+    await seedWorld(direct);
+  } finally {
+    await direct.end();
+  }
 
   const app = express();
   if (config.trustProxy) app.set('trust proxy', 1);
@@ -26,6 +33,7 @@ export async function createGameServer(db: Db, opts: { staticDir?: string } = {}
   const server = http.createServer(app);
   const hub = new Hub(db);
   hub.attach(server);
+  await hub.startBus(directUrl);
   const city = new CityService(db, hub);
   const alliance = new AllianceService(db, hub);
   const chat = new ChatService(db, hub);

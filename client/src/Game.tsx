@@ -132,6 +132,9 @@ export function Game({ meta, me, reloadMe, onLogout }: Props) {
           case 'alliance.updated':
             setAllianceKey((k) => k + 1);
             break;
+          case 'resync':
+            resync();
+            break;
           case 'membership.changed':
             reloadMe().then(() => loadChannels().catch(() => {}));
             setAllianceKey((k) => k + 1);

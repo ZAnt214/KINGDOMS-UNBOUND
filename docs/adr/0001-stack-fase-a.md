@@ -20,3 +20,7 @@ A Fase A exige servidor autoritativo com conexões WebSocket persistentes, reló
 - Escala horizontal exige pub/sub (Redis) para o hub e rate limits compartilhados. Até lá, `numReplicas` deve permanecer 1.
 - Rate limit e presença ficam em memória e reiniciam com o processo (aceitável na Fase A).
 - Obras e produção não dependem de processo vivo: são derivadas de timestamps no banco e materializadas por worker (1 s) ou na próxima leitura.
+
+## Atualização 2026-10-24 — Vercel e múltiplas instâncias
+
+O hub de tempo real passou a publicar eventos via Postgres `LISTEN/NOTIFY` (conexão direta, sem pooler). Isso permite rodar como Vercel Function (várias instâncias) e com mais de uma réplica no Railway, sem Redis. Payloads acima de ~7,9 KB viram um evento `resync` e o cliente recarrega os snapshots. Ver `docs/DEPLOY_VERCEL.md`.

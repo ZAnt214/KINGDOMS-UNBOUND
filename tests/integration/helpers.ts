@@ -12,7 +12,7 @@ export async function resetDb(): Promise<Db> {
 }
 
 export async function startServer(db: Db) {
-  const game = await createGameServer(db);
+  const game = await createGameServer(db, { directUrl: TEST_DB });
   await new Promise<void>((r) => game.server.listen(0, '127.0.0.1', () => r()));
   const port = (game.server.address() as AddressInfo).port;
   return { ...game, base: `http://127.0.0.1:${port}`, port };

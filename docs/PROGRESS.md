@@ -45,13 +45,14 @@
 - [x] 24 testes de integração (Vitest, Postgres real, 4 jogadores em 2 reinos).
 - [x] E2E com dois navegadores independentes em viewport de iPhone 13 (12 verificações).
 - [x] CI no GitHub Actions (typecheck, testes, build).
+- [x] Suporte a Vercel (`server.ts`, `vercel.json`, cliente em `public/`) e a múltiplas instâncias; 3 testes multi-instância.
 - [x] Dockerfile + `railway.json`; imagem simulada localmente (build limpo, só dependências de produção, healthcheck OK).
 - [ ] Teste em **iPhone/Safari físico** — não disponível neste ambiente.
 - [ ] Deploy real no Railway — bloqueado: sem credencial Railway na sessão.
 
 ## Limitações e dívidas conhecidas
 
-- Processo único: hub WebSocket e rate limits em memória. Escalar exige Redis.
+- Tempo real entre instâncias via Postgres LISTEN/NOTIFY (testado com 2 instâncias); rate limits ainda são por instância.
 - Sem névoa de guerra, marchas, tropas, combate, pesquisa, comandantes (Fase B+).
 - Sem moderação/denúncia/bloqueio de chat, correio, recuperação de senha, painel admin.
 - Arte procedural provisória (original, mas não final).

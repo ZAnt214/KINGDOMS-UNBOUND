@@ -5,8 +5,8 @@ import { config } from './config.js';
 import { createPool } from './db.js';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
-// Em produção o bundle fica em dist/server.js e o cliente em dist/client.
-const staticDir = process.env.STATIC_DIR ?? path.resolve(here, here.endsWith('dist') ? 'client' : '../../dist/client');
+// O cliente é gerado em public/ (servido pela CDN na Vercel e pelo Express nos demais ambientes).
+const staticDir = process.env.STATIC_DIR ?? path.resolve(here, here.endsWith('dist') ? '../public' : '../../public');
 
 const db = createPool(config.databaseUrl);
 const game = await createGameServer(db, { staticDir });

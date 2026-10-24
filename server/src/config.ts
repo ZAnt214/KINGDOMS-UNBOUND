@@ -1,6 +1,13 @@
 export const config = {
   port: Number(process.env.PORT ?? 3000),
-  databaseUrl: process.env.DATABASE_URL ?? 'postgres://ku:ku@localhost:5432/ku',
+  databaseUrl: process.env.DATABASE_URL ?? process.env.POSTGRES_URL ?? 'postgres://ku:ku@localhost:5432/ku',
+  /** Conexão direta (sem pooler) para LISTEN/NOTIFY e migrações; Neon/Vercel expõem estas variáveis. */
+  directDatabaseUrl:
+    process.env.DATABASE_URL_UNPOOLED ??
+    process.env.POSTGRES_URL_NON_POOLING ??
+    process.env.DATABASE_URL ??
+    process.env.POSTGRES_URL ??
+    'postgres://ku:ku@localhost:5432/ku',
   production: process.env.NODE_ENV === 'production',
   /** Railway e outros proxies terminam TLS antes do processo. */
   trustProxy: process.env.TRUST_PROXY !== 'false',
