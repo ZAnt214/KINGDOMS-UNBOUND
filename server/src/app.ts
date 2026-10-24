@@ -16,7 +16,10 @@ import { CityService } from './services/city.js';
 export const log = (msg: string, extra: Record<string, unknown> = {}) =>
   console.log(JSON.stringify({ level: 'info', time: new Date().toISOString(), msg, ...extra }));
 
-export async function createGameServer(db: Db, opts: { staticDir?: string; directUrl?: string } = {}) {
+export async function createGameServer(
+  db: Db,
+  opts: { staticDir?: string; directUrl?: string; app?: express.Express } = {},
+) {
   // Migrações usam conexão direta: advisory locks não sobrevivem a poolers em modo transação.
   const directUrl = opts.directUrl ?? config.directDatabaseUrl;
   const direct = createPool(directUrl, 1);
@@ -27,7 +30,7 @@ export async function createGameServer(db: Db, opts: { staticDir?: string; direc
     await direct.end();
   }
 
-  const app = express();
+  const app = opts.app ?? express();
   if (config.trustProxy) app.set('trust proxy', 1);
   app.disable('x-powered-by');
   const server = http.createServer(app);
