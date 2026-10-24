@@ -1,0 +1,8 @@
+node_modules/
+dist/
+public/
+.vercel/
+.env
+*.log
+test-results/
+tests/e2e/screenshots/

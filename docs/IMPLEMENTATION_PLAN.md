@@ -8,69 +8,69 @@ Cada tarefa concluída precisa de: código versionado, migração quando necess�
 
 ## Pré-implementação
 
-- [ ] Auditar conteúdo atual do repositório.
+- [x] Auditar conteúdo atual do repositório.
 - [ ] Rever fontes e classificar o que é referência confirmada versus design próprio.
-- [ ] Criar arquitetura e decisões técnicas (ADRs).
-- [ ] Escolher stack, orçamento técnico e hospedagem coerente com WebSockets persistentes.
-- [ ] Criar ambiente de desenvolvimento e CI.
+- [x] Criar arquitetura e decisões técnicas (ADRs).
+- [x] Escolher stack, orçamento técnico e hospedagem coerente com WebSockets persistentes.
+- [x] Criar ambiente de desenvolvimento e CI.
 - [ ] Especificar regras de construção, recursos, criação de reino e alianças para primeira versão.
 - [ ] Criar wireframes e mapa original.
-- [ ] Definir critério de aceite de duas sessões.
+- [x] Definir critério de aceite de duas sessões.
 
 ## Fase A — Primeiro multiplayer real (MVP técnico)
 
 ### A1. Identidade e mundo
-- [ ] Cadastro, login, logout e sessão.
-- [ ] Governador e nome exclusivo conforme regra.
-- [ ] Escolha entre civilizações iniciais implementadas.
-- [ ] Ingresso e isolamento por reino.
-- [ ] Criação/atribuição de cidade com posição válida no mapa.
-- [ ] Snapshot de reino autenticado e limitado por visibilidade.
+- [x] Cadastro, login, logout e sessão.
+- [x] Governador e nome exclusivo conforme regra.
+- [x] Escolha entre civilizações iniciais implementadas.
+- [x] Ingresso e isolamento por reino.
+- [x] Criação/atribuição de cidade com posição válida no mapa.
+- [~] Snapshot de reino autenticado e limitado por visibilidade. (por reino; sem névoa de guerra)
 
 **Aceite:** A e B entram no mesmo reino, mas não compartilham identidade/cidade/saldo.
 
 ### A2. Cidade e economia
-- [ ] Cidade visualmente navegável e com seleção de edifício.
-- [ ] Definições de edifícios, níveis, custos e requisitos.
-- [ ] Saldo de recursos persistido e ledger.
-- [ ] Início e conclusão de uma obra por timestamps de servidor.
-- [ ] Validação transacional e erro amigável.
-- [ ] Atualização visual e recuperação após reload.
+- [x] Cidade visualmente navegável e com seleção de edifício.
+- [x] Definições de edifícios, níveis, custos e requisitos.
+- [x] Saldo de recursos persistido e ledger.
+- [x] Início e conclusão de uma obra por timestamps de servidor.
+- [x] Validação transacional e erro amigável.
+- [x] Atualização visual e recuperação após reload.
 
 **Aceite:** custo debitado uma vez, prédio evoluído uma vez, progresso idêntico após reabrir.
 
 ### A3. Mapa compartilhado
-- [ ] Mapa próprio com pan/zoom mobile.
-- [ ] Cidades A e B como entidades persistentes do mesmo mapa.
-- [ ] Subscrever região e receber snapshot/deltas autorizados.
-- [ ] Coordenadas e clique para centralizar/inspecionar.
-- [ ] Reconexão.
+- [x] Mapa próprio com pan/zoom mobile.
+- [x] Cidades A e B como entidades persistentes do mesmo mapa.
+- [~] Subscrever região e receber snapshot/deltas autorizados. (por reino, não por chunk)
+- [x] Coordenadas e clique para centralizar/inspecionar.
+- [x] Reconexão.
 
 **Aceite:** duas sessões percebem um estado consistente sem recarregar manualmente.
 
 ### A4. Alianças
-- [ ] Criar aliança e cargos iniciais.
-- [ ] Procurar aliança, solicitar, aprovar e sair.
-- [ ] Membros e permissões autenticadas.
-- [ ] Eventos de ingresso/saída.
+- [x] Criar aliança e cargos iniciais.
+- [x] Procurar aliança, solicitar, aprovar e sair.
+- [x] Membros e permissões autenticadas.
+- [x] Eventos de ingresso/saída.
 
 **Aceite:** A cria, B solicita, A aprova, B entra, terceiros não possuem permissão indevida.
 
 ### A5. Chat completo da base
-- [ ] Canal global (entre reinos), reino e aliança.
-- [ ] Mensagens reais persistidas.
-- [ ] WebSockets, autorização e histórico paginado.
-- [ ] Tratamento de reconexão, rate limiting e mensagens não lidas.
-- [ ] Teclado, scroll e links internos de coordenadas no mobile.
+- [x] Canal global (entre reinos), reino e aliança.
+- [x] Mensagens reais persistidas.
+- [x] WebSockets, autorização e histórico paginado.
+- [x] Tratamento de reconexão, rate limiting e mensagens não lidas.
+- [~] Teclado, scroll e links internos de coordenadas no mobile. (sem validação em iPhone físico)
 
 **Aceite:** duas sessões trocam mensagens instantaneamente, acesso privado é validado.
 
 ### A6. Qualidade e entrega
-- [ ] Testes E2E de dois jogadores reais.
-- [ ] Testes de saldo, relógio, autorização, persistência.
-- [ ] Auditoria de performance iPhone/Safari ou registrar limitação da emulação.
-- [ ] Documentação de run/deploy e logs.
-- [ ] Atualizar docs/PROGRESS.md e docs/TEST_REPORT.md.
+- [x] Testes E2E de dois jogadores reais.
+- [x] Testes de saldo, relógio, autorização, persistência.
+- [~] Auditoria de performance iPhone/Safari ou registrar limitação da emulação. (limitação registrada em TEST_REPORT)
+- [x] Documentação de run/deploy e logs.
+- [x] Atualizar docs/PROGRESS.md e docs/TEST_REPORT.md.
 
 **Fim da fase A:** primeira fatia verdadeiramente jogável compartilhada.
 
