@@ -23,6 +23,8 @@ A referência principal de experiência é **Rise of Kingdoms**. Queremos profun
 - [Matriz de sistemas](docs/SYSTEMS.md) — inventário, integrações e cobertura.
 - [Testes e validação](docs/TEST_REPORT.md) — cenários e estado de verificação.
 - [Progresso](docs/PROGRESS.md) — status verdadeiro, decisões e próximos passos.
+- [Referências de pesquisa](docs/RESEARCH_REFERENCES.md) — fontes e protocolo de verificação de mecânicas.
+- [UX e direção de arte](docs/UX_ART_DIRECTION.md) — visual original de jogo e experiência mobile/Safari.
 
 ## Primeira meta jogável
 
