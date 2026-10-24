@@ -3,6 +3,7 @@ import * as THREE from 'three';
 import { RoundedBoxGeometry } from './node_modules/three/examples/jsm/geometries/RoundedBoxGeometry.js';
 import { mergeGeometries, mergeVertices } from './node_modules/three/examples/jsm/utils/BufferGeometryUtils.js';
 import { rng, noise2, fbm } from './kit.js';
+import * as TX from './texd.js';
 export { THREE, rng, noise2, fbm };
 
 export const PAL = {
@@ -108,21 +109,28 @@ export function M(color, opts = {}) {
   if (!mcache.has(key)) mcache.set(key, new THREE.MeshStandardMaterial({ color, roughness: 0.78, metalness: 0, ...opts }));
   return mcache.get(key);
 }
+const TM = (t, bs, o = {}) => M('#ffffff', { map: t.map, bumpMap: t.bump, bumpScale: bs, ...o });
 export const MAT = {
-  sand: () => M('#ffffff', { map: blocks(PAL.sand) }),
-  stone: () => M('#ffffff', { map: blocks(PAL.stone, 48, 28) }),
-  roofBlue: () => M('#ffffff', { map: tilesTex(PAL.blue) }),
-  roofTerra: () => M('#ffffff', { map: tilesTex(PAL.terra) }),
-  wood: () => M('#ffffff', { map: planksTex(PAL.wood) }),
+  sand: () => TM(TX.masonry(PAL.sand), 3.2, { roughness: 0.92 }),
+  stone: () => TM(TX.masonry(PAL.stone, 70, 40), 3.2, { roughness: 0.95 }),
+  roofBlue: () => TM(TX.rooftiles(PAL.blue), 2.6, { roughness: 0.45 }),
+  roofTerra: () => TM(TX.rooftiles(PAL.terra), 2.6, { roughness: 0.6 }),
+  wood: () => TM(TX.planks(PAL.wood), 2.2, { roughness: 0.85 }),
+  cobble: () => TM(TX.cobbles('#c9c0ae'), 2.5, { roughness: 0.95 }),
   gold: () => M(PAL.gold, { metalness: 0.65, roughness: 0.32 }),
   blue: () => M(PAL.blue, { roughness: 0.6 }),
   dark: () => M('#2a2018', { roughness: 0.9 }),
   white: () => M(PAL.white),
 };
 
+/** Rocha com relevo: cor por vértice + bump de pedra (triplanar simplificado pelas UVs da geometria). */
+export function ROCK(color) {
+  const t = TX.cobbles(color);
+  return new THREE.MeshStandardMaterial({ color, bumpMap: t.bump, bumpScale: 4, roughness: 0.95, flatShading: true });
+}
 // ---------- geometria ----------
-export function rbox(w, h, d, r = 0.25, uvScale = 4) {
-  const g = new RoundedBoxGeometry(w, h, d, 2, Math.min(r, w / 2 - 0.01, h / 2 - 0.01, d / 2 - 0.01));
+export function rbox(w, h, d, r = 0.25, uvScale = 6) {
+  const g = new RoundedBoxGeometry(w, h, d, 1, Math.min(r * 0.22, 0.08, w / 2 - 0.01, h / 2 - 0.01, d / 2 - 0.01));
   // UV em coordenadas de mundo para as texturas repetirem
   const p = g.attributes.position;
   const n = g.attributes.normal;
@@ -326,25 +334,21 @@ export function villagers(points) {
 export function trees(points) {
   const g = new THREE.Group();
   const blob = [];
-  for (const [x, y, z, r] of [
-    [0, 0, 0, 1],
-    [0.6, -0.25, 0.2, 0.72],
-    [-0.55, -0.2, 0.25, 0.7],
-    [0.1, 0.45, -0.3, 0.66],
-    [-0.15, -0.35, -0.55, 0.62],
-    [0.3, 0.2, 0.55, 0.6],
-  ]) {
-    const s = new THREE.IcosahedronGeometry(r, 3);
+  const clusters = [[0, 0, 0, 0.8]];
+  { const rc = rng(77); for (let i = 0; i < 18; i++) { const u = rc() * Math.PI * 2, v = Math.acos(2 * rc() - 1) * 0.75; clusters.push([Math.sin(v) * Math.cos(u) * 0.78, Math.cos(v) * 0.62 - 0.1, Math.sin(v) * Math.sin(u) * 0.78, 0.34 + rc() * 0.2]); } }
+  for (const [x, y, z, r] of clusters) {
+    const s = new THREE.IcosahedronGeometry(r, 2);
     s.deleteAttribute('uv');
     const p = s.attributes.position;
     for (let i = 0; i < p.count; i++) {
-      const k = 1 + noise2(p.getX(i) * 3 + x * 9, p.getY(i) * 3 + p.getZ(i) * 2) * 0.12;
+      const k = 1 + noise2(p.getX(i) * 3 + x * 9, p.getY(i) * 3 + p.getZ(i) * 2) * 0.14 + noise2(p.getX(i) * 11 + z * 5, p.getZ(i) * 11 + p.getY(i) * 7) * 0.07;
       p.setXYZ(i, p.getX(i) * k + x, p.getY(i) * k * 0.92 + y, p.getZ(i) * k + z);
     }
     blob.push(s);
   }
   const leaf = mergeVertices(mergeGeometries(blob));
   leaf.computeVertexNormals();
+  TX.leafNoiseColor(leaf, '#d6d6d6');
   const trunk = new THREE.CylinderGeometry(0.18, 0.28, 1.6, 8).translate(0, 0.8, 0);
   const palmT = new THREE.CylinderGeometry(0.16, 0.24, 5, 8).translate(0, 2.5, 0);
   const frond = mergeGeometries(
@@ -376,7 +380,7 @@ export function trees(points) {
     im.receiveShadow = true;
     g.add(im);
   };
-  const leafM = M('#ffffff', { roughness: 0.85 });
+  const leafM = new THREE.MeshStandardMaterial({ color: '#ffffff', vertexColors: true, roughness: 0.9 });
   add(trunk, M('#7a5232'), kinds.oak, (o, p) => {
     o.position.set(p.x, 0, p.z);
     o.scale.setScalar(p.s);

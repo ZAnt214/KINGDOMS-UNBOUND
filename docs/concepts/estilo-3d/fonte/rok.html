@@ -41,6 +41,7 @@
 <script type="module">
 import * as R from './rok.js';
 import * as C from './city.js';
+import * as TX from './texd.js';
 import { EffectComposer } from './node_modules/three/examples/jsm/postprocessing/EffectComposer.js';
 import { RenderPass } from './node_modules/three/examples/jsm/postprocessing/RenderPass.js';
 import { GTAOPass } from './node_modules/three/examples/jsm/postprocessing/GTAOPass.js';
@@ -67,7 +68,7 @@ function road(pts, w, col = '#cfc6b2') {
   g.strokeStyle = 'rgba(120,96,60,0.5)'; g.lineWidth = (w + 1.4) * k; g.beginPath(); pts.forEach(([x, z], i) => i ? g.lineTo(wx(x), wz(z)) : g.moveTo(wx(x), wz(z))); g.stroke();
   g.strokeStyle = col; g.lineWidth = w * k; g.stroke();
   // pedras
-  for (let i = 0; i < pts.length - 1; i++) { const [ax, az] = pts[i], [bx, bz] = pts[i + 1]; const n = Math.hypot(bx - ax, bz - az) * 3; for (let j = 0; j < n * w; j++) { const t = rnd(), o = (rnd() - 0.5) * w; const L = Math.hypot(bx - ax, bz - az); const x = ax + (bx - ax) * t - (bz - az) / L * o, z = az + (bz - az) * t + (bx - ax) / L * o; g.fillStyle = rnd() > 0.5 ? '#e2dacb' : '#b4ab98'; g.beginPath(); g.ellipse(wx(x), wz(z), 3 + rnd() * 3, 2 + rnd() * 2, rnd(), 0, 7); g.fill(); } }
+  for (let i = 0; i < pts.length - 1; i++) { const [ax, az] = pts[i], [bx, bz] = pts[i + 1]; const n = Math.hypot(bx - ax, bz - az) * 3; for (let j = 0; j < n * w; j++) { const t = rnd(), o = (rnd() - 0.5) * w; const L = Math.hypot(bx - ax, bz - az); const x = ax + (bx - ax) * t - (bz - az) / L * o, z = az + (bz - az) * t + (bx - ax) / L * o; g.fillStyle = ['#e6dfd0', '#c8bea8', '#a99f8a', '#d6cdb8'][Math.floor(rnd() * 4)]; g.strokeStyle = 'rgba(90,76,56,0.6)'; g.lineWidth = 1; g.beginPath(); g.ellipse(wx(x), wz(z), 3.5 + rnd() * 3, 2.5 + rnd() * 2, rnd(), 0, 7); g.fill(); g.stroke(); } }
   g.restore();
 }
 // terra batida perto da muralha e caminho externo
@@ -82,13 +83,14 @@ for (const [x, z, r] of [[22, 6, 11], [44, -14, 9], [-22, 8, 10], [-44, 10, 9], 
 g.fillStyle = '#d8cfbd'; g.beginPath(); g.ellipse(wx(0), wz(18), 9 * k, 6 * k, 0, 0, 7); g.fill();
 const ground = new THREE.Mesh(new THREE.PlaneGeometry(GS, GS), new THREE.MeshStandardMaterial({ map: new THREE.CanvasTexture(gc), roughness: 0.95 }));
 ground.material.map.colorSpace = THREE.SRGBColorSpace; ground.material.map.anisotropy = 8;
+{ const gb = TX.grassBump(); gb.repeat.set(70, 70); ground.material.bumpMap = gb; ground.material.bumpScale = 1.6; }
 ground.rotation.x = -Math.PI / 2; ground.receiveShadow = true; scene.add(ground);
 const far = new THREE.Mesh(new THREE.PlaneGeometry(4000, 4000), new THREE.MeshStandardMaterial({ color: NIGHT ? 0x2a4a2a : 0x5e9a36, roughness: 1 }));
 far.rotation.x = -Math.PI / 2; far.position.y = -0.05; scene.add(far);
 
 // ---------- cidade ----------
 const anchors = [];
-const place = (b, x, z, ry = 0, info = null) => { x *= SC; z *= SC; b.g.position.set(x, 0, z); b.g.rotation.y = ry; scene.add(b.g); if (info) anchors.push({ ...info, pos: new THREE.Vector3(x + b.anchor[0], b.anchor[1], z + b.anchor[2]) }); };
+const boxes = []; const place = (b, x, z, ry = 0, info = null) => { x *= SC; z *= SC; b.g.position.set(x, 0, z); b.g.rotation.y = ry; scene.add(b.g); b.g.updateMatrixWorld(true); boxes.push(new THREE.Box3().setFromObject(b.g).expandByScalar(0.6)); if (info) anchors.push({ ...info, pos: new THREE.Vector3(x + b.anchor[0], b.anchor[1], z + b.anchor[2]) }); };
 scene.add(C.walls(HALF));
 place(C.cityHall(), 0, -8, 0, { type: 'label', text: 'Castelo · Nv 17' });
 place(C.academy(), 30, -38, 0, { type: 'timer', time: '03:07:32', p: 0.62, icon: 'book' });
@@ -125,6 +127,23 @@ for (let i = 0; i < 520; i++) {
 }
 for (const [x, z] of [[8, 18], [-8, 18], [12, -24], [-6, 30], [6, 30], [-34, 22], [38, -2], [-2, -30], [20, -16], [-50, -2], [40, 56], [-54, 50]]) tp.push({ x, z, s: 0.9 + rr() * 0.3, kind: rr() > 0.5 ? 'palm' : 'oak' });
 scene.add(R.trees(tp));
+// tufos de grama e flores (instanciados) para dar textura ao gramado
+{
+  const blade = R.mergeGeometries([0, 1, 2, 3].map((i) => new THREE.ConeGeometry(0.09, 0.7 + (i % 2) * 0.3, 3).translate(Math.cos(i * 1.9) * 0.14, 0.35, Math.sin(i * 1.9) * 0.14).rotateZ((i - 1.5) * 0.18).toNonIndexed()));
+  const N = 70000; const im = new THREE.InstancedMesh(blade, R.M('#ffffff', { roughness: 1 }), N); const o = new THREE.Object3D(); const c = new THREE.Color(); let n = 0; const tmp = new THREE.Vector3();
+  const onRoad = (x, z) => (Math.abs(x) < 4.5 && z > 10) || (Math.abs(z - 30 * SC) < 3 && Math.abs(x) < 30 * SC) || (Math.abs(Math.abs(x) - 30 * SC) < 3 && z < 30 * SC && z > -24 * SC);
+  for (let k = 0; k < N * 3 && n < N; k++) {
+    const x = (rr() - 0.5) * 190, z = (rr() - 0.5) * 190;
+    if (onRoad(x, z)) continue; tmp.set(x, 0.5, z); if (boxes.some((b) => b.containsPoint(tmp))) continue;
+    const m = Math.max(Math.abs(x), Math.abs(z)); if (Math.abs(m - HALF) < 2.4) continue;
+    o.position.set(x, 0, z); o.rotation.set(0, rr() * 6, 0); const s2 = 0.32 + rr() * 0.35; o.scale.set(s2 * 1.3, s2 * (0.6 + rr() * 0.5), s2 * 1.3); o.updateMatrix(); im.setMatrixAt(n, o.matrix);
+    im.setColorAt(n, c.set(['#66a436', '#72ae3e', '#5e9a32', '#7cb646'][Math.floor(rr() * 4)])); n++;
+  }
+  im.count = n; im.receiveShadow = true; scene.add(im);
+  const fl = new THREE.InstancedMesh(new THREE.SphereGeometry(0.14, 6, 4), R.M('#ffffff'), 2500); let f = 0;
+  for (let k = 0; k < 9000 && f < 2500; k++) { const x = (rr() - 0.5) * 190, z = (rr() - 0.5) * 190; if (onRoad(x, z)) continue; tmp.set(x, 0.5, z); if (boxes.some((b) => b.containsPoint(tmp))) continue; o.position.set(x, 0.35, z); o.scale.setScalar(1); o.updateMatrix(); fl.setMatrixAt(f, o.matrix); fl.setColorAt(f, c.set(['#ffffff', '#f2d04e', '#e86a8a', '#c87ae8'][f % 4])); f++; }
+  fl.count = f; scene.add(fl);
+}
 // pessoas pelas ruas
 const vp = [];
 for (let i = 0; i < 70; i++) { const t = rr(); const path = rr(); let x, z; if (path < 0.4) { x = (rr() - 0.5) * 4; z = 14 + t * 46; } else if (path < 0.7) { x = -30 + t * 60; z = 30 + (rr() - 0.5) * 3; } else { x = (rr() - 0.5) * 14; z = 14 + (rr() - 0.5) * 9; } vp.push({ x, z }); }
@@ -152,11 +171,11 @@ if (!NIGHT) {
   scene.background = new THREE.Color(0x8fc4e8);
   scene.fog = new THREE.Fog(0xb8d8ee, 260, 700);
   sunDir = new THREE.Vector3(-0.55, 1, 0.35).normalize();
-  const sun = new THREE.DirectionalLight(0xfff1dc, 3.4);
+  const sun = new THREE.DirectionalLight(0xfff0d6, 4.0);
   sun.position.copy(sunDir.clone().multiplyScalar(220)); sun.castShadow = true;
-  sun.shadow.mapSize.set(4096, 4096); Object.assign(sun.shadow.camera, { left: -120, right: 120, top: 120, bottom: -120, near: 10, far: 600 }); sun.shadow.bias = -0.0004; sun.shadow.normalBias = 0.3; sun.shadow.radius = 4;
+  sun.shadow.mapSize.set(4096, 4096); Object.assign(sun.shadow.camera, { left: -120, right: 120, top: 120, bottom: -120, near: 10, far: 600 }); sun.shadow.bias = -0.0004; sun.shadow.normalBias = 0.3; sun.shadow.radius = 1.5;
   scene.add(sun, sun.target);
-  scene.add(new THREE.HemisphereLight(0xd4ecff, 0x7a9a4a, 1.35));
+  scene.add(new THREE.HemisphereLight(0xd4ecff, 0x6a7a3a, 0.95));
   exposure = 1.05;
 } else {
   scene.background = new THREE.Color(0x0a1220);
@@ -201,7 +220,7 @@ document.body.insertBefore(rd.domElement, document.body.firstChild);
 rd.domElement.style.cssText = 'position:absolute;left:0;top:0';
 const comp = new EffectComposer(rd);
 comp.addPass(new RenderPass(scene, cam));
-if (q.get('ao') !== '0') { const ao = new GTAOPass(scene, cam, W, H); ao.updateGtaoMaterial({ radius: 2.2, distanceExponent: 1.4, thickness: 1.6, scale: 1.3 }); ao.blendIntensity = 0.9; comp.addPass(ao); }
+if (q.get('ao') !== '0') { const ao = new GTAOPass(scene, cam, W, H); ao.updateGtaoMaterial({ radius: 2.2, distanceExponent: 1.4, thickness: 1.6, scale: 1.3 }); ao.blendIntensity = 1.0; comp.addPass(ao); }
 comp.addPass(new UnrealBloomPass(new THREE.Vector2(W, H), NIGHT ? 0.6 : 0.22, 0.45, NIGHT ? 0.9 : 0.88));
 comp.addPass(new OutputPass());
 comp.render();

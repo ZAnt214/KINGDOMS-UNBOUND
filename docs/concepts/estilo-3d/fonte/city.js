@@ -280,7 +280,7 @@ export function quarry() {
     s.translate(-3 + r() * 6, 0.6 + r() * 0.8, -3 + r() * 4);
     rocks.push(s);
   }
-  g.add(R.mesh(R.mergeGeometries(rocks), M('#a3a7ad', { flatShading: true })));
+  g.add(R.mesh(R.mergeGeometries(rocks), R.ROCK('#a9abae')));
   for (let i = 0; i < 5; i++) R.block(g, 1, 0.8, 1, MAT.stone(), 2 + (i % 3) * 1.1, 0.3, 3 + Math.floor(i / 3) * 1.1, 0.1);
   // guindaste
   R.block(g, 0.3, 5, 0.3, MAT.wood(), -4, 0.3, 3, 0.05);
@@ -294,7 +294,7 @@ export function quarry() {
 export function goldMine() {
   const g = G();
   R.block(g, 10, 0.3, 9, M('#8a7a62'), 0, 0, 0, 0.1);
-  const rock = R.mesh(new THREE.DodecahedronGeometry(3.4, 1), M('#7a6a5a', { flatShading: true }), -1, 1.6, -1.5);
+  const rock = R.mesh(new THREE.DodecahedronGeometry(3.4, 2), R.ROCK('#8a7a66'), -1, 1.6, -1.5);
   rock.scale.set(1.3, 0.8, 1);
   g.add(rock);
   R.portal(g, 1.8, 2.4, -1, 0.2, 1.3);
@@ -339,7 +339,7 @@ export function tavern() {
 
 export function market() {
   const g = G();
-  R.block(g, 14, 0.25, 10, MAT.stone(), 0, 0, 0, 0.1);
+  R.block(g, 14, 0.25, 10, MAT.cobble(), 0, 0, 0, 0.1);
   const colors = [
     ['#2f6fb3', '#f4ecdc'],
     ['#d23a2a', '#f4ecdc'],
