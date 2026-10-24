@@ -1,47 +1,69 @@
 # PROGRESSO REAL — KINGDOMS UNBOUND
 
-**Última atualização:** 2026-10-24.
+**Última atualização:** 2026-10-24 · branch `claude/fase-a-railway`.
 
 ## Estado do projeto
 
-**Pré-produção e documentação.** O repositório recém-criado recebeu o README, o prompt mestre e especificações estruturadas. Não há afirmação de jogo construído, servidor ativo, assets finalizados, infraestrutura provisionada ou testes executados.
+**Fase A implementada e testada em ambiente local/CI.** Servidor autoritativo Node/TypeScript com PostgreSQL e WebSocket, cliente PWA mobile-first. **Deploy em produção ainda não executado**: falta conectar o repositório a uma conta Railway (ver `docs/DEPLOY_RAILWAY.md`). Fases B–E não iniciadas.
 
-## Concluído
+## Entregue nesta etapa
 
-- [x] Nome adotado: KINGDOMS UNBOUND.
-- [x] Repositório oficial identificado: ZAnt214/KINGDOMS-UNBOUND.
-- [x] Objetivo de referência funcional do gênero definido.
-- [x] Escopo de cidade, economia, mundo, combate, alianças, chats, governo e KvK documentado.
-- [x] Prompt para Work e plano de implementação organizados.
-- [x] Critérios iniciais de qualidade e teste preparados.
+### A1 — Identidade e mundo
+- [x] Cadastro, login, logout, sessão em cookie HttpOnly (token com hash SHA-256, bcrypt para senha).
+- [x] Governador com nome único (case-insensitive), um por conta.
+- [x] Três civilizações originais com bônus reais aplicados no servidor: Coroa de Auren (+15% alimento), Clãs de Kharuun (+15% pedra), Ligas de Veyra (obras 10% mais rápidas).
+- [x] Dois reinos (Valdoria, Ostmark) com terreno determinístico original 120×120; isolamento por reino em mapa, alianças e chat.
+- [x] Cidade criada em posição válida (terreno construível, distância mínima entre cidades).
+- [~] Snapshot do mapa limitado ao próprio reino e a uma área máxima. **Não há névoa de guerra** (todas as cidades do reino são visíveis): decisão da Fase A, névoa prevista na Fase B.
 
-## Em aberto
+### A2 — Cidade e economia
+- [x] Cidade isométrica navegável (arraste, pinça, roda), seleção de edifício e painel com custo, tempo, efeito e motivo de bloqueio.
+- [x] Seis edifícios com efeito real: Prefeitura (limite de níveis), Fazenda, Serraria, Pedreira, Mina de Ouro (produção), Armazém (capacidade).
+- [x] Saldos + ledger imutável (concessão inicial, produção, custo de obra) na mesma transação; restrição `amount >= 0`.
+- [x] Obra por timestamps de servidor; worker de 1 s e conclusão preguiçosa na leitura; sobrevive a reinício.
+- [x] Idempotência por `idempotency_key` (repetição devolve a mesma resposta sem cobrar).
+- [x] Fila única de construção por cidade (índice parcial único + lock da cidade).
 
-- [ ] Auditoria aprofundada e referenciada dos detalhes vigentes de Rise of Kingdoms.
-- [ ] Escolha final de stack e arquitetura por ADR.
-- [ ] Código do jogo e renderização.
-- [ ] Banco e migrações.
-- [ ] Backend autoritativo.
-- [ ] Login/governador/cidade.
-- [ ] Economia real e temporizadores.
-- [ ] Reinos e mapa compartilhado.
-- [ ] Alianças e chat real.
-- [ ] Dois usuários em teste E2E.
-- [ ] Infraestrutura/deploy.
-- [ ] Fases B, C, D, E.
+### A3 — Mapa compartilhado
+- [x] Mapa isométrico próprio com culling, LOD por zoom, pan/pinça, coordenadas, "ir para" e "minha cidade".
+- [x] Cidades de todos os governadores do reino; atualização em tempo real (`map.city`) ao concluir obras ou mudar de aliança.
+- [x] Reconexão com backoff; ao reconectar o cliente recarrega snapshots.
+- [~] Assinatura por **reino**, não por região/chunk (suficiente para 120×120; chunks na Fase B).
+
+### A4 — Alianças
+- [x] Criar (nome/sigla únicos por reino), buscar, candidatar, cancelar, aprovar/recusar, sair, expulsar, promover/rebaixar, transferir liderança, dissolução quando o último membro sai.
+- [x] RBAC R1–R5 verificado no servidor (`ALLIANCE_PERMISSIONS` em `shared/rules.ts`) e auditoria em `audit_logs`.
+- [x] Eventos em tempo real de candidatura e mudança de membros.
+
+### A5 — Chat
+- [x] Canais global (entre reinos), reino e aliança; mensagens persistidas, histórico paginado, não lidas.
+- [x] ACL no servidor em leitura, escrita e entrega WebSocket; saída da aliança revoga imediatamente.
+- [x] Rate limit (5 mensagens/10 s), limite de 500 caracteres, saneamento de caracteres de controle.
+- [x] Coordenadas `X:12 Y:40` viram referência estruturada validada pelo servidor e link que centraliza o mapa.
+
+### A6 — Qualidade e entrega
+- [x] 24 testes de integração (Vitest, Postgres real, 4 jogadores em 2 reinos).
+- [x] E2E com dois navegadores independentes em viewport de iPhone 13 (12 verificações).
+- [x] CI no GitHub Actions (typecheck, testes, build).
+- [x] Dockerfile + `railway.json`; imagem simulada localmente (build limpo, só dependências de produção, healthcheck OK).
+- [ ] Teste em **iPhone/Safari físico** — não disponível neste ambiente.
+- [ ] Deploy real no Railway — bloqueado: sem credencial Railway na sessão.
+
+## Limitações e dívidas conhecidas
+
+- Processo único: hub WebSocket e rate limits em memória. Escalar exige Redis.
+- Sem névoa de guerra, marchas, tropas, combate, pesquisa, comandantes (Fase B+).
+- Sem moderação/denúncia/bloqueio de chat, correio, recuperação de senha, painel admin.
+- Arte procedural provisória (original, mas não final).
+- Sem teste de carga; nenhuma afirmação de capacidade.
 
 ## Próxima ação objetiva
 
-Abrir o repositório no ChatGPT Work, ler docs/WORK_MASTER_PROMPT.md e iniciar a **Fase A** pelo fluxo de duas contas, cidades e mundo persistente. Não abrir o esforço criando apenas telas decorativas.
+1. Conectar o repositório ao Railway (painel ou `RAILWAY_TOKEN`) e validar o fluxo de duas contas na URL pública.
+2. Testar em iPhone físico (Safari e PWA instalada) e registrar resultados em `TEST_REPORT.md`.
+3. Iniciar Fase B: chunks do mapa, névoa de guerra, tropas e marchas.
 
-## Protocolo de atualizações
+## Decisões registradas
 
-Ao fim de cada entrega, registrar:
-1. Código/PR/SHA e funcionalidades;
-2. ambiente em que executou;
-3. testes e evidências;
-4. bloqueios e limitações;
-5. próximo marco;
-6. decisão arquitetural alterada.
-
-Não substituir resultado observado por previsão.
+- `docs/adr/0001-stack-fase-a.md` — stack, Canvas 2D em vez de PixiJS, Railway com 1 réplica.
+- Valores de balanceamento em `shared/rules.ts` (`RULES_VERSION = 1`) são decisões próprias iniciais, não números de outros jogos.

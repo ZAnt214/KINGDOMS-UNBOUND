@@ -1,0 +1,6 @@
+node_modules
+dist
+.git
+tests/e2e/screenshots
+*.log
+.env

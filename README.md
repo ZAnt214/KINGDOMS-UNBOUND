@@ -2,13 +2,42 @@
 
 **MMO persistente de estratégia, civilizações, cidades, alianças e guerras territoriais.**
 
-> Status atual: **documentação de pré-produção**. A existência destes documentos não significa que o jogo, o servidor ou o multiplayer estejam implementados.
+> Status atual: **Fase A implementada e testada** (contas, governador, civilizações, reinos, cidade com obras por relógio de servidor, economia com ledger, mapa compartilhado em tempo real, alianças R1–R5 e chats global/reino/aliança). Fases B–E ainda não existem. Ver [Progresso](docs/PROGRESS.md) e [Relatório de testes](docs/TEST_REPORT.md).
 
 ## Visão
 
 KINGDOMS UNBOUND será um jogo de estratégia para navegador e PWA mobile, com prioridade para iPhone/Safari. Cada jogador administra uma cidade, desenvolve sua civilização, recruta comandantes, movimenta exércitos num mapa compartilhado, integra uma aliança e compete pelo controle político/militar do reino.
 
 A referência principal de experiência é **Rise of Kingdoms**. Queremos profundidade similar nas *mecânicas de gênero*, com código, textos, identidade visual, mapas, recursos gráficos e personagens **originais**, sem copiar materiais protegidos de terceiros.
+
+## Rodar localmente
+
+Requisitos: Node.js 22+ e PostgreSQL 16.
+
+```bash
+npm ci
+createdb ku                       # ou ajuste DATABASE_URL (ver .env.example)
+npm run build && npm start        # http://localhost:3000
+```
+
+Desenvolvimento com recarga: `npm run dev:server` e, em outro terminal, `npm run dev:client` (http://localhost:5173).
+
+Qualidade:
+
+```bash
+npm run typecheck
+npm test                          # integração contra Postgres real (TEST_DATABASE_URL, padrão ku_test)
+npm run test:e2e                  # dois navegadores reais contra BASE_URL (servidor rodando)
+```
+
+Deploy: [docs/DEPLOY_RAILWAY.md](docs/DEPLOY_RAILWAY.md). Decisões de stack: [ADR 0001](docs/adr/0001-stack-fase-a.md).
+
+## Estrutura do código
+
+- `shared/` — regras versionadas (civilizações, edifícios, custos, produção, RBAC) e terreno determinístico; usadas pelo servidor (autoridade) e pelo cliente (exibição).
+- `server/src/` — Express + WebSocket, migrações, serviços `city` (obras, ledger, idempotência, worker), `alliance` (RBAC, auditoria) e `chat` (ACL, rate limit, coordenadas).
+- `client/src/` — PWA React; cidade e mapa isométricos em Canvas 2D com arte procedural original; HUD mobile com safe-area.
+- `tests/integration/` — Vitest com quatro jogadores reais em dois reinos; `tests/e2e/` — Playwright com dois contextos de navegador.
 
 ## Documentação e entrada para o Work
 
