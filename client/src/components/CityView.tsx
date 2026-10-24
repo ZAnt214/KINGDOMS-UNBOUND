@@ -3,6 +3,7 @@ import { BUILDING_TYPES, BUILDINGS, type BuildingType, type CivilizationDef } fr
 import type { CityState } from '../api';
 import { Camera, fitCanvas } from '../camera';
 import { cityBuilding, diamond, isoBox, pyramidRoof, scaffolding, shade, tree } from '../draw';
+import { CITIZENS, citizenFrame, drawCitizen, roleLabel } from '../livingCitizens';
 
 const TW = 64;
 const TH = 32;
@@ -45,6 +46,7 @@ export function CityView({ state, civ, selected, onSelect, now }: Props) {
     let raf = 0;
     let last = 0;
     const center = iso(GRID / 2, GRID / 2);
+    let selectedCitizenId: string | null = null;
 
     const hitTest = (sx: number, sy: number): BuildingType | null => {
       const w = cam.toWorld(sx, sy);
@@ -64,12 +66,30 @@ export function CityView({ state, civ, selected, onSelect, now }: Props) {
       return best;
     };
 
+    // Personagens são clicáveis, sem roubar a seleção dos edifícios ao redor.
+    const selectAt = (sx: number, sy: number) => {
+      const w = cam.toWorld(sx, sy);
+      const now = performance.now();
+      const nearest = CITIZENS.map((npc) => {
+        const f = citizenFrame(npc, now);
+        const p = iso(f.tx, f.ty);
+        const d = Math.hypot((w.x - p.x) / 19, (w.y - (p.y - 22)) / 28);
+        return { npc, d };
+      }).sort((a, b) => a.d - b.d)[0];
+      if (nearest && nearest.d < 1) {
+        selectedCitizenId = nearest.npc.id;
+        props.current.onSelect(null);
+      } else {
+        selectedCitizenId = null;
+        props.current.onSelect(hitTest(sx, sy));
+      }
+    };
     const cam = new Camera(
       canvas,
       0.45,
       2.2,
       () => {},
-      (sx, sy) => props.current.onSelect(hitTest(sx, sy)),
+      selectAt,
     );
     cam.centerOn(center.x, center.y - 20);
     cam.zoom = Math.min(1.1, Math.max(0.5, canvas.clientWidth / (GRID * TW * 0.95)));
@@ -170,6 +190,17 @@ export function CityView({ state, civ, selected, onSelect, now }: Props) {
           },
         });
       }
+      // Oito moradores originais com movimento, trabalho e patrulha.
+      // Eles são decoração animada local — a simulação econômica/militar
+      // continua exclusivamente autoritativa no servidor.
+      for (const npc of CITIZENS) {
+        const f = citizenFrame(npc, t);
+        const p = iso(f.tx, f.ty);
+        items.push({
+          depth: f.tx + f.ty + 0.12,
+          draw: () => drawCitizen(ctx, f, p.x, p.y, selectedCitizenId === npc.id),
+        });
+      }
       // Torres dos cantos
       for (const [tx, ty] of [
         [0, 0],
@@ -216,6 +247,26 @@ export function CityView({ state, civ, selected, onSelect, now }: Props) {
           ctx.fillStyle = '#7ed36f';
           ctx.fillRect(s.x - 29, s.y + 22, 58 * frac, 4);
         }
+      }
+      // Apenas o NPC selecionado recebe nome e atividade: não poluir o mapa.
+      const active = selectedCitizenId ? CITIZENS.find((n) => n.id === selectedCitizenId) : null;
+      if (active) {
+        const f = citizenFrame(active, t);
+        const p = iso(f.tx, f.ty);
+        const s = cam.toScreen(p.x, p.y - 58);
+        const label = f.name + ' · ' + (f.moving ? 'Caminhando' : roleLabel[f.role]);
+        ctx.font = '600 12px system-ui, sans-serif';
+        const w = ctx.measureText(label).width + 26;
+        ctx.fillStyle = 'rgba(35,28,23,0.94)';
+        ctx.strokeStyle = '#cba65e';
+        ctx.lineWidth = 1.3;
+        ctx.beginPath();
+        ctx.roundRect(s.x - w / 2, s.y - 8, w, 28, 9);
+        ctx.fill();
+        ctx.stroke();
+        ctx.fillStyle = '#f4e4bd';
+        ctx.textAlign = 'center';
+        ctx.fillText(label, s.x, s.y + 10);
       }
     };
     raf = requestAnimationFrame(draw);
