@@ -1,12 +1,13 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { BUILDINGS, type BuildingType, CIVILIZATION_BY_ID } from '../../shared/rules';
+import { BUILDING_TYPES, BUILDINGS, type BuildingType, CIVILIZATION_BY_ID, RESOURCE_TYPES, upgradeBlocker, upgradeCost } from '../../shared/rules';
 import type { Biome } from '../../shared/terrain';
 import { api, ApiError, type ChatChannel, type ChatMessage, type CityState, type MapCity, type Me, type Meta, serverNow } from './api';
 import { AlliancePanel } from './components/AlliancePanel';
 import { BuildingSheet } from './components/BuildingSheet';
 import { ChatPanel } from './components/ChatPanel';
-import { CityView } from './components/CityView';
-import { ResourceBar } from './components/ResourceBar';
+import { CityStage } from './city/CityStage';
+import { projectResources, ResourceBar } from './components/ResourceBar';
+import { IconCastle, IconChat, IconExit, IconHammer, IconMap, IconPower, IconShield } from './icons';
 import { type MapFocus, WorldMap } from './components/WorldMap';
 import { fmtDuration, fmtNum } from './format';
 import { useTick } from './hooks';
@@ -204,38 +205,64 @@ export function Game({ meta, me, reloadMe, onLogout }: Props) {
   }
 
   const q = city.queue;
+  // Edifícios que podem ser melhorados agora (indicador contextual na cena).
+  const res = projectResources(city);
+  const upgradable = q
+    ? []
+    : BUILDING_TYPES.filter((b) => {
+        if (upgradeBlocker(b, city.levels)) return false;
+        const cost = upgradeCost(b, city.levels[b]);
+        return RESOURCE_TYPES.every((r) => (cost[r] ?? 0) <= res[r]);
+      });
+  const qFrac = q ? Math.min(1, Math.max(0, (serverNow() - q.startedAt) / (q.endsAt - q.startedAt))) : 0;
   return (
     <div className="game">
       <header className="hud-top">
-        <div className="gov">
-          <div className="gov-avatar" style={{ background: civ.color, color: civ.accent }} aria-hidden>
-            {governor.name.slice(0, 1).toUpperCase()}
-          </div>
-          <div className="gov-info">
-            <div className="gov-name" data-testid="gov-name">
-              {governor.name}
+        <div className="hud-row">
+          <div className="gov-card">
+            <div className="gov-portrait" style={{ background: `radial-gradient(circle at 35% 30%, ${civ.accent}55, ${civ.color} 70%)` }} aria-hidden>
+              <span>{governor.name.slice(0, 1).toUpperCase()}</span>
             </div>
-            <div className="gov-sub">
-              ⚔ {fmtNum(city.power)} · {kingdom.name.split('·')[0].trim()}
+            <div className="gov-info">
+              <div className="gov-name" data-testid="gov-name">
+                {governor.name}
+              </div>
+              <div className="gov-power">
+                <IconPower size={14} /> {fmtNum(city.power)}
+                <span className="gov-realm">{kingdom.name.split('·')[0].trim()}</span>
+              </div>
             </div>
           </div>
-          <div className={`net ${status}`} title={status === 'online' ? 'Conectado' : 'Reconectando…'} data-testid="net-status">
-            {status === 'online' ? '●' : '◌'}
+          <div className="hud-actions">
+            <span
+              className={`net ${status}`}
+              title={status === 'online' ? 'Conectado' : 'Reconectando…'}
+              data-testid="net-status"
+              data-status={status}
+              aria-label={status === 'online' ? 'Conectado' : 'Reconectando'}
+            />
+            <button className="icon-btn" onClick={onLogout} aria-label="Sair" title="Sair">
+              <IconExit size={18} />
+            </button>
           </div>
-          <button className="btn small" onClick={onLogout}>
-            Sair
-          </button>
         </div>
         <ResourceBar city={city} />
         {q && (
           <button className="queue-chip" onClick={() => (setTab('city'), setSelected(q.building))} data-testid="queue-chip">
-            🔨 {BUILDINGS[q.building].name} → Nv {q.toLevel} · {fmtDuration((q.endsAt - serverNow()) / 1000)}
+            <IconHammer size={16} />
+            <span className="queue-name">
+              {BUILDINGS[q.building].name} <small>Nv {q.toLevel}</small>
+            </span>
+            <span className="queue-time">{fmtDuration((q.endsAt - serverNow()) / 1000)}</span>
+            <span className="queue-bar" style={{ width: `${qFrac * 100}%` }} />
           </button>
         )}
       </header>
 
       <main className="viewport">
-        {tab === 'city' && <CityView state={city} civ={civ} selected={selected} onSelect={setSelected} now={serverNow} />}
+        {tab === 'city' && (
+          <CityStage state={city} civ={civ} selected={selected} upgradable={upgradable} onSelect={setSelected} now={serverNow} />
+        )}
         {tab === 'world' && (
           <>
             <WorldMap
@@ -307,7 +334,7 @@ export function Game({ meta, me, reloadMe, onLogout }: Props) {
           </div>
         )}
         {tab === 'city' && selected && (
-          <BuildingSheet building={selected} city={city} onClose={() => setSelected(null)} onState={setCity} onError={onError} />
+          <BuildingSheet building={selected} city={city} civ={civ} onClose={() => setSelected(null)} onState={setCity} onError={onError} />
         )}
       </main>
 
@@ -344,16 +371,20 @@ export function Game({ meta, me, reloadMe, onLogout }: Props) {
 
       <nav className="hud-bottom">
         <button className={tab === 'city' ? 'on' : ''} onClick={() => setTab('city')} data-testid="tab-city">
-          <span aria-hidden>🏰</span>Cidade
+          <IconCastle size={24} />
+          <span>Cidade</span>
         </button>
         <button className={tab === 'world' ? 'on' : ''} onClick={() => (setTab('world'), setSelected(null))} data-testid="tab-world">
-          <span aria-hidden>🗺</span>Mundo
+          <IconMap size={24} />
+          <span>Mundo</span>
         </button>
         <button className={tab === 'alliance' ? 'on' : ''} onClick={() => (setTab('alliance'), setSelected(null))} data-testid="tab-alliance">
-          <span aria-hidden>🛡</span>Aliança
+          <IconShield size={24} />
+          <span>Aliança</span>
         </button>
         <button className={chatOpen ? 'on' : ''} onClick={() => setChatOpen((o) => !o)} data-testid="tab-chat">
-          <span aria-hidden>💬</span>Chat
+          <IconChat size={24} />
+          <span>Chat</span>
           {totalUnread > 0 && !chatOpen && (
             <span className="badge" data-testid="chat-badge">
               {totalUnread > 99 ? '99+' : totalUnread}

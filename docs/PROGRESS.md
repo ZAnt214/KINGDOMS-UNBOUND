@@ -50,6 +50,18 @@
 - [ ] Teste em **iPhone/Safari físico** — não disponível neste ambiente.
 - [x] Deploy real na Vercel com Supabase; E2E de dois jogadores contra a URL pública: 12/12.
 
+### Reformulação visual da cidade (v2)
+- [x] Cidade em PixiJS/WebGL com arte vetorial isométrica original (ADR 0002); fallback Canvas 2D sem WebGL.
+- [x] Prefeitura ilustrada em 3 fases + variações por nível; demais edifícios ilustrados em 3 fases.
+- [x] Muralhas modulares, torres, guarita do portão; anel cresce com a prefeitura (estágios 1–3).
+- [x] Terreno pintado (estradas, praça, campos, lago, floresta), vegetação e adereços.
+- [x] Moradores animados, fumaça, nuvens, pássaros, obra com andaimes e trabalhadores.
+- [x] Sem rótulos permanentes; seleção contextual com foco de câmera; indicador de melhoria disponível.
+- [x] HUD redesenhado (ícones SVG próprios, fonte Cinzel local, painel com retrato do edifício).
+- [x] Plano urbano por dados com lotes reservados; testes unitários do layout.
+- [ ] Medição de FPS/memória e teste em iPhone/Safari real.
+- [ ] Mapa-múndi no mesmo pipeline visual; animação de estandartes/água.
+
 ## Limitações e dívidas conhecidas
 
 - Tempo real entre instâncias via Postgres LISTEN/NOTIFY (testado com 2 instâncias); rate limits ainda são por instância.

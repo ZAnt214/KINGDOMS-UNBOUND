@@ -2,6 +2,7 @@ import { useState } from 'react';
 import {
   BUILDINGS,
   type BuildingType,
+  type CivilizationDef,
   productionPerHour,
   RESOURCE_LABELS,
   RESOURCE_TYPES,
@@ -13,17 +14,20 @@ import {
 import { api, ApiError, type CityState, newIdempotencyKey, serverNow } from '../api';
 import { fmtDuration, fmtNum } from '../format';
 import { useTick } from '../hooks';
+import { buildingPortrait } from '../city/portrait';
+import { IconClock, IconClose, RESOURCE_ICON } from '../icons';
 import { projectResources } from './ResourceBar';
 
 interface Props {
   building: BuildingType;
   city: CityState;
+  civ: CivilizationDef;
   onClose: () => void;
   onState: (s: CityState) => void;
   onError: (msg: string) => void;
 }
 
-export function BuildingSheet({ building, city, onClose, onState, onError }: Props) {
+export function BuildingSheet({ building, city, civ, onClose, onState, onError }: Props) {
   useTick(500);
   const [busy, setBusy] = useState(false);
   const def = BUILDINGS[building];
@@ -67,21 +71,25 @@ export function BuildingSheet({ building, city, onClose, onState, onError }: Pro
   if (!reason && missing.length) reason = `Faltam: ${missing.map((r) => RESOURCE_LABELS[r]).join(', ')}.`;
 
   return (
-    <div className="sheet" role="dialog" aria-label={def.name} data-testid="building-sheet">
+    <div className="sheet building-sheet" role="dialog" aria-label={def.name} data-testid="building-sheet">
       <div className="sheet-head">
-        <div>
+        <img className="portrait" src={buildingPortrait(building, level, civ)} alt="" />
+        <div className="sheet-title">
           <h2>{def.name}</h2>
-          <div className="muted">{level === 0 ? 'Não construído' : `Nível ${level} de ${def.maxLevel}`}</div>
+          <div className="level-pill">{level === 0 ? 'Não construído' : `Nível ${level} / ${def.maxLevel}`}</div>
+          <p className="muted small">{def.description}</p>
         </div>
         <button className="icon-btn" onClick={onClose} aria-label="Fechar">
-          ✕
+          <IconClose size={16} />
         </button>
       </div>
-      <p className="muted small">{def.description}</p>
       {inProgress && queue ? (
         <div className="progress-block">
-          <div>
-            Obra para nível {queue.toLevel} · <b data-testid="queue-remaining">{fmtDuration((queue.endsAt - serverNow()) / 1000)}</b>
+          <div className="progress-head">
+            <span>Obra para o nível {queue.toLevel}</span>
+            <b data-testid="queue-remaining">
+              <IconClock size={14} /> {fmtDuration((queue.endsAt - serverNow()) / 1000)}
+            </b>
           </div>
           <div className="bar">
             <div
@@ -97,12 +105,17 @@ export function BuildingSheet({ building, city, onClose, onState, onError }: Pro
         <>
           {effect && <div className="effect">{effect}</div>}
           <div className="costs">
-            {RESOURCE_TYPES.filter((r) => cost[r]).map((r) => (
-              <span key={r} className={(cost[r] ?? 0) > res[r] ? 'cost lack' : 'cost'}>
-                {RESOURCE_LABELS[r]} {fmtNum(cost[r]!)}
-              </span>
-            ))}
-            <span className="cost">⏱ {fmtDuration(duration)}</span>
+            {RESOURCE_TYPES.filter((r) => cost[r]).map((r) => {
+              const Icon = RESOURCE_ICON[r];
+              return (
+                <span key={r} className={(cost[r] ?? 0) > res[r] ? 'cost lack' : 'cost'} title={RESOURCE_LABELS[r]}>
+                  <Icon size={16} /> {fmtNum(cost[r]!)}
+                </span>
+              );
+            })}
+            <span className="cost">
+              <IconClock size={15} /> {fmtDuration(duration)}
+            </span>
           </div>
           {reason && <div className="blocker">{reason}</div>}
           <button className="btn primary wide" disabled={busy || Boolean(reason)} onClick={upgrade} data-testid="upgrade-btn">

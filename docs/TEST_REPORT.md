@@ -38,6 +38,24 @@
 **Alvo:** https://kingdoms-unbound.vercel.app (função `gru1`, Supabase sa-east-1). **Comando:** `BASE_URL=… E2E_PROXY=… node tests/e2e/two-players.cjs`.
 **Resultado:** 12/12 PASS (A-01, A-05, A-07, A-09, A-10, A-11, A-12, coordenadas, A-17 emulado, A-16, A-18 parcial, sem erros JS). Também `npm test`: 27/27 (inclui 3 testes multi-instância).
 
+## Execução 2026-10-24 — reformulação visual da cidade (v2)
+
+**Ambiente:** Node 22, PostgreSQL 16, Chromium/Playwright emulando iPhone 13 com WebGL por software (SwiftShader). Sem Safari/WebKit nem device físico.
+
+| Verificação | Resultado | Evidência |
+|---|---|---|
+| `npm run typecheck` | PASS | — |
+| `npm test` (integração + unitários de layout) | 36/36 PASS | inclui 9 testes novos de `shared/cityLayout.ts`, que acharam e corrigiram 2 lotes/casas encostados na muralha |
+| E2E dois jogadores (`tests/e2e/two-players.cjs`) contra o build novo | 12/12 PASS | seleção da prefeitura por toque na cena WebGL, obra, alianças, chat, reconexão |
+| Cena WebGL inicializa e renderiza | PASS | `docs/evidence/visual-v2/01…06`; pronta em ~1,8 s no Chromium sem GPU |
+| Estágios visuais 1/2/3 e crescimento das muralhas | PASS (visual) | `01-estagio1`, `03-estagio2`, `04-estagio3`, `06-estagio3-panorama` (níveis ajustados no banco **local** de desenvolvimento para captura) |
+| Obra com andaimes, trabalhadores e contagem | PASS (visual) | `02-obra-em-andamento` |
+| Zoom (aproximação/panorama) | PASS (visual) | `05`, `06` |
+| Fallback sem WebGL (`--disable-webgl`) | PASS | `07-fallback-sem-webgl`: cai no Canvas 2D e o jogo segue funcional |
+| Comparativo antes/depois | — | `comparativo.jpg` |
+
+**Não executado:** FPS e memória em iPhone real, Safari/WebKit e PWA instalada.
+
 ## Testes da Fase B+
 
 **Estado:** NÃO EXECUTADO (funcionalidades inexistentes).

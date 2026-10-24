@@ -25,7 +25,7 @@ async function signup(page, user) {
   await page.click('[data-testid=kingdom-1]');
   await page.click('[data-testid=governor-submit]');
   await page.waitForSelector('[data-testid=gov-name]');
-  await page.waitForSelector('[data-testid=net-status]:has-text("●")');
+  await page.waitForSelector('[data-testid=net-status][data-status=online]');
 }
 
 (async () => {
@@ -52,8 +52,9 @@ async function signup(page, user) {
     await signup(B, ub);
     check('A-01', 'duas contas e sessões independentes', (await A.textContent('[data-testid=gov-name]')) !== (await B.textContent('[data-testid=gov-name]')));
 
-    // Construção persistente
-    const box = await A.locator('canvas').boundingBox();
+    // Construção persistente (aguarda a cena WebGL ou o fallback Canvas estarem prontos)
+    await A.waitForSelector('.city-host[data-mode=webgl] canvas, canvas[aria-label^="Cidade"]', { timeout: 30000 });
+    const box = await A.locator('canvas').first().boundingBox();
     await A.mouse.click(box.x + box.width / 2, box.y + box.height / 2 + 10);
     await A.waitForSelector('[data-testid=building-sheet]');
     const sheetTitle = await A.textContent('[data-testid=building-sheet] h2');
@@ -132,7 +133,7 @@ async function signup(page, user) {
       window.dispatchEvent(new Event('online'));
       document.dispatchEvent(new Event('visibilitychange'));
     });
-    await A.waitForSelector('[data-testid=net-status]:has-text("●")', { timeout: 20000 });
+    await A.waitForSelector('[data-testid=net-status][data-status=online]', { timeout: 20000 });
     await A.click('[data-testid=chan-alliance]').catch(() => {});
     const recovered = await A.waitForSelector('[data-testid=chat-msg]:has-text("enquanto você estava fora")', { timeout: 8000 }).catch(() => null);
     check('A-17', 'reconexão recupera mensagens perdidas (emulado)', Boolean(recovered));

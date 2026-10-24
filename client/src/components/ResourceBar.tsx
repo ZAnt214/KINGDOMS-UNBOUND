@@ -2,8 +2,7 @@ import { RESOURCE_LABELS, RESOURCE_TYPES, type ResourceMap } from '../../../shar
 import { type CityState, serverNow } from '../api';
 import { fmtNum } from '../format';
 import { useTick } from '../hooks';
-
-const ICONS: Record<string, string> = { food: '🌾', wood: '🪵', stone: '🪨', gold: '🪙' };
+import { RESOURCE_ICON } from '../icons';
 
 /** Projeção visual da produção (mesma fórmula do servidor); o valor real vem da API. */
 export function projectResources(city: CityState): ResourceMap {
@@ -20,7 +19,9 @@ export function ResourceBar({ city }: { city: CityState }) {
   const res = projectResources(city);
   return (
     <div className="resources" role="list">
-      {RESOURCE_TYPES.map((r) => (
+      {RESOURCE_TYPES.map((r) => {
+        const Icon = RESOURCE_ICON[r];
+        return (
         <div
           key={r}
           className={`res ${res[r] >= city.capacity ? 'full' : ''}`}
@@ -28,13 +29,13 @@ export function ResourceBar({ city }: { city: CityState }) {
           title={`${RESOURCE_LABELS[r]}: ${Math.floor(res[r])} / ${city.capacity} · +${Math.round(city.ratesPerHour[r])}/h`}
           data-testid={`res-${r}`}
         >
-          <span className="res-icon" aria-hidden>
-            {ICONS[r]}
-          </span>
+          <Icon size={22} className="res-icon" />
           <span className="res-val">{fmtNum(res[r])}</span>
           <span className="res-rate">+{fmtNum(city.ratesPerHour[r])}/h</span>
+          <span className="res-fill" style={{ width: `${Math.min(100, (res[r] / city.capacity) * 100)}%` }} />
         </div>
-      ))}
+        );
+      })}
     </div>
   );
 }
