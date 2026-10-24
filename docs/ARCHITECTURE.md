@@ -88,3 +88,8 @@ Não considerar multiplayer implementado até duas sessões autenticadas indepen
 ## Infraestrutura e custos
 
 Inventariar serviços disponíveis antes de provisionar qualquer coisa. Aprovação explícita para cobranças, serviços pagos, segredos e alterações irreversíveis. Nunca armazenar credenciais no repositório.
+
+
+## Implementação inicial (2026-10-24)
+
+A stack candidata acima permanece como alvo. A fatia executável usa Node 24/JavaScript, SQLite, SSE e Canvas 2D; consulte [ADR 001](ADR_001_PHASE_A.md) para desvios, contratos e limites. PostgreSQL, TypeScript, WebSockets, chunks/deltas, outbox e infraestrutura em escala não foram entregues.

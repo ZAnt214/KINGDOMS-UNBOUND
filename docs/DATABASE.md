@@ -80,3 +80,8 @@ Prioridade Fase A: users/governors/kingdoms/cities, building_definitions/city_bu
 ## Testes de integridade
 
 Transações simultâneas, cobrança duplicada, acesso cruzado entre reinos, membro antigo lendo canal, regeneração de território, reinício durante timer, e reconstrução após crash.
+
+
+## Esquema implementado na fatia A
+
+Ver [001_core.sql](../migrations/001_core.sql): SQLite com schema_migrations, users/sessions/governors/kingdoms/cities, balances/ledger, buildings/queues, alliances/members/applications, messages, commands e audit. Reinos no FK; membership e canais validados em serviço. Não é migração PostgreSQL. Definições de balanceamento versionadas em src/rules.js. Detalhes no ADR 001; sem entidades militares implementadas.

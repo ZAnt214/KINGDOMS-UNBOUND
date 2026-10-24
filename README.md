@@ -2,7 +2,17 @@
 
 **MMO persistente de estratégia, civilizações, cidades, alianças e guerras territoriais.**
 
-> Status atual: **documentação de pré-produção**. A existência destes documentos não significa que o jogo, o servidor ou o multiplayer estejam implementados.
+> Status atual: **Fase A iniciada — núcleo multiplayer testado localmente e com dois navegadores no CI; Safari físico e deploy pendentes**. A documentação de produto permanece como meta, não como declaração de conclusão.
+
+## Executar a primeira fatia
+
+Node 24.22.1: `npm ci --ignore-scripts`, `npm test`, `npm start`. Abra http://127.0.0.1:3000 com dois perfis de navegador.
+
+- [Execução e contratos](docs/RUNNING.md)
+- [Decisões, regras originais e limitações](docs/ADR_001_PHASE_A.md)
+- [Resultados dos testes](docs/TEST_REPORT.md)
+
+Contas, cidades, construção, produção, alianças e chat usam servidor persistente e SQLite em disco. Eventos em tempo real via SSE; PostgreSQL/WebSockets e escala permanecem pendentes. Nenhum serviço foi publicado nesta entrega.
 
 ## Visão
 
@@ -59,3 +69,4 @@ Abra este repositório `ZAnt214/KINGDOMS-UNBOUND`, leia `docs/WORK_MASTER_PROMPT
 - https://riseofkingdoms.fandom.com/wiki/Rise_of_Kingdoms_Wiki — enciclopédia da comunidade; verificar precisão e atualidade.
 
 **Nota:** sistemas, números e regras citados em referências externas devem ser conferidos antes de serem tratados como fatos atuais. Esta documentação é a especificação **do nosso projeto**.
+
