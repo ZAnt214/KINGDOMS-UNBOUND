@@ -73,3 +73,4 @@ Comando de ataque precisa de identificador único, transação que reserva as tr
 ## Expansões
 
 Cerco avançado, terreno tático, alianças globais, temporadas e unidades históricas originais são objetivos posteriores. Não apresentar como operacionais sem testes.
+

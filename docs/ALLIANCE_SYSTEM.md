@@ -86,3 +86,4 @@ Correspondência separada do chat: mensagens pessoais, comunicados, recompensas,
 ## Critério de aceitação fase A
 
 Duas contas: A cria aliança; B solicita; A aprova; B aparece como membro; B envia mensagem na aliança; A recebe instantaneamente; C não membro não acessa; B sai e perde permissão. Chat do reino e global transmitem mensagens verdadeiras, persistem e são pagináveis.
+

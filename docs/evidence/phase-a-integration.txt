@@ -1,0 +1,25 @@
+npm warn Unknown env config "http-proxy". This will stop working in the next major version of npm.
+
+> kingdoms-unbound@0.1.0 test
+> node --test tests/integration.test.js
+
+▶ Fase A: independent accounts, durable economy, live social and adversarial ACL
+  ✔ A-01/02/03: independent authenticated governors, civilizations and cities (237.924634ms)
+  ✔ A-07/08: live authenticated streams and realm privacy (25.900989ms)
+  ✔ A-04/05/06/20: atomic build, concurrent retry, server clock, offline production (25.13885ms)
+  ✔ A-09/10: application, approval, rank permission and live membership (62.865843ms)
+  ✔ A-11/12/13: realm, alliance and cross-realm global messages delivered without reload (74.128556ms)
+  ✔ A-14/15/16: pagination, flood limit, private revocation on existing stream (228.425537ms)
+  ✔ security: origin, unknown fields, cursor and session invalidation (7.169451ms)
+  ✔ economic boundaries: capacity, insufficient balance rolls back, unique identity (83.695885ms)
+  ✔ durability: server restart, persisted session, queue and ledger invariants (82.723524ms)
+✔ Fase A: independent accounts, durable economy, live social and adversarial ACL (851.543903ms)
+✔ Real process restart: wall-clock construction completes while both clients are offline (16352.368377ms)
+ℹ tests 11
+ℹ suites 0
+ℹ pass 11
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 17288.406214

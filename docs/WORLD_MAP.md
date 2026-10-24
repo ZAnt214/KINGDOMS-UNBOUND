@@ -79,3 +79,4 @@ Sessão A cria governador/cidade no Reino 1; sessão B faz o mesmo. Ambas consul
 9. Regras de cross-kingdom em temporadas.
 
 Não inventar números canônicos; registrar valores iniciais como decisões de balanceamento.
+

@@ -139,3 +139,8 @@ Implementado não significa simplesmente código gerado. Pronto exige persistên
 6. Prosseguir B -> C -> D -> E conforme capacidade e prioridade.
 
 Não inventar prazo ou escala sem medir.
+
+
+## Atualização de execução — 2026-10-24
+
+A1–A5 implementadas parcialmente com cobertura de integração backend; checklists acima permanecem abertas onde falta a fatia visual completa. A6: check de sintaxe e 11 testes locais passaram; browser bloqueado e deploy não realizado. Consulte PROGRESS, TEST_REPORT, ADR_001_PHASE_A e RUNNING. Fase A continua aberta; não avançamos B–E.

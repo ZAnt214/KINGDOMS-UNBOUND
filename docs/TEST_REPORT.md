@@ -1,4 +1,31 @@
-# TEST REPORT — BASELINE
+# TEST REPORT — FASE A / HISTÓRICO BASELINE
+
+## Execução em 2026-10-24 — work/phase-a-core
+
+Ambiente: Linux, Node v24.22.1, SQLite real em arquivos temporários, HTTP local, cookies separados, conexões SSE simultâneas. Base remota b1c7e70a220f869c59f8168f3f35296952393d34; código e evidência versionados juntos no PR. Responsável: Codex.
+
+**PASS:** `npm run check`; `npm test` (11 testes, 0 falhas, aproximadamente 18s). [Saída integral](evidence/phase-a-integration.txt). Sem mocks de rede/banco: clientes falam por HTTP com o servidor real. Teste principal usa clock injetado para limites/timers; teste adicional lança dois processos sucessivos com relógio real, encerrando o servidor durante a obra e aguardando sua duração.
+
+| Critério | Resultado observado e limite |
+|---|---|
+| A-01–03 | PASS backend: contas/cookies/cidades/saldos separados, mesmo reino; terceiro não membro e quarto em outro reino |
+| A-04–06, A-20 | PASS backend: cobrança única sob duas requisições concorrentes; payload adulterado negado; requisitos; obra termina offline após reinício real |
+| A-07–08 | PASS backend/SSE: mesmas cidades públicas, atualizações sem reload; renderização visual pendente |
+| A-09–10 | PASS backend/SSE: criar, solicitar, aprovar, membros, promoção e bloqueio de não líder |
+| A-11–12 | PASS SSE: mensagens reino/aliança recebidas pelo outro cliente sem nova consulta manual |
+| A-13 | PASS backend: global visível ao jogador do outro reino; cidades/canal de reino continuam isolados. Stream cross-realm específico não exercitado |
+| A-14 | PASS backend: histórico persistente, cursor, páginas sem sobreposição, eventos novos |
+| A-15–16 | PASS backend/SSE: C bloqueado; saída de B remove histórico/canal e mensagens posteriores da conexão já aberta |
+| A-17 | PASS reconexão HTTP/SSE após restart; Safari minimizar/retomar NÃO TESTADO |
+| A-18–19 | BLOQUEADO: navegador indisponível; teclado, pinça, arraste, orientação e visual não validados |
+| Extras | PASS: origem externa negada, sessão revogada, cursor inválido, flood limit, ledger somado igual ao saldo |
+
+**E2E de navegador: BLOQUEADO, não PASS.** `tests/browser.mjs` foi criado e tentado; parou no lançamento por ausência de Chromium. Download via Playwright falhou com “End of central directory record signature not found” (ZIP truncado). [Erro da tentativa](evidence/browser-attempt.txt). Nenhuma interação visual desse script foi executada. Os testes HTTP não comprovam usabilidade nem renderização.
+
+Sem benchmark, teste de carga, restore de backup, execução Docker, CI remoto confirmado ou deploy. Não há alegação de milhares de jogadores, Safari validado, arte final ou Fase A completa.
+
+---
+## Baseline original (abaixo, mantido como registro anterior)
 
 Data da abertura: 2026-10-24.
 **Resultado:** AINDA NÃO TESTADO. Neste commit foram produzidos somente arquivos de documentação; nenhum servidor do jogo, client, testes automatizados ou infraestrutura de gameplay foi implementado/validado.
@@ -52,3 +79,4 @@ Rejeitar resultados baseados só em screenshots, mensagens mockadas, dados está
 ## Registro de execuções
 
 Nenhuma execução registrada até o início do desenvolvimento.
+

@@ -249,3 +249,4 @@ Nesta etapa, o foco é fidelidade conceitual e solidez. Futuras ideias próprias
 10. Faça commits e/ou pull requests rastreáveis neste repositório. Solicite confirmação apenas se necessário para serviços externos, custos, credenciais e operações arriscadas.
 
 **Meta de primeiro marco**: dois jogadores entram no mesmo reino, possuem cidades próprias, criam/ingressam numa aliança, conversam em canais reais e persistem progresso ao sair do app — tudo executado, verificado e documentado.
+
