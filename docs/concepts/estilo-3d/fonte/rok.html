@@ -130,7 +130,7 @@ scene.add(R.trees(tp));
 // tufos de grama e flores (instanciados) para dar textura ao gramado
 {
   const blade = R.mergeGeometries([0, 1, 2, 3].map((i) => new THREE.ConeGeometry(0.09, 0.7 + (i % 2) * 0.3, 3).translate(Math.cos(i * 1.9) * 0.14, 0.35, Math.sin(i * 1.9) * 0.14).rotateZ((i - 1.5) * 0.18).toNonIndexed()));
-  const N = 70000; const im = new THREE.InstancedMesh(blade, R.M('#ffffff', { roughness: 1 }), N); const o = new THREE.Object3D(); const c = new THREE.Color(); let n = 0; const tmp = new THREE.Vector3();
+  const N = 32000; const im = new THREE.InstancedMesh(blade, R.M('#ffffff', { roughness: 1 }), N); const o = new THREE.Object3D(); const c = new THREE.Color(); let n = 0; const tmp = new THREE.Vector3();
   const onRoad = (x, z) => (Math.abs(x) < 4.5 && z > 10) || (Math.abs(z - 30 * SC) < 3 && Math.abs(x) < 30 * SC) || (Math.abs(Math.abs(x) - 30 * SC) < 3 && z < 30 * SC && z > -24 * SC);
   for (let k = 0; k < N * 3 && n < N; k++) {
     const x = (rr() - 0.5) * 190, z = (rr() - 0.5) * 190;
