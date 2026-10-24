@@ -110,4 +110,3 @@ KvK completo, vasto catálogo de comandantes e civilizações, monetização rea
 ## Critérios de aceitação da fase A
 
 Dois usuários com estados independentes, mesmo reino e mapa; construção persistente com consumo correto; aliança real e chat com controle de acesso; reconexão; UI mobile funcional. Ver docs/IMPLEMENTATION_PLAN.md.
-

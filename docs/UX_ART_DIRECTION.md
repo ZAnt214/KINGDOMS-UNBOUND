@@ -45,4 +45,3 @@ Alvos táteis adequados, texto escalável, contraste, distinção além de cor, 
 ## Critério de qualidade
 
 O jogador deve reconhecer instantaneamente onde está, o que pode fazer, quanto custa, qual tempo falta e quais consequências sua ação terá. HUD bonito sem clareza e botões funcionais é falha de experiência.
-
