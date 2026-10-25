@@ -14,6 +14,7 @@ import { hallFx, type Palette, paletteFor, townHallSvg } from './art/townHall';
 import { gatehouseSvg, WALL_H, wallFx, wallSegmentSvg, wallTowerSvg } from './art/walls';
 import { CHUNK, CHUNK_RES, type GroundSpec, P, paintChunk, WORLD_BOUNDS } from './ground';
 import { iso, rng, Svg } from './svg';
+import { illustratedBuilding, illustratedEnvironment, type EnvironmentArt } from './illustrated';
 
 const HALF = CITY_GRID / 2;
 
@@ -321,6 +322,22 @@ export class CityScene {
       this.objects.addChild(s);
       return s;
     };
+    const addArt = async (kind: EnvironmentArt, dx: number, dy: number, scale = 1, flip = false) => {
+      let tex: Tex;
+      try { tex = await illustratedEnvironment(kind); }
+      catch { // A missing image never blocks the game or its original art fallback.
+        const fallback = kind.startsWith('cottage') ? () => cottageSvg(0, pal.roof)
+          : kind === 'pine' ? () => pineSvg(0) : kind === 'bush' ? () => bushSvg(0)
+          : () => oakSvg(0, 1, kind === 'autumn');
+        tex = await raster(`fallback-${kind}`, fallback);
+      }
+      if (this.destroyed) return;
+      const [x, y] = P(dx, dy);
+      const sprite = spriteOf(tex, x, y);
+      sprite.scale.set((flip ? -1 : 1) * scale / tex.res, scale / tex.res);
+      sprite.zIndex = (dx + dy) * 100;
+      this.objects.addChild(sprite);
+    };
     const stone = pal.stone;
     // muralhas
     const jobs: Promise<unknown>[] = [];
@@ -356,7 +373,7 @@ export class CityScene {
 
     // casas, praça e adereços
     for (const c of COTTAGES.filter((c) => c.tier <= tier)) {
-      jobs.push(add(`cot${c.variant}${pal.roof}`, () => cottageSvg(c.variant, pal.roof), c.dx, c.dy, 1.4));
+      jobs.push(addArt(c.variant === 1 ? 'cottageBlue' : 'cottageClay', c.dx, c.dy));
       if (c.variant !== 2) this.chimneys.push([c.dx - (c.variant === 1 ? 0.375 : 0.31) + 0.09, c.dy - 0.01, 96]);
     }
     for (const [x,y] of [[-.5,-4.8],[1,-7.7],[5.8,5.1],[-5.8,5.9]]) jobs.push(add('garden', gardenSvg, x,y,1.4));
@@ -443,10 +460,10 @@ export class CityScene {
       const variant = Math.floor(v * 4);
       const scale = 0.9 + ((v * 37) % 1) * 0.35;
       const flip = (v * 113) % 1 > 0.5;
-      if (pine) jobs.push(add(`pine${variant % 3}`, () => pineSvg(variant % 3, 1.15), dx, dy, 1.2, 0, scale, flip));
+      if (pine) jobs.push(addArt('pine', dx, dy, scale, flip));
       else {
         const autumn = (v * 71) % 1 > 0.9;
-        jobs.push(add(`oak${variant}${autumn ? 'a' : ''}`, () => oakSvg(variant, 1.05, autumn), dx, dy, 1.2, 0, scale, flip));
+        jobs.push(addArt(autumn ? 'autumn' : 'oak', dx, dy, scale, flip));
       }
     }
     for (let i = 0; i < 380; i++) {
@@ -455,7 +472,7 @@ export class CityScene {
       if (blocked(dx, dy, 0)) continue;
       if (trees.some(([x, y]) => Math.hypot(x - dx, y - dy) < 0.6)) continue;
       const k = r();
-      if (k < 0.55) jobs.push(add(`bush${Math.floor(k * 8)}`, () => bushSvg(Math.floor(k * 8)), dx, dy, 1.4, 0, 0.9 + k * 0.5, k > 0.3));
+      if (k < 0.55) jobs.push(addArt('bush', dx, dy, 0.9 + k * 0.5, k > 0.3));
       else if (k < 0.75) jobs.push(add(`rock${Math.floor(k * 6)}`, () => rocksSvg(Math.floor(k * 6)), dx, dy, 1.4));
     }
     await Promise.all(jobs);
@@ -496,7 +513,12 @@ export class CityScene {
             return goldMineSvg(st, pal);
         }
       };
-      const tex = await raster(key, build, b === 'town_hall' ? 1.8 : 1.5);
+      let tex: Tex;
+      let usesIllustration = false;
+      if (stage > 0) {
+        try { tex = await illustratedBuilding(b, stage as 1 | 2 | 3, this.input.civ.color); usesIllustration = true; }
+        catch { tex = await raster(key, build, b === 'town_hall' ? 1.8 : 1.5); }
+      } else tex = await raster(key, build, 1.5);
       if (this.destroyed) return;
       const [wx, wy] = P(plot.dx, plot.dy);
       const sprite = spriteOf(tex, wx, wy);
@@ -507,7 +529,7 @@ export class CityScene {
       if (b === 'town_hall') {
         this.chimneys = this.chimneys.filter((c) => c[2] < 150);
         this.fires = this.fires.filter((f) => !(f as [number, number, number] & { hall?: boolean }).hall);
-        if (stage > 0) {
+        if (stage > 0 && !usesIllustration) {
           const fx = hallFx(stage as 1 | 2 | 3);
           for (const [x, y, z] of fx.smoke) this.chimneys.push([plot.dx + x, plot.dy + y, z]);
           for (const [x, y, z] of fx.fires) this.fires.push(Object.assign([plot.dx + x, plot.dy + y, z] as [number, number, number], { hall: true }));

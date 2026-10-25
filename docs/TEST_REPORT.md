@@ -86,3 +86,15 @@ Para cada execução registrar: data, branch/SHA, ambiente e versões, passos, r
 - Sem teste Safari/WebKit nem aparelho físico. Sem benchmark de FPS/memória. Fallback Canvas conserva arte antiga.
 
 Reprodução visual: instalar Playwright no ambiente de QA, iniciar `npm run dev:client -- --host 127.0.0.1`, executar `node tests/e2e/city-visual.cjs`. Variáveis opcionais: `VISUAL_URL`, `VISUAL_OUTPUT`, `PLAYWRIGHT_MODULE`, `CHROME_PATH`. O runner não faz login nem altera contas reais. Capturas são **fixtures de QA**, identificadas pelo governador “Teste visual”, e não evidência de população ou economia multiplayer.
+
+## Complemento da v4
+
+CI no GitHub com PostgreSQL: **PASS** — https://github.com/ZAnt214/KINGDOMS-UNBOUND/actions/runs/40141533430, commit `f3f61d921bb7a3ed5744722e42de27050d117925`. Passaram typecheck, suíte `npm test` e build. Isso resolve o bloqueio de infraestrutura local relatado acima para aquele commit.
+
+## Cidade v5 — 2026-10-25
+
+TypeScript e build cliente/servidor passaram; 9 testes unitários de layout passaram. As duas folhas WebP preservam alpha, medem 1536×1024 e somam 1.14 MB de download. Cenários visuais usam o mesmo harness Playwright da v4, agora exigindo o carregamento das duas folhas e verificando fallback selecionável após falha de download. Resultados das execuções e capturas em `docs/evidence/city-v5/`.
+
+Não houve teste em Safari físico nem nova sessão multiplayer de navegador; o teste visual intercepta APIs e WebSocket apenas no ambiente de QA. Não extrapolar resultados de SwiftShader para FPS/memória de iPhone.
+
+Resultado local v5: **PASS** no harness Chromium: atlas carregados, seleção da prefeitura, envio de intenção de melhoria, fila, controles de câmera, três estágios, limites nas duas orientações e fallback com imagens bloqueadas. Sem erros JavaScript.

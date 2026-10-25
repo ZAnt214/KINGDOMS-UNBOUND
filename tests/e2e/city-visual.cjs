@@ -8,9 +8,11 @@ const { chromium } = require(process.env.PLAYWRIGHT_MODULE || 'playwright');
 (async () => {
   const args = ['--no-sandbox','--use-gl=angle','--use-angle=swiftshader','--enable-unsafe-swiftshader'];
   const browser = await chromium.launch({headless:true, ...(process.env.CHROME_PATH ? {executablePath:process.env.CHROME_PATH} : {}), args});
-  const out = process.env.VISUAL_OUTPUT || 'docs/evidence/city-v4';
+  const out = process.env.VISUAL_OUTPUT || 'docs/evidence/city-v5';
   fs.mkdirSync(out, {recursive:true});
   const page = await browser.newPage({viewport:{width:1440,height:960}});
+  const imageAssets = new Set();
+  page.on('response', r => { if (r.request().resourceType() === 'image' && r.ok() && /(?:buildings|environment).*\.webp/.test(r.url())) imageAssets.add(r.url()); });
   const errors=[]; page.on('pageerror',e=>errors.push(e.message));
   let city, upgradeCalls=0;
   const now=Date.now();
@@ -34,6 +36,7 @@ const { chromium } = require(process.env.PLAYWRIGHT_MODULE || 'playwright');
   });
   await page.goto(process.env.VISUAL_URL || 'http://127.0.0.1:5173');
   await page.locator('[data-mode="webgl"]').waitFor({timeout:60000});
+  assert.equal(imageAssets.size, 2, 'both transparent atlases loaded');
   await page.screenshot({quality:85,path:path.join(out,'desktop.jpg')});
   // Select the central palace by its visible body, including pixel-alpha hit testing.
   await page.mouse.click(720,450);
@@ -68,7 +71,16 @@ const { chromium } = require(process.env.PLAYWRIGHT_MODULE || 'playwright');
     await page.waitForTimeout(200);
     await page.screenshot({quality:85,path:path.join(out,`tier-${level}.jpg`)});
   }
+  // Simulate a failed image download. Vector fallback must remain selectable.
+  await page.route('**/*.webp*', route => route.request().resourceType() === 'image' ? route.abort() : route.continue());
+  setLevel(5);
+  await page.reload();
+  await page.locator('[data-mode="webgl"]').waitFor({timeout:60000});
+  await page.mouse.click(720,450);
+  await page.getByTestId('building-sheet').waitFor();
+  assert.match(await page.getByTestId('building-sheet').innerText(),/Prefeitura/);
+  await page.screenshot({quality:85,path:path.join(out,'image-fallback.jpg')});
   assert.deepEqual(errors,[]);
-  console.log(JSON.stringify({result:'PASS',scope:'visual UI fixtures; not a multiplayer test',checks:['WebGL rendering','palace selection','upgrade intent and queue','zoom controls','portrait and landscape bounds','44px touch targets','three city tiers','no page errors']},null,2));
+  console.log(JSON.stringify({result:'PASS',scope:'visual UI fixtures; not a multiplayer test',checks:['WebGL rendering','palace selection','upgrade intent and queue','zoom controls','portrait and landscape bounds','44px touch targets','three city tiers','both illustrated atlases loaded','selection after image-download failure','no page errors']},null,2));
   await browser.close();
 })().catch(e=>{console.error(e);process.exit(1)});

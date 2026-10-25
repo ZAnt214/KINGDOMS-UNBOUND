@@ -1010,3 +1010,5 @@ textarea:focus {
  .hud-bottom button svg {padding:8px;}
  .city-camera {bottom:92px;}
 }
+
+.illustrated-portrait { display:block; background-size:300% 200%; background-repeat:no-repeat; flex-shrink:0; }

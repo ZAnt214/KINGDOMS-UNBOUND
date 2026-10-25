@@ -15,6 +15,7 @@ import { api, ApiError, type CityState, newIdempotencyKey, serverNow } from '../
 import { fmtDuration, fmtNum } from '../format';
 import { useTick } from '../hooks';
 import { buildingPortrait } from '../city/portrait';
+import { buildingsUrl, BUILDING_FRAME } from '../city/atlas';
 import { IconClock, IconClose, RESOURCE_ICON } from '../icons';
 import { projectResources } from './ResourceBar';
 
@@ -73,7 +74,12 @@ export function BuildingSheet({ building, city, civ, onClose, onState, onError }
   return (
     <div className="sheet building-sheet" role="dialog" aria-label={def.name} data-testid="building-sheet">
       <div className="sheet-head">
-        <img className="portrait" src={buildingPortrait(building, level, civ)} alt="" />
+        {level > 0 ? (
+          <span className="portrait illustrated-portrait" aria-hidden style={{
+            backgroundImage: `url(${buildingsUrl})`,
+            backgroundPosition: `${(BUILDING_FRAME[building].cell % 3) * 50}% ${Math.floor(BUILDING_FRAME[building].cell / 3) * 100}%`,
+          }} />
+        ) : <img className="portrait" src={buildingPortrait(building, level, civ)} alt="" />}
         <div className="sheet-title">
           <h2>{def.name}</h2>
           <div className="level-pill">{level === 0 ? 'Não construído' : `Nível ${level} / ${def.maxLevel}`}</div>
