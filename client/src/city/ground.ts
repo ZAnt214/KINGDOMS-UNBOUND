@@ -83,14 +83,14 @@ export function paintChunk(spec: GroundSpec, wx: number, wy: number): HTMLCanvas
   };
   ctx.save();
   diamond(HALF);
-  ctx.fillStyle = '#46532f';
+  ctx.fillStyle = '#73994b';
   ctx.fill();
   ctx.restore();
   // gramado da cidade com borda suave (camadas em vez de blur, que é caro no Safari)
   for (let k = 0; k < 6; k++) {
     ctx.save();
     diamond(spec.wallHalf + 2.2 - k * 0.25);
-    ctx.fillStyle = 'rgba(92,100,60,0.2)';
+    ctx.fillStyle = 'rgba(150,185,79,0.28)';
     ctx.fill();
     ctx.restore();
   }
@@ -110,7 +110,7 @@ export function paintChunk(spec: GroundSpec, wx: number, wy: number): HTMLCanvas
     const rad = 60 + r() * 160;
     const g = ctx.createRadialGradient(x, y, 0, x, y, rad);
     const light = r() > 0.5;
-    g.addColorStop(0, light ? 'rgba(170,160,110,0.1)' : 'rgba(20,24,14,0.14)');
+    g.addColorStop(0, light ? 'rgba(170,160,110,0.1)' : 'rgba(45,83,41,0.08)');
     g.addColorStop(1, 'rgba(0,0,0,0)');
     ctx.fillStyle = g;
     ctx.fillRect(x - rad, y - rad, rad * 2, rad * 2);
@@ -192,17 +192,12 @@ export function paintChunk(spec: GroundSpec, wx: number, wy: number): HTMLCanvas
     if (blur) ctx.filter = `blur(${blur}px)`;
     ctx.strokeStyle = color;
     ctx.lineWidth = width;
-    ctx.lineCap = 'round';
-    ctx.lineJoin = 'round';
+    ctx.lineCap = 'square';
+    ctx.lineJoin = 'miter';
     ctx.beginPath();
     const w = pts.map(([a, b]) => P(a, b));
     ctx.moveTo(w[0][0], w[0][1]);
-    for (let i = 1; i < w.length - 1; i++) {
-      const mx = (w[i][0] + w[i + 1][0]) / 2;
-      const my = (w[i][1] + w[i + 1][1]) / 2;
-      ctx.quadraticCurveTo(w[i][0], w[i][1], mx, my);
-    }
-    ctx.lineTo(w[w.length - 1][0], w[w.length - 1][1]);
+    for (let i = 1; i < w.length; i++) ctx.lineTo(w[i][0],w[i][1]);
     ctx.stroke();
     ctx.restore();
   };
@@ -210,14 +205,24 @@ export function paintChunk(spec: GroundSpec, wx: number, wy: number): HTMLCanvas
     [86, 'rgba(70,50,25,0.14)'],
     [78, 'rgba(70,50,25,0.22)'],
     [70, 'rgba(80,58,30,0.4)'],
-    [62, '#7a6648'],
-    [50, '#84704f'],
-    [40, '#8c7856'],
+    [62, '#a7a586'],
+    [54, '#e1d4ae'],
+    [46, '#cfc7a8'],
   ] as const) {
     for (const road of spec.roads) strokeRoad(road, w, c);
   }
+  // Regular limestone paving, aligned to the same isometric axes as the buildings.
   for (const road of spec.roads) {
-    for (const off of [-0.16, 0.16]) strokeRoad(road.map(([a, b]) => [a + off * 0.7, b - off * 0.7]), 4, 'rgba(90,66,36,0.45)');
+    for(let j=0;j<road.length-1;j++) {
+      const a=road[j], b=road[j+1], len=Math.hypot(b[0]-a[0],b[1]-a[1]);
+      const n=Math.ceil(len/.28);
+      for(let i=0;i<n;i++) {
+        const t=(i+.5)/n, x=a[0]+(b[0]-a[0])*t, y=a[1]+(b[1]-a[1])*t;
+        const [sx,sy]=P(x,y), [ex,ey]=P(x+(b[1]-a[1])/len*.3,y-(b[0]-a[0])/len*.3);
+        ctx.beginPath();ctx.moveTo(2*sx-ex,2*sy-ey);ctx.lineTo(ex,ey);
+        ctx.strokeStyle='rgba(124,117,88,.34)';ctx.lineWidth=1.2;ctx.stroke();
+      }
+    }
   }
 
   // 5b. Fosso: água escura entre margens de pedra, logo fora das muralhas.
@@ -286,7 +291,7 @@ export function paintChunk(spec: GroundSpec, wx: number, wy: number): HTMLCanvas
     }
     ctx.beginPath();
     ctx.ellipse(px, py, rx, ry, 0, 0, Math.PI * 2);
-    ctx.fillStyle = '#7d776c';
+    ctx.fillStyle = '#c9c4a4';
     ctx.fill();
     ctx.clip();
     for (let ring = 0; ring < 9; ring++) {
@@ -296,7 +301,7 @@ export function paintChunk(spec: GroundSpec, wx: number, wy: number): HTMLCanvas
         const a = (i / n) * Math.PI * 2 + ring * 0.3;
         const x = px + Math.cos(a) * rx * k;
         const y = py + Math.sin(a) * ry * k;
-        const tone = 105 + Math.floor(r() * 40);
+        const tone = 173 + Math.floor(r() * 35);
         ctx.fillStyle = `rgb(${tone},${tone - 10},${tone - 28})`;
         ctx.beginPath();
         ctx.ellipse(x, y, 14 * (0.6 + k * 0.4), 7 * (0.6 + k * 0.4), 0, 0, Math.PI * 2);
@@ -310,19 +315,25 @@ export function paintChunk(spec: GroundSpec, wx: number, wy: number): HTMLCanvas
   }
 
   // 7. Detalhe fino: tufos de grama, flores silvestres e pedrinhas (só sobre o prado).
-  const tufts = 700;
+  const tufts = 4800;
   for (let i = 0; i < tufts; i++) {
     const x = wx + r() * CHUNK;
     const y = wy + r() * CHUNK;
     const [dx, dy] = U(x, y);
     if (!insideDiamond(dx, dy, HALF)) continue;
-    const g = 60 + Math.floor(r() * 40);
+    if (Math.hypot((dx-spec.plaza.dx), (dy-spec.plaza.dy)) < spec.plaza.r) continue;
+    if (spec.roads.some(road => road.slice(1).some((b,j) => {
+      const a=road[j], vx=b[0]-a[0], vy=b[1]-a[1];
+      const t=Math.max(0,Math.min(1,((dx-a[0])*vx+(dy-a[1])*vy)/(vx*vx+vy*vy||1)));
+      return Math.hypot(dx-a[0]-vx*t,dy-a[1]-vy*t)<.53;
+    }))) continue;
+    const g = 100 + Math.floor(r() * 45);
     ctx.strokeStyle = `rgba(${g + 10},${g + 30},${g - 20},0.5)`;
-    ctx.lineWidth = 1.4;
+    ctx.lineWidth = 0.8;
     for (let k = 0; k < 3; k++) {
       ctx.beginPath();
       ctx.moveTo(x + k * 2, y);
-      ctx.lineTo(x + k * 2 + (r() - 0.5) * 6, y - 5 - r() * 7);
+      ctx.lineTo(x + k * 2 + (r() - 0.5) * 6, y - 1 - r() * 3);
       ctx.stroke();
     }
   }
@@ -332,6 +343,12 @@ export function paintChunk(spec: GroundSpec, wx: number, wy: number): HTMLCanvas
     const y = wy + r() * CHUNK;
     const [dx, dy] = U(x, y);
     if (!insideDiamond(dx, dy, HALF)) continue;
+    if (Math.hypot((dx-spec.plaza.dx), (dy-spec.plaza.dy)) < spec.plaza.r) continue;
+    if (spec.roads.some(road => road.slice(1).some((b,j) => {
+      const a=road[j], vx=b[0]-a[0], vy=b[1]-a[1];
+      const t=Math.max(0,Math.min(1,((dx-a[0])*vx+(dy-a[1])*vy)/(vx*vx+vy*vy||1)));
+      return Math.hypot(dx-a[0]-vx*t,dy-a[1]-vy*t)<.53;
+    }))) continue;
     ctx.fillStyle = flowers[Math.floor(r() * flowers.length)];
     for (let k = 0; k < 5; k++) {
       ctx.beginPath();

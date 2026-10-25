@@ -80,3 +80,19 @@
 
 - `docs/adr/0001-stack-fase-a.md` — stack, Canvas 2D em vez de PixiJS, Railway com 1 réplica.
 - Valores de balanceamento em `shared/rules.ts` (`RULES_VERSION = 1`) são decisões próprias iniciais, não números de outros jogos.
+
+## 2026-10-24 — Revisão visual v4 a partir das referências do usuário
+
+Implementada na branch `work/city-reference-art`, baseada em `claude/fase-a-railway` no commit `1561141`. A `main` continua sendo documental; esta revisão não substitui a implementação multiplayer por uma demonstração.
+
+Alterados palácio, materiais, terreno, vegetação, caminhos, jardins e HUD; adicionados controles reais de câmera e atualização em resize. Também removidos indicadores órfãos ao reconstruir a cidade por mudança de estágio. Estado, custos, filas e APIs de servidor preservados.
+
+Validação: TypeScript, nove testes de layout, build cliente/servidor e harness visual Chromium com APIs de teste interceptadas. Capturas em `docs/evidence/city-v4/`. Integração PostgreSQL indisponível localmente; ver TEST_REPORT. Revisão disponibilizada para análise por PR; não implica merge ou deploy. Acabamento ainda não equivale à referência comercial; faltam assets mais ricos, densidade de prédios funcionais, animações de personagens e validação Safari físico.
+
+## 2026-10-25 — Continuação v5: arte ilustrada dentro da cidade jogável
+
+Integrados dois atlas originais com transparência: seis edifícios e seis elementos de ambiente. Substituem as formas vetoriais dos prédios, casas e vegetação na cena WebGL. Muralhas/adereços, lógica de câmera, APIs e simulação permanecem existentes. Texturas compartilhadas, seleção por alpha, ancoragem isométrica e fallback para SVG em falha de download.
+
+Fonte e briefings em `docs/ART_ASSETS_V5.md`; capturas em `docs/evidence/city-v5/`. Os níveis compartilham ilustrações e variam a pegada, não três modelos 3D diferentes. Não foi adicionada batalha nem nova construção funcional.
+
+A CI da v4 foi concluída com sucesso incluindo integração PostgreSQL: run 40141533430, commit f3f61d9. Esta continuação tem sua própria validação registrada no TEST_REPORT.

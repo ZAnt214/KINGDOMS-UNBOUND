@@ -112,28 +112,8 @@ export class Svg {
   /** Silhar de granito irregular: fiadas de alturas variadas, rejunte escuro, manchas. */
   stone(color: string, scale = 1): Material {
     const id = this.def(`stone${color}${scale}`, (id) => {
-      const W = 52 * scale;
-      const r = rng(color.length * 977 + Math.round(scale * 10));
-      const rows = [11, 14, 9, 13].map((v) => v * scale);
-      const H = rows.reduce((a, b) => a + b, 0);
-      const out: string[] = [];
-      let y = 0;
-      rows.forEach((h, ri) => {
-        let x = ri % 2 ? -W * 0.3 : 0;
-        while (x < W) {
-          const w = (12 + r() * 18) * scale;
-          const tone = shade(color, (r() - 0.55) * 0.26);
-          out.push(`<rect x="${f(x + 0.9)}" y="${f(y + 0.9)}" width="${f(w - 1.8)}" height="${f(h - 1.8)}" rx="${f(0.7 * scale)}" fill="${tone}"/>`);
-          out.push(`<rect x="${f(x + 1.4)}" y="${f(y + 1.2)}" width="${f(w - 3.2)}" height="${f(1.1 * scale)}" fill="${shade(tone, 0.14)}" opacity="0.55"/>`);
-          out.push(`<rect x="${f(x + 1)}" y="${f(y + h - 2.6 * scale)}" width="${f(w - 2)}" height="${f(1.4 * scale)}" fill="${shade(tone, -0.25)}" opacity="0.6"/>`);
-          if (r() > 0.82) out.push(`<path d="M${f(x + w * 0.3)} ${f(y + 2)} l${f(2 * scale)} ${f(h * 0.4)} l${f(-1.5 * scale)} ${f(h * 0.3)}" stroke="${shade(tone, -0.45)}" stroke-width="0.7" fill="none"/>`);
-          x += w;
-        }
-        y += h;
-      });
-      // manchas de tempo e musgo
-      for (let i = 0; i < 4; i++) out.push(`<ellipse cx="${f(r() * W)}" cy="${f(r() * H)}" rx="${f(6 + r() * 8)}" ry="${f(3 + r() * 5)}" fill="${r() > 0.6 ? '#4f5a3a' : '#2c2823'}" opacity="0.14"/>`);
-      return `<pattern id="${id}" patternUnits="userSpaceOnUse" width="${f(W)}" height="${f(H)}"><rect width="${f(W)}" height="${f(H)}" fill="${shade(color, -0.5)}"/>${out.join('')}</pattern>`;
+      const w=64*scale, h=36*scale;
+      return `<pattern id="${id}" patternUnits="userSpaceOnUse" width="${w}" height="${h}"><rect width="${w}" height="${h}" fill="${color}"/><path d="M0 0 H${w} M0 ${h/2} H${w} M${w/2} 0 V${h/2} M0 ${h/2} V${h}" fill="none" stroke="${shade(color,-.18)}" stroke-width="${.85*scale}"/><path d="M0 1 H${w} M0 ${h/2+1} H${w}" stroke="${shade(color,.2)}" stroke-width="${.8*scale}"/></pattern>`;
     });
     return { fill: `url(#${id})`, base: color };
   }
@@ -271,8 +251,8 @@ export class Svg {
   ) {
     const h = z1 - z0;
     this.extendPts([iso(x0, y1, z0), iso(x1, y1, z0), iso(x1, y0, z0), iso(x0, y0, z1), iso(x1, y0, z1), iso(x0, y1, z1)]);
-    const shR = this.linear('shR', [[0, '#0e0c0a', 0.62], [1, '#0e0c0a', 0.44]]);
-    const shL = this.linear('shL', [[0, '#0e0c0a', 0.3], [0.35, '#0e0c0a', 0.08], [1, '#ffd9a0', 0.08]]);
+    const shR = this.linear('shR', [[0, '#28435c', 0.29], [1, '#28435c', 0.16]]);
+    const shL = this.linear('shL', [[0, '#7d6c4c', 0.08], [0.35, '#fff6d8', 0.1], [1, '#fff6d8', 0.2]]);
     // face direita (x = x1), à sombra
     this.rightFace(x1, y0, y1, z0, (g, w) => {
       g.raw(`<rect x="0" y="${f(-h)}" width="${f(w)}" height="${f(h)}" fill="${side.fill}"/>`);
@@ -382,7 +362,7 @@ export class Svg {
     this.raw(`<g clip-path="url(#${id})"><rect x="${f(sx - rx)}" y="${f(top - ry)}" width="${f(rx * 2)}" height="${f(h + ry * 2)}" fill="${mat.fill}"/></g>`);
     this.path(
       body,
-      this.linear('cyl', [[0, '#ffd9a0', 0.14], [0.3, '#0e0c0a', 0], [0.7, '#0e0c0a', 0.45], [1, '#0e0c0a', 0.66]], 1, 0),
+      this.linear('cyl', [[0, '#ffd9a0', 0.14], [0.3, '#0e0c0a', 0], [0.7, '#29465d', 0.23], [1, '#29465d', 0.43]], 1, 0),
     );
     this.ellipse(sx, top, rx, ry, shade(stone, -0.1));
     return { sx, top, rx, ry };
@@ -495,7 +475,7 @@ export class Svg {
     ];
     const hull = convexHull([...foot, ...cast]);
     this.extendPts(hull);
-    this.poly(hull, '#0b0d08', `opacity="${Math.min(0.6, strength * 1.45)}" filter="${this.blur(6)}"`);
+    this.poly(hull, '#0b0d08', `opacity="${Math.min(0.38, strength)}" filter="${this.blur(6)}"`);
     const pad = 0.15;
     this.poly([iso(x0 - pad, y0 - pad), iso(x1 + pad, y0 - pad), iso(x1 + pad, y1 + pad), iso(x0 - pad, y1 + pad)], '#10120a', `opacity="0.28" filter="${this.blur(4)}"`);
   }

@@ -4,7 +4,7 @@ import { iso, rng, shade, Svg } from '../svg';
 export function oakSvg(seed: number, scale = 1, autumn = false): Svg {
   const s = new Svg(`oak${seed}`);
   const r = rng(seed * 7919 + 13);
-  const base = autumn ? '#7a6a2c' : '#3a5428';
+  const base = autumn ? '#c48d36' : '#559b36';
   s.ellipse(0, 0, 30 * scale, 13 * scale, '#10120a', `opacity="0.3" filter="${s.blur(5)}"`);
   s.ellipse(14 * scale, -3 * scale, 34 * scale, 12 * scale, '#10120a', `opacity="0.18" filter="${s.blur(6)}"`);
   // tronco
@@ -23,7 +23,7 @@ export function oakSvg(seed: number, scale = 1, autumn = false): Svg {
   for (const [x, y, rr] of blobs) s.ellipse(x * scale, (y + 4) * scale, rr * scale, rr * 0.92 * scale, shade(base, -0.45));
   for (const [x, y, rr] of blobs) {
     const lit = (-x - y * 0.2) / 60;
-    s.ellipse(x * scale, y * scale, rr * 0.92 * scale, rr * 0.84 * scale, shade(base, Math.max(-0.25, Math.min(0.2, lit * 0.25))));
+    s.ellipse(x * scale, y * scale, rr * 0.92 * scale, rr * 0.84 * scale, s.radial(`leaf${x}${y}`, [[0,shade(base,.35+lit*.1)],[.55,base],[1,shade(base,-.23)]]));
   }
   for (const [x, y, rr] of blobs.slice(-6)) {
     s.ellipse((x - rr * 0.3) * scale, (y - rr * 0.35) * scale, rr * 0.45 * scale, rr * 0.35 * scale, shade(base, 0.16), 'opacity="0.55"');
@@ -38,7 +38,7 @@ export function oakSvg(seed: number, scale = 1, autumn = false): Svg {
 export function pineSvg(seed: number, scale = 1): Svg {
   const s = new Svg(`pine${seed}`);
   const r = rng(seed * 104729 + 7);
-  const base = '#243d29';
+  const base = '#2b7850';
   s.ellipse(0, 0, 20 * scale, 9 * scale, '#10120a', `opacity="0.3" filter="${s.blur(4)}"`);
   s.ellipse(16 * scale, -2 * scale, 26 * scale, 8 * scale, '#10120a', `opacity="0.16" filter="${s.blur(5)}"`);
   s.raw(`<rect x="${-3 * scale}" y="${-18 * scale}" width="${6 * scale}" height="${18 * scale}" fill="#4a2f1b"/>`);
@@ -58,7 +58,7 @@ export function pineSvg(seed: number, scale = 1): Svg {
 export function bushSvg(seed: number): Svg {
   const s = new Svg(`bush${seed}`);
   const r = rng(seed * 31 + 5);
-  const base = r() > 0.5 ? '#3d5730' : '#34502f';
+  const base = r() > 0.5 ? '#73aa3e' : '#42894b';
   s.ellipse(2, 0, 20, 8, '#10120a', `opacity="0.28" filter="${s.blur(3)}"`);
   const blobs: [number, number, number][] = [];
   for (let i = 0; i < 6; i++) blobs.push([(r() - 0.5) * 26, -8 - r() * 10, 8 + r() * 5]);

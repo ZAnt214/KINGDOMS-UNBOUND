@@ -9,11 +9,12 @@ import { CITY_GRID, COTTAGES, cityTier, plotFor, plotSize, buildingStage, visibl
 import { Camera } from '../camera';
 import { farmSvg, goldMineSvg, quarrySvg, sawmillSvg, soldierSvg, villagerSvg, warehouseSvg } from './art/buildings';
 import { bushSvg, fenceSvg, haySvg, oakSvg, pineSvg, rocksSvg } from './art/nature';
-import { barrelsSvg, cartSvg, cottageSvg, dummySvg, lampSvg, plotSvg, stallSvg, targetSvg, tentSvg, trebuchetSvg, weaponRackSvg, wellSvg } from './art/props';
+import { gardenSvg, barrelsSvg, cartSvg, cottageSvg, dummySvg, lampSvg, plotSvg, stallSvg, targetSvg, tentSvg, trebuchetSvg, weaponRackSvg, wellSvg } from './art/props';
 import { hallFx, type Palette, paletteFor, townHallSvg } from './art/townHall';
 import { gatehouseSvg, WALL_H, wallFx, wallSegmentSvg, wallTowerSvg } from './art/walls';
 import { CHUNK, CHUNK_RES, type GroundSpec, P, paintChunk, WORLD_BOUNDS } from './ground';
 import { iso, rng, Svg } from './svg';
+import { illustratedBuilding, illustratedEnvironment, type EnvironmentArt } from './illustrated';
 
 const HALF = CITY_GRID / 2;
 
@@ -179,17 +180,32 @@ export class CityScene {
     this.app.stage.addChild(this.world);
     this.puffTex = this.softCircle();
 
-    this.cam = new Camera(canvas, 0.2, 1.15, () => this.applyCamera(), (sx, sy) => this.tap(sx, sy));
+    this.cam = new Camera(canvas, 0.1, 1.15, () => this.applyCamera(), (sx, sy) => this.tap(sx, sy));
     canvas.addEventListener('pointerdown', () => (this.focus = null));
     const w = host.clientWidth;
-    this.cam.zoom = Math.min(0.62, Math.max(0.36, w / 1000));
+    this.cam.zoom = Math.min(0.58, Math.max(0.3, Math.min(w / 2200, host.clientHeight / 1250)));
     const hall = plotFor('town_hall');
     const [hx, hy] = P(hall.dx, hall.dy);
-    this.cam.centerOn(hx + 40, hy - 70);
+    this.cam.centerOn(hx + 40, hy + 30);
 
     await this.rebuild();
+    this.app.renderer.on('resize', this.onResize);
     this.app.ticker.add((t) => this.tick(t.deltaMS));
     this.onReady();
+  }
+
+  zoomBy(factor: number) {
+    this.focus = null;
+    this.cam?.zoomAt(this.app.screen.width / 2, this.app.screen.height / 2, factor);
+  }
+
+  overview() {
+    if (!this.cam) return;
+    this.focus = null;
+    const radius = WALL_HALF[(this.tier || 1) as 1 | 2 | 3];
+    this.cam.zoom = Math.max(this.cam.minZoom, Math.min(.65,
+      this.app.screen.width / (radius * 280), this.app.screen.height / (radius * 156 + 320)));
+    this.cam.centerOn(0, -60);
   }
 
   update(input: SceneInput) {
@@ -200,9 +216,12 @@ export class CityScene {
     void this.rebuild();
   }
 
+  private onResize = () => { if (this.cam) this.applyCamera(); };
+
   destroy() {
     this.destroyed = true;
     this.cam?.destroy();
+    this.app.renderer?.off('resize', this.onResize);
     try {
       this.app.destroy({ removeView: true }, { children: true });
     } catch {
@@ -244,42 +263,18 @@ export class CityScene {
   private groundSpec(R: number): GroundSpec {
     const plaza = { dx: 3.7, dy: -0.5, r: 1.7 };
     this.roads = [
-      [
-        [HALF + 1, 0.1],
-        [R + 3, 0],
-        [R, 0],
-        [6.5, 0.2],
-        [plaza.dx, plaza.dy],
-      ],
-      [
-        [plaza.dx, plaza.dy],
-        [1.8, -3.2],
-        [-3.0, -4.3],
-      ],
-      [
-        [plaza.dx, plaza.dy],
-        [3.4, 1.8],
-        [2.8, 3.9],
-      ],
-      [
-        [plaza.dx, plaza.dy],
-        [4.4, -2.6],
-        [3.7, -4.4],
-      ],
-      [
-        [plaza.dx, plaza.dy],
-        [2.8, 2.6],
-        [-1.6, 2.9],
-        [-4.0, 2.1],
-        [-4.6, 0.3],
-        [-4.9, -1.0],
-      ],
+      [[HALF+1,0],[R,0],[3.7,0]],
+      [[3.7,-7.5],[3.7,0],[3.7,7.5]],
+      [[3.7,-3.5],[-3.4,-3.5],[-3.4,-6]],
+      [[3.7,3.5],[-3.4,3.5],[-3.4,-3.5]],
+      [[-3.4,0],[-5,0]],
+      [[3.7,5.8],[2.8,5.8]],
     ];
     return {
       wallHalf: R,
       roads: this.roads,
       plaza,
-      moat: R,
+      // Clear grass at the wall foot keeps the city readable at phone scale.
       fields: [
         { dx: R + 5, dy: 6.5, w: 4.5, d: 3.2, crop: 0 },
         { dx: R + 9.5, dy: 7, w: 3.5, d: 3, crop: 2 },
@@ -311,6 +306,7 @@ export class CityScene {
     // objetos estáticos
     for (const c of this.objects.removeChildren()) c.destroy();
     this.buildingSprites.clear();
+    for (const arrow of this.arrows.values()) arrow.destroy();
     this.arrows.clear();
     this.construction = null;
     this.constructionFor = null;
@@ -318,12 +314,29 @@ export class CityScene {
     this.fires = wallFx(R);
     const add = async (key: string, build: () => Svg, dx: number, dy: number, res = 1.25, depthBias = 0, scale = 1, flip = false) => {
       const t = await raster(key, build, res);
+      if (this.destroyed) return;
       const [wx, wy] = P(dx, dy);
       const s = spriteOf(t, wx, wy);
       if (scale !== 1 || flip) s.scale.set(((flip ? -1 : 1) * scale) / t.res, scale / t.res);
       s.zIndex = (dx + dy) * 100 + depthBias;
       this.objects.addChild(s);
       return s;
+    };
+    const addArt = async (kind: EnvironmentArt, dx: number, dy: number, scale = 1, flip = false) => {
+      let tex: Tex;
+      try { tex = await illustratedEnvironment(kind); }
+      catch { // A missing image never blocks the game or its original art fallback.
+        const fallback = kind.startsWith('cottage') ? () => cottageSvg(0, pal.roof)
+          : kind === 'pine' ? () => pineSvg(0) : kind === 'bush' ? () => bushSvg(0)
+          : () => oakSvg(0, 1, kind === 'autumn');
+        tex = await raster(`fallback-${kind}`, fallback);
+      }
+      if (this.destroyed) return;
+      const [x, y] = P(dx, dy);
+      const sprite = spriteOf(tex, x, y);
+      sprite.scale.set((flip ? -1 : 1) * scale / tex.res, scale / tex.res);
+      sprite.zIndex = (dx + dy) * 100;
+      this.objects.addChild(sprite);
     };
     const stone = pal.stone;
     // muralhas
@@ -360,9 +373,10 @@ export class CityScene {
 
     // casas, praça e adereços
     for (const c of COTTAGES.filter((c) => c.tier <= tier)) {
-      jobs.push(add(`cot${c.variant}${pal.roof}`, () => cottageSvg(c.variant, pal.roof), c.dx, c.dy, 1.4));
+      jobs.push(addArt(c.variant === 1 ? 'cottageBlue' : 'cottageClay', c.dx, c.dy));
       if (c.variant !== 2) this.chimneys.push([c.dx - (c.variant === 1 ? 0.375 : 0.31) + 0.09, c.dy - 0.01, 96]);
     }
+    for (const [x,y] of [[-.5,-4.8],[1,-7.7],[5.8,5.1],[-5.8,5.9]]) jobs.push(add('garden', gardenSvg, x,y,1.4));
     jobs.push(add('well', wellSvg, 4.6, -1.9, 1.5));
     jobs.push(add('stallR', () => stallSvg('#6a2a22'), 5.4, 0.9, 1.5));
     jobs.push(add(`stall${pal.banner}`, () => stallSvg(pal.banner), 5.6, -1.5, 1.5));
@@ -446,10 +460,10 @@ export class CityScene {
       const variant = Math.floor(v * 4);
       const scale = 0.9 + ((v * 37) % 1) * 0.35;
       const flip = (v * 113) % 1 > 0.5;
-      if (pine) jobs.push(add(`pine${variant % 3}`, () => pineSvg(variant % 3, 1.15), dx, dy, 1.2, 0, scale, flip));
+      if (pine) jobs.push(addArt('pine', dx, dy, scale, flip));
       else {
         const autumn = (v * 71) % 1 > 0.9;
-        jobs.push(add(`oak${variant}${autumn ? 'a' : ''}`, () => oakSvg(variant, 1.05, autumn), dx, dy, 1.2, 0, scale, flip));
+        jobs.push(addArt(autumn ? 'autumn' : 'oak', dx, dy, scale, flip));
       }
     }
     for (let i = 0; i < 380; i++) {
@@ -458,7 +472,7 @@ export class CityScene {
       if (blocked(dx, dy, 0)) continue;
       if (trees.some(([x, y]) => Math.hypot(x - dx, y - dy) < 0.6)) continue;
       const k = r();
-      if (k < 0.55) jobs.push(add(`bush${Math.floor(k * 8)}`, () => bushSvg(Math.floor(k * 8)), dx, dy, 1.4, 0, 0.9 + k * 0.5, k > 0.3));
+      if (k < 0.55) jobs.push(addArt('bush', dx, dy, 0.9 + k * 0.5, k > 0.3));
       else if (k < 0.75) jobs.push(add(`rock${Math.floor(k * 6)}`, () => rocksSvg(Math.floor(k * 6)), dx, dy, 1.4));
     }
     await Promise.all(jobs);
@@ -499,7 +513,12 @@ export class CityScene {
             return goldMineSvg(st, pal);
         }
       };
-      const tex = await raster(key, build, b === 'town_hall' ? 1.8 : 1.5);
+      let tex: Tex;
+      let usesIllustration = false;
+      if (stage > 0) {
+        try { tex = await illustratedBuilding(b, stage as 1 | 2 | 3, this.input.civ.color); usesIllustration = true; }
+        catch { tex = await raster(key, build, b === 'town_hall' ? 1.8 : 1.5); }
+      } else tex = await raster(key, build, 1.5);
       if (this.destroyed) return;
       const [wx, wy] = P(plot.dx, plot.dy);
       const sprite = spriteOf(tex, wx, wy);
@@ -510,7 +529,7 @@ export class CityScene {
       if (b === 'town_hall') {
         this.chimneys = this.chimneys.filter((c) => c[2] < 150);
         this.fires = this.fires.filter((f) => !(f as [number, number, number] & { hall?: boolean }).hall);
-        if (stage > 0) {
+        if (stage > 0 && !usesIllustration) {
           const fx = hallFx(stage as 1 | 2 | 3);
           for (const [x, y, z] of fx.smoke) this.chimneys.push([plot.dx + x, plot.dy + y, z]);
           for (const [x, y, z] of fx.fires) this.fires.push(Object.assign([plot.dx + x, plot.dy + y, z] as [number, number, number], { hall: true }));
@@ -594,7 +613,7 @@ export class CityScene {
     for (let i = 0; i < 4; i++) {
       const s = new Sprite(this.cloudTex());
       s.anchor.set(0.5);
-      s.alpha = 0.22;
+      s.alpha = 0.09;
       s.tint = 0x050805;
       s.scale.set(3 + i * 0.6, 1.6 + i * 0.3);
       s.position.set(WORLD_BOUNDS.x0 + ((i * 1700) % (WORLD_BOUNDS.x1 - WORLD_BOUNDS.x0)), -900 + i * 520);

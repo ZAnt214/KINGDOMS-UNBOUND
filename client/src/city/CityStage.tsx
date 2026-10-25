@@ -78,6 +78,13 @@ export function CityStage(props: Props) {
   }
   return (
     <div ref={host} className="stage city-host" data-mode={mode}>
+      {mode === 'webgl' && (
+        <div className="city-camera" aria-label="Câmera da cidade">
+          <button onClick={() => scene.current?.zoomBy(1.22)} aria-label="Aproximar cidade">+</button>
+          <button onClick={() => scene.current?.zoomBy(1 / 1.22)} aria-label="Afastar cidade">−</button>
+          <button onClick={() => scene.current?.overview()} aria-label="Ver cidade inteira"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" aria-hidden="true"><path d="M8 3H3v5m13-5h5v5M3 16v5h5m13-5v5h-5"/><path d="m12 7 6 5-6 5-6-5z"/></svg></button>
+        </div>
+      )}
       {mode === 'loading' && (
         <div className="stage-loading" role="status">
           <div className="spinner" aria-hidden />

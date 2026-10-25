@@ -98,7 +98,7 @@ export function farmSvg(stage: 1 | 2 | 3, p: Palette): Svg {
     for (let k = 0; k < 7; k++) {
       const yy = fy0 + 0.2 + ((fy1 - fy0 - 0.4) * k) / 6;
       const [cx, cy] = iso(t + 0.06, yy);
-      const ripe = stage >= 2 ? '#a89048' : '#66763a';
+      const ripe = stage >= 2 ? '#cfb64b' : '#79b334';
       s.path(`M${cx - 3} ${cy} q3 -${9 + r() * 4} 6 0 z`, k % 2 ? ripe : shade(ripe, -0.12));
     }
   }
@@ -115,7 +115,7 @@ export function farmSvg(stage: 1 | 2 | 3, p: Palette): Svg {
   fence([fx1, fy0], [fx1, fy1]);
   // celeiro
   s.shadow(-1.2, -1.5, 0.6, -0.1, 110, 0.32);
-  const planks = s.planks('#4f3b2b');
+  const planks = s.planks('#b18249');
   s.box(-1.15, -1.45, 0.55, -0.15, 0, 48, planks, null, {
     left: (g, w) => {
       g.raw(`<rect x="${w / 2 - 22}" y="-40" width="44" height="40" fill="#1e1610"/>`);
@@ -124,7 +124,7 @@ export function farmSvg(stage: 1 | 2 | 3, p: Palette): Svg {
     },
     right: (g, w) => windowOn(g, w / 2 - 7, 22, 14, 14, { lit: true, frame: '#2a1e14' }),
   });
-  s.gable(-1.15, -1.45, 0.55, -0.15, 48, 56, s.thatch('#6e5f3c'), 'y', planks);
+  s.gable(-1.15, -1.45, 0.55, -0.15, 48, 56, s.tiles('#bd6341'), 'y', planks);
   if (stage >= 2) {
     // silo
     const t = s.tower(0.95, -1.05, 0.38, 0, 84, '#8a857c');
@@ -155,7 +155,7 @@ export function farmSvg(stage: 1 | 2 | 3, p: Palette): Svg {
 export function sawmillSvg(stage: 1 | 2 | 3, p: Palette): Svg {
   const s = new Svg(`saw${stage}`);
   s.shadow(-1.3, -1.2, 0.9, 0.7, 100, 0.3);
-  const wood = s.planks('#4f3b2b');
+  const wood = s.planks('#b18249');
   const plaster = s.plaster('#9c8e72');
   // galpão aberto com serra
   s.box(-1.2, -1.15, 0.85, 0.15, 0, 18, s.stone('#9d927e', 0.7), s.planks('#a07a4a', false));
@@ -268,10 +268,10 @@ export function goldMineSvg(stage: 1 | 2 | 3, p: Palette): Svg {
   s.ellipse(ex - 30, ey - 36, 9, 9, s.radial('mglow', [[0, '#ffcf73', 0.6], [1, '#ffcf73', 0]]));
   s.raw(`<rect x="${ex - 33}" y="${ey - 40}" width="6" height="8" fill="#ffd27a"/>`);
   if (stage >= 2) {
-    s.box(-1.15, 0.3, -0.45, 0.95, 0, 34, s.planks('#4f3b2b'), null, {
+    s.box(-1.15, 0.3, -0.45, 0.95, 0, 34, s.planks('#b18249'), null, {
       left: (g, w) => doorOn(g, w / 2 - 9, 18, 24, '#5a3a20', '#9d927e'),
     });
-    s.gable(-1.15, 0.3, -0.45, 0.95, 34, 26, s.tiles(p.roof), 'y', s.planks('#4f3b2b'));
+    s.gable(-1.15, 0.3, -0.45, 0.95, 34, 26, s.tiles(p.roof), 'y', s.planks('#b18249'));
   }
   return s;
 }
