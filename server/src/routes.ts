@@ -206,7 +206,19 @@ export function apiRouter(
   r.post('/alliance/members/:id/transfer', handler(async (req) => alliance.transfer(requireGovernor(req), parse(id, req.params.id))));
 
   // Nações e território (ciclo principal): estado do mundo, fundação e expansão.
-  r.get('/play/state', handler(async (req) => nation.snapshot(requireGovernor(req))));
+  r.get(
+    '/play/state',
+    handler(async (req) => {
+      const g = requireGovernor(req);
+      // Partida rápida: a leitura também move os bots e confere o fim. Assim a partida anda mesmo
+      // onde o worker não fica vivo entre requisições (funções serverless).
+      if (g.mode === 'quick') {
+        await match.check(g.kingdomId);
+        await match.tick(g.kingdomId);
+      }
+      return nation.snapshot(g);
+    }),
+  );
   r.get(
     '/play/colors',
     handler(async (req) => {

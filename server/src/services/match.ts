@@ -132,7 +132,7 @@ export class MatchService {
   }
 
   /** Um passo dos bots de todas as partidas em andamento (chamado pelo worker). */
-  async tick() {
+  async tick(kingdomId: number | null = null) {
     if (this.ticking) return;
     this.ticking = true;
     try {
@@ -140,7 +140,8 @@ export class MatchService {
         `SELECT g.id, g.name, g.kingdom_id, k.arena FROM governors g
            JOIN kingdoms k ON k.id = g.kingdom_id
            JOIN nations n ON n.governor_id = g.id
-          WHERE g.is_bot AND k.mode = 'quick' AND k.finished_at IS NULL AND k.ends_at IS NOT NULL`,
+          WHERE g.is_bot AND k.mode = 'quick' AND k.finished_at IS NULL AND k.ends_at IS NOT NULL AND ($1::int IS NULL OR k.id = $1)`,
+        [kingdomId],
       );
       const now = Date.now();
       for (const b of rows) {

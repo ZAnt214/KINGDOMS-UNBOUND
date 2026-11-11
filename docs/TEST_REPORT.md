@@ -156,3 +156,50 @@ Este passeio **não** prova persistência, concorrência nem tempo real do servi
 ### Não executado
 
 iPhone/Safari físico, PWA instalada, áudio em aparelho real (só a ausência de erros foi verificada), FPS e memória em aparelho, carga com muitos jogadores, passeio de dois navegadores contra o servidor real.
+
+## 2026-11-11 — Medieval removido, Fase B e Partida Rápida — branch `claude/fase-a-capital-expansao`
+
+### Servidor real — CI do GitHub (Node 22, PostgreSQL 16)
+
+Run 43066960419, commit `ed2c3dd`: typecheck PASS · `npm test` **72/72** PASS (7 arquivos) · build PASS.
+
+`tests/integration/economy.test.ts` (servidor real, dois jogadores, WebSocket):
+
+| Verificação | Resultado |
+|---|---|
+| saldo inicial e produção iguais à fórmula compartilhada; economia é privada | PASS |
+| construir desconta o custo do servidor uma vez; custo, nível e prazo enviados pelo cliente são ignorados | PASS |
+| outro jogador vê o canteiro de obras em tempo real | PASS |
+| recusa sem cobrar: tipo repetido, porto longe do litoral, região alheia, tipo inexistente | PASS |
+| limite de 2 obras simultâneas; sem recursos não cria nada | PASS |
+| obra vencida conclui pelo worker sem requisição; produção e energia sobem | PASS |
+| meia hora offline acumula a produção certa; dez horas param no estoque máximo | PASS |
+| três melhorias simultâneas: só uma passa; construção alheia dá 404; nível máximo é respeitado | PASS |
+| expansão passa a custar recursos e é recusada sem saldo | PASS |
+
+`tests/integration/quick.test.ts`:
+
+| Verificação | Resultado |
+|---|---|
+| cria mundo próprio com arena de 40 regiões e 3 bots; pedir de novo devolve a mesma partida | PASS |
+| campanha continua separada; cabeçalho de mundo alheio não dá acesso | PASS |
+| fundação só dentro da arena; relógio de 15 min começa na fundação; expansão fora da arena recusada | PASS |
+| bots agem pelas mesmas regras e só dentro da arena | PASS |
+| mais da metade da arena encerra com vitória, classificação e aviso em tempo real | PASS |
+| depois do fim, construir e expandir são recusados | PASS |
+| abandonar encerra e põe quem saiu em último | PASS |
+| fim do tempo decide por regiões; partida sem fundação expira sem vencedor | PASS |
+
+`multi-instance.test.ts` agora prova que uma obra concluída por dois workers concorrentes é anunciada uma única vez. Unitários novos (`tests/unit/economy.test.ts`, 12): fórmulas de produção, energia, eficiência, jazidas, custos e tempos progressivos, projeção com teto, regras de construção, arenas conectadas com pontos suficientes nos 8 teatros, identidades dos bots e regra de vitória.
+
+### Interface — navegador automatizado com SERVIDOR FALSO
+
+`tests/e2e/play-visual.cjs` contra `tests/e2e/fixtures/play-mock-server.ts` (memória, durações ÷ 4), Chromium headless, 390×844 e 1280×800, dois navegadores: **21/21** verificações nos dois tamanhos, incluindo construir pelo painel, obra concluída sozinha com aviso, painel de economia com 7 linhas, partida rápida com 3 bots, relógio após a fundação e tela de fim de partida. Capturas em `docs/evidence/play-b/`. Este passeio não prova persistência nem concorrência do servidor real.
+
+### Prévia (Vercel + banco real)
+
+`kingdoms-unbound-215efdnld-test11-1d8d.vercel.app`: `GET /api/meta` 200 com `quick: true` e os mundos renomeados (migração 4 aplicada). Fluxo no navegador contra a prévia **não executado** (o ambiente não alcança `*.vercel.app`).
+
+### Não executado
+
+iPhone/Safari físico, som em aparelho, FPS e memória, carga, partida rápida inteira de 15 minutos com bots no servidor real (os testes forçam o tempo).

@@ -142,3 +142,32 @@ Baseada em `work/world-map-command-center` (`5ca2115`). Decisões em `docs/adr/0
 - [ ] Governador e cidade clássicos ainda são criados para cada jogador.
 - [ ] Sem moderação de imagens de bandeira; contas de início rápido são descartáveis.
 - [ ] Teste em iPhone/Safari físico e medição de FPS em aparelho.
+
+## 2026-11-11 — Medieval removido, Fase B e Partida Rápida com bots
+
+Mesma branch (`claude/fase-a-capital-expansao`). Decisões em `docs/adr/0005-economia-e-partida-rapida.md`; regras em `docs/PLAY_RULES.md`.
+
+**Removido:** todo o jogo medieval (cidade, civilizações, mapa do reino, centro de comando com blocos), seus testes e a documentação da visão antiga. Alianças e chat continuam no servidor, sem interface. Tabelas antigas ficam no banco sem uso.
+
+**Fase B — entregue**
+- [x] Seis recursos (dinheiro, materiais, metal, petróleo, componentes, especiais) e energia como oferta × demanda; cada um com finalidade.
+- [x] Produção automática do território e das construções, acertada pelo relógio do servidor, com estoque máximo, retorno decrescente por nível e jazidas por região.
+- [x] Sete construções (cidade, depósito, fábrica, usina, porto, refinaria, centro tecnológico), níveis 1–5, custo e tempo progressivos, até 2 obras simultâneas, espaços por região, porto só no litoral.
+- [x] Painel de construção com nome, ícone, nível, custo (em vermelho o que falta), tempo, produção prevista, benefícios e CONSTRUIR/MELHORAR.
+- [x] Construções no mapa com ícone próprio, anel de progresso da obra e salto de conclusão; som de canteiro e de obra pronta.
+- [x] HUD: recursos ao vivo no topo, painel de economia, botão Construções no dock, metas de construção.
+- [x] Expansão passa a custar recursos.
+
+**Partida rápida — entregue**
+- [x] Mundo próprio com arena de 40 regiões em um de 8 teatros, 3 bots que jogam pelas mesmas regras, 15 minutos, ritmo acelerado.
+- [x] Vitória por maioria ou por regiões ao fim do tempo; abandono resolve a partida; expira sem fundação; classificação gravada e tela de fim de partida.
+- [x] Um usuário pode estar na campanha e numa partida rápida ao mesmo tempo (migração 4).
+
+**Pendências**
+- [ ] Ferrovias, conexões e bônus logístico (Fase C).
+- [ ] Vitória por 100% do território depende de ataques (Fase E).
+- [ ] Temporada de 10 dias da campanha e modo Equipe (Fase G).
+- [ ] Numa função serverless, bots e fim da partida avançam enquanto alguém está com a partida aberta.
+- [ ] Remover `pixi.js` e `@fontsource/cinzel` do `package.json` e regenerar o lock num ambiente com acesso ao npm.
+- [ ] Apagar as tabelas do jogo medieval numa migração própria.
+- [ ] Teste em iPhone/Safari físico e medição de FPS.
