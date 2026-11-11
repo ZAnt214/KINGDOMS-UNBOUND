@@ -241,3 +241,6 @@ Medido em máquina de nuvem sem GPU; um aparelho real pode ter números diferent
 
 ### Desempenho (mesmo método do relatório anterior)
 Parado 60 fps, arraste 60 fps, zoom por roda 37 fps — sem regressão com as ferrovias.
+
+### Resultado
+CI do commit `e04337b`: verde — typecheck e **87/87** testes (10 arquivos), incluindo `tests/integration/logistics.test.ts` 3/3 e `tests/unit/logistics.test.ts` 10/10. Prévia `kingdoms-unbound-2x8ucicjf-test11-1d8d.vercel.app`: `GET /api/meta` 200 com `economyRulesVersion: 2`.
