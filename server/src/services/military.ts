@@ -115,6 +115,8 @@ export class MilitaryService {
   async train(g: GovernorCtx, unit: UnitType, amount: number): Promise<MilitaryView> {
     if (!UNIT_TYPES.includes(unit)) throw bad('invalid_unit', 'Unidade desconhecida.');
     if (!Number.isInteger(amount) || amount < 1 || amount > MILITARY.maxBatch) throw bad('invalid_amount', `Escolha de 1 a ${MILITARY.maxBatch} unidades.`);
+    // Obras vencidas (ex.: a base ou o centro tecnológico que acabou de ficar pronto) contam já.
+    await this.economy.completeDue(g.kingdomId);
     await this.completeDue(g.kingdomId);
     await tx(this.db, async (client) => {
       const nation = await client.query('SELECT 1 FROM nations WHERE governor_id = $1 FOR UPDATE', [g.id]);
@@ -150,6 +152,8 @@ export class MilitaryService {
   /** Começa a pesquisa do próximo nível de uma tecnologia. */
   async startResearch(g: GovernorCtx, tech: TechType): Promise<MilitaryView> {
     if (!TECH_TYPES.includes(tech)) throw bad('invalid_tech', 'Pesquisa desconhecida.');
+    // Obras vencidas (ex.: a base ou o centro tecnológico que acabou de ficar pronto) contam já.
+    await this.economy.completeDue(g.kingdomId);
     await this.completeDue(g.kingdomId);
     await tx(this.db, async (client) => {
       const nation = await client.query('SELECT 1 FROM nations WHERE governor_id = $1 FOR UPDATE', [g.id]);
