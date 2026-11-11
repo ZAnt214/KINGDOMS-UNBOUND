@@ -1,6 +1,7 @@
 import { buildProblem, computeEconomy, ECONOMY, missing, project, structureCost, type StructureType } from '../../../shared/play/economy.js';
 import { botIdentities, buildArena, matchOutcome, type OutcomeReason, pickBotPoints, QUICK, rank, type Standing, THEATERS } from '../../../shared/play/match.js';
 import { expansionTargets, REGION_BY_ID, START_POINT_BY_ID } from '../../../shared/world/regions.js';
+import { freePointIn } from '../geo.js';
 import type { GovernorCtx } from '../auth.js';
 import { type Db, tx } from '../db.js';
 import { conflict } from '../http.js';
@@ -182,28 +183,31 @@ export class MatchService {
     const [inputs, nation, structures] = await Promise.all([
       this.economy.inputs(this.db, g.id),
       this.db.query('SELECT capital_point FROM nations WHERE governor_id = $1', [g.id]),
-      this.db.query('SELECT id, type, level, region_id, target_level FROM structures WHERE governor_id = $1', [g.id]),
+      this.economy.structures(g.kingdomId),
     ]);
-    const queue = structures.rows.filter((s) => s.target_level !== null).length;
-    if (queue >= 1) return;
+    const mine = structures.filter((s) => s.nationId === g.id);
+    if (mine.some((s) => s.building)) return;
     const have = project(view.amounts, view.settledAt, view.rates, view.capacity, Date.now());
     const capital = START_POINT_BY_ID[nation.rows[0].capital_point]?.region ?? null;
-    const count = (t: StructureType) => structures.rows.filter((s) => s.type === t).length;
-    const typesIn = (r: string) => structures.rows.filter((s) => s.region_id === r).map((s) => s.type as StructureType);
+    const count = (t: StructureType) => mine.filter((s) => s.type === t).length;
     const affordable = (t: StructureType, from: number) => !Object.keys(missing(have, structureCost(t, from, from === 0 ? count(t) : 0))).length;
+    const avoid = structures.map((s) => s.at);
     const tryBuild = async (t: StructureType, region: string) => {
-      const problem = buildProblem(t, { region, coast: REGION_BY_ID[region].coast, capitalRegion: capital, inRegion: typesIn(region), queue });
-      if (problem || !affordable(t, 0)) return false;
-      await this.economy.build(g, region, t);
+      const inRegion = structures.filter((s) => s.region === region).length;
+      if (buildProblem(t, { region, coast: REGION_BY_ID[region].coast, capitalRegion: capital, inRegion, queue: 0 }) || !affordable(t, 0)) return false;
+      const at = freePointIn(region, avoid, ECONOMY.minDistanceKm + 5);
+      if (!at) return false;
+      await this.economy.build(g, at, t, region);
       return true;
     };
+    const has = (t: StructureType, region: string | null) => mine.some((s) => s.type === t && (region === null || s.region === region));
     const econ = computeEconomy(inputs, 'quick');
-    if (capital && (await tryBuild('city', capital))) return;
+    if (capital && !has('city', capital) && (await tryBuild('city', capital))) return;
     if (capital && econ.energy.demand + 2 > econ.energy.supply && (await tryBuild('power', capital))) return;
-    if (capital && (await tryBuild('factory', capital))) return;
-    for (const r of inputs.regions) if (r !== capital && (await tryBuild('city', r))) return;
-    // Melhora a cidade mais barata de melhorar.
-    const up = structures.rows.filter((s) => s.target_level === null && s.level >= 1 && s.level < ECONOMY.maxLevel && (s.type === 'city' || s.type === 'factory')).sort((a, b) => a.level - b.level)[0];
-    if (up && affordable(up.type, up.level)) await this.economy.upgrade(g, Number(up.id));
+    if (capital && !has('factory', capital) && (await tryBuild('factory', capital))) return;
+    for (const r of inputs.regions) if (r !== capital && !has('city', r) && (await tryBuild('city', r))) return;
+    // Melhora a construção mais barata de melhorar.
+    const up = mine.filter((s) => s.level >= 1 && s.level < ECONOMY.maxLevel && (s.type === 'city' || s.type === 'factory')).sort((a, b) => a.level - b.level)[0];
+    if (up && affordable(up.type, up.level)) await this.economy.upgrade(g, up.id);
   }
 }

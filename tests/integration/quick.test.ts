@@ -4,6 +4,7 @@ import { arenaStartPoints, QUICK } from '../../shared/play/match.js';
 import { NATION_COLORS } from '../../shared/play/rules.js';
 import { REGION_BY_ID, START_POINTS } from '../../shared/world/regions.js';
 import type { Db } from '../../server/src/db.js';
+import { freePointIn } from '../../server/src/geo.js';
 import { Player, resetDb, startServer, type TestPlayer } from './helpers.js';
 
 let db: Db;
@@ -119,7 +120,7 @@ describe('partida rápida', () => {
   it('depois do fim, nada mais muda', async () => {
     const s = await state(Q);
     const mine = s.control.find((c: any) => c[1] === qg)[0];
-    expect((await Q.post('/play/build', { region: mine, type: 'city' })).data.error).toBe('match_over');
+    expect((await Q.post('/play/build', { at: freePointIn(mine, [], 40), type: 'city' })).data.error).toBe('match_over');
     const target = REGION_BY_ID[mine].neighbors.find((n: string) => s.world.arena.includes(n) && !s.control.some((c: any) => c[0] === n));
     if (target) expect((await Q.post('/play/expand', { region: target })).data.error).toBe('match_over');
     expect(s.occupations).toEqual([]);

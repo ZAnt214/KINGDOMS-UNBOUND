@@ -27,6 +27,7 @@ import { inspectFlagImage, parseFlag } from '../../../shared/play/flags';
 import { botIdentities, buildArena, matchOutcome, pickBotPoints, QUICK, rank, THEATERS } from '../../../shared/play/match';
 import { cleanNationName, COLOR_EXCLUSION_KM, expansionSeconds, type GameMode, MODES_AVAILABLE, NATION_COLOR_BY_HEX, nationNameProblem } from '../../../shared/play/rules';
 import type { EconomyView, NationView, OccupationView, StructureView, WorldView } from '../../../shared/play/types';
+import { freePointIn, regionAt } from '../../../server/src/geo';
 import { borderingRegion, distanceKm, expansionTargets, REGION_BY_ID, START_POINT_BY_ID, type StartPoint } from '../../../shared/world/regions';
 
 const PORT = Number(process.env.PORT ?? 4173);
@@ -146,7 +147,8 @@ function botStep(w: World, gid: number) {
   const cap = START_POINT_BY_ID[w.nations.get(gid)!.capital].region;
   if (![...w.structures.values()].some((s) => s.nationId === gid && s.type === 'city')) {
     try {
-      build(w, gid, cap, 'city');
+      const at = freePointIn(cap, [...w.structures.values()].map((s) => s.at), ECONOMY.minDistanceKm + 5);
+      if (at) build(w, gid, at, 'city', cap);
     } catch {
       /* sem recursos: tenta depois */
     }
@@ -230,22 +232,26 @@ function expand(w: World, gid: number, region: string) {
   announceEconomy(w, gid);
   return { occupation, seconds };
 }
-function build(w: World, gid: number, region: string, type: StructureType) {
+function build(w: World, gid: number, at: [number, number], type: StructureType, hint?: string) {
   if (!STRUCTURE_TYPES.includes(type)) throw new Fail(400, 'invalid_type', 'Construção desconhecida.');
   if (w.view.finishedAt) throw new Fail(409, 'match_over', 'Esta partida já terminou.');
-  if (w.control.get(region) !== gid) throw new Fail(409, 'not_owner', 'Só é possível construir em regiões da sua nação.');
-  const mine = [...w.structures.values()].filter((s) => s.nationId === gid);
+  const owned = [...w.control].filter(([, o]) => o === gid).map(([r]) => r);
+  const region = regionAt(at[0], at[1], hint ? [hint, ...owned] : owned);
+  if (!region || w.control.get(region) !== gid) throw new Fail(409, 'not_owner', 'Construa dentro do seu território.');
+  const all = [...w.structures.values()];
+  if (all.some((s) => distanceKm(s.at, at) < ECONOMY.minDistanceKm)) throw new Fail(409, 'too_close', `Muito perto de outra construção. Deixe pelo menos ${ECONOMY.minDistanceKm} km.`);
+  const mine = all.filter((s) => s.nationId === gid);
   const problem = buildProblem(type, {
     region,
     coast: REGION_BY_ID[region].coast,
     capitalRegion: START_POINT_BY_ID[w.nations.get(gid)!.capital].region,
-    inRegion: mine.filter((s) => s.region === region).map((s) => s.type),
+    inRegion: all.filter((s) => s.region === region).length,
     queue: mine.filter((s) => s.building).length,
   });
   if (problem) throw new Fail(409, 'cannot_build', problem);
   spend(w, gid, structureCost(type, 0, mine.filter((s) => s.type === type).length), 'esta construção');
   const now = Date.now();
-  const s: StructureView = { id: id(), nationId: gid, region, type, level: 0, building: { to: 1, startedAt: now, endsAt: now + (structureSeconds(type, 0, w.view.mode) * 1000) / SPEED } };
+  const s: StructureView = { id: id(), nationId: gid, region, type, at, level: 0, building: { to: 1, startedAt: now, endsAt: now + (structureSeconds(type, 0, w.view.mode) * 1000) / SPEED } };
   w.structures.set(s.id, s);
   send(w.view.id, { type: 'play.structure', structure: s, completed: false });
   announceEconomy(w, gid);
@@ -346,7 +352,7 @@ function route(method: string, url: URL, body: any, s: Session | null, worldHead
     return snapshot(w, gid);
   }
   if (p === '/play/expand' && method === 'POST') return expand(w, gid, body.region);
-  if (p === '/play/build' && method === 'POST') return { structure: build(w, gid, body.region, body.type) };
+  if (p === '/play/build' && method === 'POST') return { structure: build(w, gid, body.at, body.type, body.region) };
   if (p === '/play/upgrade' && method === 'POST') return { structure: upgrade(w, gid, Number(body.structureId)) };
   throw new Fail(404, 'not_found', 'Rota inexistente.');
 }

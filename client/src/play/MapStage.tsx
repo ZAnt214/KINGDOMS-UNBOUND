@@ -1,22 +1,21 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { buildProblem, type EconomyInput, ECONOMY, expansionCost, missing, STRUCTURES, type StructureType } from '../../../shared/play/economy';
+import { buildProblem, type EconomyInput, ECONOMY, expansionCost, missing, STRUCTURES, structureCost, type StructureType } from '../../../shared/play/economy';
 import { QUICK } from '../../../shared/play/match';
 import { expansionSeconds, MILESTONES, milestoneProgress } from '../../../shared/play/rules';
 import type { NationView, StructureView } from '../../../shared/play/types';
 import { COUNTRIES, COUNTRY_BY_CODE } from '../../../shared/world';
-import { countryOccupation, dominatedCountries, landmassSize, REGION_BY_ID, REGIONS_BY_COUNTRY, START_POINT_BY_ID, START_POINTS, type StartPoint } from '../../../shared/world/regions';
+import { countryOccupation, distanceKm, dominatedCountries, landmassSize, REGION_BY_ID, REGIONS_BY_COUNTRY, START_POINT_BY_ID, START_POINTS, type StartPoint } from '../../../shared/world/regions';
 import { api, ApiError, serverNow } from '../api';
-import { useTick } from '../hooks';
 import type { RealtimeStatus } from '../realtime';
 import type { MapFill, MapFlag, MapLabel, MapPick, MapPoint, MapStructure, WorldMapEngine } from '../worldmap/engine';
 import { audio } from './audio';
 import { PointCard, RegionCard } from './cards';
-import { BuildGrid, EconomySheet, Glyph, ResourceStrip, StructurePanel, useAmounts } from './economyUi';
+import { amountsNow, BuildBar, EconomySheet, Glyph, ResourceStrip, StructurePanel } from './economyUi';
 import { STRUCTURE_GLYPH } from './glyphs';
 import { Banner, type BannerData, Dock, IdentityPill, MatchClock, ObjectiveChip, OccupationCapsule, StatChips, type Toast, Toasts, ZoomButtons } from './hud';
 import { draftFlagSrc, flagCanvasImage, type IdentityDraft, nationFlagSrc } from './identity';
 import { fmtArea, myTargets, nationStats, objective, progressOf, ranking } from './model';
-import { BuildSheet, NationSheet, RankingSheet, SettingsSheet } from './sheets';
+import { NationSheet, RankingSheet, SettingsSheet } from './sheets';
 import { regionsOf, structuresOf, type WorldMoment, type WorldState } from './store';
 
 const LABELS: MapLabel[] = COUNTRIES.map((c) => ({ code: c.code, text: c.name, at: c.labelAt, rank: c.labelRank }));
@@ -35,7 +34,7 @@ interface Props {
   subscribe: (fn: (m: WorldMoment, state: WorldState) => void) => () => void;
   found: (pointId: string) => Promise<void>;
   expand: (region: string) => Promise<void>;
-  build: (region: string, type: StructureType) => Promise<void>;
+  build: (at: [number, number], type: StructureType, region: string) => Promise<void>;
   upgrade: (structureId: number) => Promise<void>;
   onEditIdentity: () => void;
   onSwitchMode: () => void;
@@ -43,8 +42,8 @@ interface Props {
   onLogout: () => void;
 }
 
-type Sheet = 'nation' | 'ranking' | 'settings' | 'economy' | 'build' | null;
-type Panel = { kind: 'new'; region: string; type: StructureType } | { kind: 'existing'; id: number } | null;
+type Sheet = 'nation' | 'ranking' | 'settings' | 'economy' | null;
+type Panel = { kind: 'existing'; id: number } | null;
 interface Bloom {
   color: string;
   origin: [number, number];
@@ -67,6 +66,9 @@ export function MapStage(props: Props) {
   const [point, setPoint] = useState<StartPoint | null>(null);
   const [region, setRegion] = useState<string | null>(null);
   const [panel, setPanel] = useState<Panel>(null);
+  /** Barra de construção aberta e tipo escolhido (modo de posicionamento). */
+  const [buildOpen, setBuildOpen] = useState(false);
+  const [placing, setPlacing] = useState<StructureType | null>(null);
   const [sheet, setSheet] = useState<Sheet>(null);
   const [busy, setBusy] = useState(false);
   const [cardError, setCardError] = useState<string | null>(null);
@@ -86,8 +88,8 @@ export function MapStage(props: Props) {
   const planted = useRef(new Map<string, number>());
   const completed = useRef(new Map<number, number>());
   const toastId = useRef(0);
-  const live = useRef({ state, me, active });
-  live.current = { state, me, active };
+  const live = useRef({ state, me, active, placing });
+  live.current = { state, me, active, placing };
 
   const toast = useCallback((text: string, tone: Toast['tone'] = 'info', flag?: string) => {
     const id = ++toastId.current;
@@ -110,9 +112,6 @@ export function MapStage(props: Props) {
     [stats, capitalRegion, myStructures],
   );
   const queue = myStructures.filter((s) => s.building).length;
-  const building = myStructures.some((s) => s.building);
-  useTick(myOccupation || building || quick ? 250 : 1000);
-  const have = useAmounts(state.economy);
 
   // ---------- motor: dados estáveis ----------
 
@@ -216,35 +215,21 @@ export function MapStage(props: Props) {
   }, [engine, state, blooms, flagTick]);
 
   useEffect(() => {
-    const byRegion = new Map<string, StructureView[]>();
-    for (const s of state.structures.values()) {
-      const list = byRegion.get(s.region);
-      if (list) list.push(s);
-      else byRegion.set(s.region, [s]);
-    }
     const list: MapStructure[] = [];
-    for (const [rid, items] of byRegion) {
-      const owner = state.nations.get(items[0].nationId);
-      const cap = owner ? START_POINT_BY_ID[owner.capital] : null;
-      const anchor: [number, number] = cap && cap.region === rid ? cap.at : (REGION_BY_ID[rid]?.at ?? [0, 0]);
-      const own = items[0].nationId === state.me;
-      items
-        .sort((a, b) => a.id - b.id)
-        .forEach((s, i) =>
-          list.push({
-            id: String(s.id),
-            anchor,
-            slot: i,
-            slots: items.length,
-            color: owner?.color ?? '#8792a6',
-            glyph: STRUCTURE_GLYPH[s.type],
-            level: s.level,
-            building: s.building ? { startAt: s.building.startedAt, endAt: s.building.endsAt } : null,
-            completedAt: completed.current.get(s.id),
-            own,
-            minZoom: own ? 1.6 : 2.8,
-          }),
-        );
+    for (const s of state.structures.values()) {
+      const own = s.nationId === state.me;
+      list.push({
+        id: String(s.id),
+        lon: s.at[0],
+        lat: s.at[1],
+        color: state.nations.get(s.nationId)?.color ?? '#8792a6',
+        glyph: STRUCTURE_GLYPH[s.type],
+        level: s.level,
+        building: s.building ? { startAt: s.building.startedAt, endAt: s.building.endsAt } : null,
+        completedAt: completed.current.get(s.id),
+        own,
+        minZoom: own ? 1.6 : 2.8,
+      });
     }
     engine.setStructures(list);
   }, [engine, state]);
@@ -258,6 +243,66 @@ export function MapStage(props: Props) {
   useEffect(() => {
     engine.setSelectedRegion(region);
   }, [engine, region]);
+
+  // ---------- construção por toque ----------
+
+  /** Mesmas regras do servidor, para responder na hora (o servidor confere de novo). */
+  const placeProblem = useCallback(
+    (s: WorldState, type: StructureType, rid: string, at: [number, number]): string | null => {
+      if (s.me === null || s.control.get(rid) !== s.me) return 'Construa dentro do seu território.';
+      const mine = [...s.structures.values()].filter((x) => x.nationId === s.me);
+      const capital = START_POINT_BY_ID[s.nations.get(s.me)!.capital]?.region ?? null;
+      const problem = buildProblem(type, {
+        region: rid,
+        coast: REGION_BY_ID[rid].coast,
+        capitalRegion: capital,
+        inRegion: [...s.structures.values()].filter((x) => x.region === rid).length,
+        queue: mine.filter((x) => x.building).length,
+      });
+      if (problem) return problem;
+      if ([...s.structures.values()].some((x) => distanceKm(x.at, at) < ECONOMY.minDistanceKm)) return 'Muito perto de outra construção.';
+      const have = amountsNow(s.economy);
+      if (have && Object.keys(missing(have, structureCost(type, 0, mine.filter((x) => x.type === type).length))).length) return 'Recursos insuficientes.';
+      return null;
+    },
+    [],
+  );
+
+  useEffect(() => {
+    engine.setPlacement(
+      placing
+        ? {
+            glyph: STRUCTURE_GLYPH[placing],
+            color: me?.color ?? '#ffffff',
+            accepts: (rid, at) => placeProblem(live.current.state, placing, rid, at) === null,
+          }
+        : null,
+    );
+  }, [engine, placing, me, placeProblem]);
+  useEffect(() => () => engine.setPlacement(null), [engine]);
+
+  const pending = useRef(false);
+  const place = useCallback(
+    async (type: StructureType, rid: string, at: [number, number]) => {
+      const problem = placeProblem(live.current.state, type, rid, at);
+      if (problem) {
+        audio.play('deny');
+        toast(problem, 'bad');
+        return;
+      }
+      if (pending.current) return;
+      pending.current = true;
+      try {
+        await build(at, type, rid);
+      } catch (e) {
+        audio.play('deny');
+        toast(e instanceof ApiError ? e.message : 'Não foi possível construir aqui.', 'bad');
+      } finally {
+        pending.current = false;
+      }
+    },
+    [build, placeProblem, toast],
+  );
 
   // ---------- seleção no mapa ----------
 
@@ -284,19 +329,25 @@ export function MapStage(props: Props) {
 
   // Com um cartão aberto, a região fica na metade de cima da tela, à vista.
   const cardOpen = !!region || !!panel || !!point;
+  const barOpen = buildOpen && !!me;
   useEffect(() => {
     const narrow = window.innerWidth < 720;
-    engine.setPadding({ bottom: cardOpen && narrow ? window.innerHeight * 0.56 : narrow ? 150 : 90, left: cardOpen && !narrow ? 420 : 0 });
-    const focus = region ?? (panel?.kind === 'new' ? panel.region : panel ? state.structures.get(panel.id)?.region : null);
+    engine.setPadding({ bottom: cardOpen && narrow ? window.innerHeight * 0.56 : barOpen ? 190 : narrow ? 150 : 90, left: cardOpen && !narrow ? 420 : 0 });
+    const focus = region ?? (panel ? state.structures.get(panel.id)?.region : null);
     if (focus) engine.flyToRegions([focus], 0.62, 9);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [engine, cardOpen, region, panel]);
+  }, [engine, cardOpen, barOpen, region, panel]);
 
   useEffect(() => {
     const onPick = (pick: MapPick | null) => {
-      const { state: s, me: mine, active: on } = live.current;
+      const { state: s, me: mine, active: on, placing: type } = live.current;
       if (!on) return;
       setCardError(null);
+      if (type) {
+        if (pick?.kind === 'region') void place(type, pick.id, pick.at);
+        else toast('Toque em terra, dentro do seu território.', 'bad');
+        return;
+      }
       if (!pick) {
         setRegion(null);
         setPoint(null);
@@ -357,7 +408,7 @@ export function MapStage(props: Props) {
       }
     };
     return engine.on('select', onPick);
-  }, [engine, selectPoint, toast, openRegion]);
+  }, [engine, selectPoint, toast, openRegion, place]);
 
   // ---------- acontecimentos do mundo ----------
 
@@ -510,8 +561,7 @@ export function MapStage(props: Props) {
 
   const actOnPanel = () => {
     if (!panel) return;
-    if (panel.kind === 'new') void run(async () => (await build(panel.region, panel.type), setPanel(null)));
-    else void run(async () => (await upgrade(panel.id), setPanel(null)));
+    void run(async () => (await upgrade(panel.id), setPanel(null)));
   };
 
   const goCapital = () => {
@@ -533,9 +583,9 @@ export function MapStage(props: Props) {
 
   const goal = stats ? objective(stats) : null;
   const regionDef = region ? REGION_BY_ID[region] : null;
-  const panelStructure = panel?.kind === 'existing' ? (state.structures.get(panel.id) ?? null) : null;
-  const panelType = panel?.kind === 'new' ? panel.type : (panelStructure?.type ?? null);
-  const panelRegion = panel?.kind === 'new' ? panel.region : (panelStructure?.region ?? null);
+  const panelStructure = panel ? (state.structures.get(panel.id) ?? null) : null;
+  const panelType = panelStructure?.type ?? null;
+  const panelRegion = panelStructure?.region ?? null;
   const sameType = (t: StructureType) => myStructures.filter((s) => s.type === t).length;
   const arenaMine = arena && stats ? stats.regions.filter((r) => arenaSet!.has(r)).length : 0;
   const majority = Math.floor((arena?.length ?? 0) * QUICK.majority) + 1;
@@ -577,7 +627,26 @@ export function MapStage(props: Props) {
 
       {me && stats && (
         <div className="ku-bottom">
-          {myOccupation && (
+          {buildOpen && !region && !panel && (
+            <BuildBar
+              economy={state.economy}
+              selected={placing}
+              sameType={sameType}
+              input={econInput}
+              mode={state.world.mode}
+              queue={queue}
+              onSelect={(t) => {
+                audio.play(t ? 'select' : 'tap');
+                setPlacing(t);
+              }}
+              onClose={() => {
+                audio.play('tap');
+                setPlacing(null);
+                setBuildOpen(false);
+              }}
+            />
+          )}
+          {myOccupation && !buildOpen && (
             <OccupationCapsule
               name={REGION_BY_ID[myOccupation.region]?.name ?? 'Região'}
               startedAt={myOccupation.startedAt}
@@ -585,7 +654,7 @@ export function MapStage(props: Props) {
               onFocus={() => engine.flyToRegions([myOccupation.region, myOccupation.from], 0.5, 12)}
             />
           )}
-          {!region && !panel && (
+          {!region && !panel && !buildOpen && (
             <Dock
               targets={targets.length}
               occupying={!!myOccupation}
@@ -594,7 +663,7 @@ export function MapStage(props: Props) {
               onCapital={goCapital}
               onBuild={() => {
                 audio.play('tap');
-                setSheet('build');
+                setBuildOpen(true);
               }}
               onRanking={() => setSheet('ranking')}
             />
@@ -632,9 +701,9 @@ export function MapStage(props: Props) {
           seconds={expansionSeconds(regionDef.area, stats.regions.length, state.world.mode)}
           countryShare={countryOccupation(regionDef.country, (id) => state.control.get(id) === me.id)}
           cost={expansionCost(stats.regions.length)}
-          have={have}
+          economy={state.economy}
           outside={!!arenaSet && !arenaSet.has(regionDef.id)}
-          busy={busy || (targets.includes(regionDef.id) && !!have && Object.keys(missing(have, expansionCost(stats.regions.length))).length > 0)}
+          busy={busy}
           error={cardError}
           onOccupy={() => occupy(regionDef.id)}
           onClose={() => setRegion(null)}
@@ -649,19 +718,18 @@ export function MapStage(props: Props) {
             />
           )}
           {state.control.get(regionDef.id) === me.id && !state.world.finishedAt && (
-            <BuildGrid
-              region={regionDef.id}
-              capitalRegion={capitalRegion}
-              structures={myStructures.filter((s) => s.region === regionDef.id)}
-              queue={queue}
-              have={have}
-              sameType={sameType}
-              onPick={(t) => {
+            <button
+              type="button"
+              className="ku-btn"
+              onClick={() => {
                 audio.play('tap');
-                setCardError(null);
-                setPanel({ kind: 'new', region: regionDef.id, type: t });
+                setRegion(null);
+                setBuildOpen(true);
               }}
-            />
+              data-testid="build-here"
+            >
+              Construir nesta região
+            </button>
           )}
         </RegionCard>
       )}
@@ -671,25 +739,13 @@ export function MapStage(props: Props) {
           type={panelType}
           region={panelRegion}
           structure={panelStructure}
-          own={panel.kind === 'new' || panelStructure?.nationId === state.me}
+          own={panelStructure?.nationId === state.me}
           ownerName={panelStructure ? state.nations.get(panelStructure.nationId)?.name : undefined}
           input={econInput}
           mode={state.world.mode}
-          have={have}
+          economy={state.economy}
           sameType={sameType(panelType)}
-          problem={
-            panel.kind === 'new'
-              ? buildProblem(panelType, {
-                  region: panelRegion,
-                  coast: REGION_BY_ID[panelRegion].coast,
-                  capitalRegion,
-                  inRegion: myStructures.filter((s) => s.region === panelRegion).map((s) => s.type),
-                  queue,
-                })
-              : queue >= ECONOMY.buildQueue && !panelStructure?.building
-                ? `Já há ${ECONOMY.buildQueue} obras em andamento. Aguarde uma terminar.`
-                : null
-          }
+          problem={queue >= ECONOMY.buildQueue && !panelStructure?.building ? `Já há ${ECONOMY.buildQueue} obras em andamento. Aguarde uma terminar.` : null}
           busy={busy || !!state.world.finishedAt}
           error={cardError}
           onAct={actOnPanel}
@@ -709,23 +765,6 @@ export function MapStage(props: Props) {
         />
       )}
       {sheet === 'economy' && state.economy && <EconomySheet economy={state.economy} onClose={() => setSheet(null)} />}
-      {sheet === 'build' && stats && (
-        <BuildSheet
-          regions={stats.regions}
-          capitalRegion={capitalRegion}
-          structures={myStructures}
-          onRegion={(rid) => {
-            setSheet(null);
-            engine.flyToRegions([rid], 0.45, 12);
-            openRegion(rid);
-          }}
-          onStructure={(s) => {
-            setSheet(null);
-            setPanel({ kind: 'existing', id: s.id });
-          }}
-          onClose={() => setSheet(null)}
-        />
-      )}
       {sheet === 'ranking' && (
         <RankingSheet
           board={board}

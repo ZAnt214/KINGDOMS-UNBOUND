@@ -203,3 +203,24 @@ Run 43066960419, commit `ed2c3dd`: typecheck PASS · `npm test` **72/72** PASS (
 ### Não executado
 
 iPhone/Safari físico, som em aparelho, FPS e memória, carga, partida rápida inteira de 15 minutos com bots no servidor real (os testes forçam o tempo).
+
+## 2026-11-11 — Construção por toque e desempenho do mapa
+
+### Unidade (local, com o mesmo código dos testes do CI)
+`tests/unit/play.test.ts` 14/14, `economy.test.ts` 12/12 (espaços por área), `geo.test.ts` 2/2 (ponto dentro/fora da região, ponto livre a 25 km).
+
+### Integração (CI, PostgreSQL real)
+`tests/integration/economy.test.ts`, `quick.test.ts` e `multi-instance.test.ts` passam a construir por ponto `[lon, lat]`: dentro do território, a menos de 25 km (`too_close`), em região alheia (`not_owner`), no oceano e fora do mapa (400). Resultado: ver o CI do commit.
+
+### Interface — navegador automatizado com SERVIDOR FALSO
+`tests/e2e/play-visual.cjs`: **22/22** em 390×844 e **22/22** em 1280×800. Novo fluxo: abrir a barra, escolher Cidade, tocar no mapa; escolher Depósito, tocar em outro ponto; a obra termina sozinha e avisa; as duas construções aparecem nas coordenadas tocadas (±0,5°). Capturas em `docs/evidence/play-c/`.
+
+### Desempenho (Chromium headless, viewport de celular, DPR 3, sem limitação de CPU)
+
+| Situação | Antes | Depois |
+|---|---|---|
+| Parado (pontos pulsando) | ~333 ms/quadro (3 fps) | 16,7 ms (60 fps) |
+| Arrastando | ~303 ms (3 fps) | 16,7 ms (60 fps) |
+| Zoom por roda | ~281 ms (4 fps) | 27,6 ms médio (36 fps), p90 16,7 ms |
+
+Medido em máquina de nuvem sem GPU; um aparelho real pode ter números diferentes. **Não executado:** medição em iPhone/Android físico.

@@ -35,6 +35,8 @@ export interface StructureView {
   nationId: number;
   region: string;
   type: StructureType;
+  /** Posição [longitude, latitude] escolhida pelo jogador. */
+  at: [number, number];
   /** Nível concluído (0 enquanto a primeira obra não termina). */
   level: number;
   /** Obra em andamento: nível que será alcançado, início e fim. */

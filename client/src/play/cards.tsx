@@ -1,13 +1,14 @@
 import { NATION_COLORS } from '../../../shared/play/rules';
 import type { ReactNode } from 'react';
-import type { Cost, ResourceMap } from '../../../shared/play/economy';
-import type { NationView, OccupationView } from '../../../shared/play/types';
+import { type Cost, missing } from '../../../shared/play/economy';
+import type { EconomyView, NationView, OccupationView } from '../../../shared/play/types';
 import { COUNTRY_BY_CODE } from '../../../shared/world';
 import { landmassSize, REGION_BY_ID, type RegionDef, type StartPoint } from '../../../shared/world/regions';
 import { serverNow } from '../api';
 import { nationFlagSrc } from './identity';
 import { IcClock, IcClose } from './icons';
-import { CostLine } from './economyUi';
+import { useTick } from '../hooks';
+import { amountsNow, CostLine } from './economyUi';
 import { fmtArea, fmtClock, fmtPeople, fmtSeconds } from './model';
 
 function CountryLine({ code }: { code: string }) {
@@ -115,9 +116,9 @@ interface RegionProps {
   seconds: number;
   /** Fração do país desta região já ocupada pelo jogador (por área). */
   countryShare: number;
-  /** Custo da ocupação e saldo atual. */
+  /** Custo da ocupação e economia de quem joga. */
   cost: Cost;
-  have: ResourceMap | null;
+  economy: EconomyView | null;
   /** Fora da arena da partida rápida. */
   outside: boolean;
   busy: boolean;
@@ -130,6 +131,9 @@ interface RegionProps {
 
 /** Região selecionada: de quem é, quanto do país já é seu e o que dá para fazer agora. */
 export function RegionCard(p: RegionProps) {
+  useTick(p.occupation ? 250 : 1000);
+  const have = amountsNow(p.economy);
+  const short = have ? Object.keys(missing(have, p.cost)).length > 0 : true;
   const { region, me, owner, occupation } = p;
   const country = COUNTRY_BY_CODE[region.country];
   const mine = owner?.id === me.id;
@@ -189,7 +193,7 @@ export function RegionCard(p: RegionProps) {
       {p.canTarget && !occupation && (
         <div className="ku-row-cost">
           <span>Custo da ocupação</span>
-          <CostLine cost={p.cost} have={p.have} />
+          <CostLine cost={p.cost} have={have} />
         </div>
       )}
       {p.error && (
@@ -198,7 +202,7 @@ export function RegionCard(p: RegionProps) {
         </p>
       )}
       {p.canTarget && !occupation && (
-        <button type="button" className="ku-cta" onClick={p.onOccupy} disabled={p.busy} data-testid="occupy">
+        <button type="button" className="ku-cta" onClick={p.onOccupy} disabled={p.busy || short} data-testid="occupy">
           {p.busy ? 'Enviando…' : 'OCUPAR REGIÃO'}
           <small>
             <IcClock width={14} height={14} /> {fmtSeconds(p.seconds)}

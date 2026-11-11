@@ -171,3 +171,18 @@ Mesma branch (`claude/fase-a-capital-expansao`). Decisões em `docs/adr/0005-eco
 - [ ] Remover `pixi.js` e `@fontsource/cinzel` do `package.json` e regenerar o lock num ambiente com acesso ao npm.
 - [ ] Apagar as tabelas do jogo medieval numa migração própria.
 - [ ] Teste em iPhone/Safari físico e medição de FPS.
+
+## 2026-11-11 — Construção por toque em qualquer ponto e desempenho
+
+**Construção mais rápida**
+- [x] Barra de construções fixa embaixo: escolher o tipo e tocar no mapa. Dois toques por construção, sem abrir cartão nem folha. A barra fica aberta para várias obras seguidas e mostra custo, tempo e produção do tipo escolhido.
+- [x] Posição livre dentro do território, gravada em longitude/latitude (migração 5). O servidor valida o ponto pelo polígono da região, distância mínima de 25 km e espaços por área.
+- [x] Prévia no mapa enquanto o dedo/mouse passa: o ícone fica verde onde pode construir e vermelho onde não pode, com o motivo ao tocar.
+- [x] Bots usam as mesmas regras, escolhendo um ponto livre dentro da própria região.
+
+**Desempenho**
+- [x] Mapa base (terra, fronteiras, litoral, nomes) desenhado uma vez numa camada em cache; arrastar e dar zoom só reposiciona essa imagem e redesenha nítido quando o gesto para.
+- [x] Nível de detalhe das linhas conforme o zoom; sem `shadowBlur`; vinheta em CSS; cache de medidas de texto.
+- [x] O mapa só redesenha quando algo muda ou há animação ativa.
+- [x] Interface React atualiza só os pequenos componentes com relógio (recursos, relógio da partida, obras), não a tela inteira.
+- [x] Medição no navegador automatizado (celular, DPR 3): de 3 fps para 60 fps parado e arrastando, 36 fps no zoom por roda (ver TEST_REPORT).

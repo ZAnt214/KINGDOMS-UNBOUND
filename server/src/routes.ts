@@ -252,8 +252,11 @@ export function apiRouter(
   r.post(
     '/play/build',
     handler(async (req) => {
-      const input = parse(z.object({ region: z.string().min(1).max(40), type: z.enum(STRUCTURE_TYPES) }), req.body);
-      return { structure: await economy.build(requireGovernor(req), input.region, input.type) };
+      const input = parse(
+        z.object({ at: z.tuple([z.number().min(-180).max(180), z.number().min(-90).max(90)]), type: z.enum(STRUCTURE_TYPES), region: z.string().max(40).optional() }),
+        req.body,
+      );
+      return { structure: await economy.build(requireGovernor(req), input.at, input.type, input.region ?? null) };
     }),
   );
   r.post('/play/upgrade', handler(async (req) => ({ structure: await economy.upgrade(requireGovernor(req), parse(z.object({ structureId: id }), req.body).structureId) })));

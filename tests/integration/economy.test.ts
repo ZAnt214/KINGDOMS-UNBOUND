@@ -4,6 +4,7 @@ import { DEFAULT_FLAG } from '../../shared/play/flags.js';
 import { NATION_COLORS } from '../../shared/play/rules.js';
 import { REGION_BY_ID, START_POINTS } from '../../shared/world/regions.js';
 import type { Db } from '../../server/src/db.js';
+import { freePointIn, regionContains } from '../../server/src/geo.js';
 import { Player, resetDb, startServer, type TestPlayer } from './helpers.js';
 
 let db: Db;
@@ -19,6 +20,8 @@ const money = async (p: TestPlayer) => {
   const e = (await state(p)).economy;
   return project(e.amounts, e.settledAt, e.rates, e.capacity, Date.now()).money;
 };
+const P1 = inland.at;
+const P2 = () => freePointIn(inland.region, [P1], 60)!;
 const due = (id: number) => db.query(`UPDATE structures SET started_at = started_at - interval '1 hour', ends_at = now() - interval '1 second' WHERE id = $1`, [id]);
 
 beforeAll(async () => {
@@ -52,9 +55,11 @@ describe('economia', () => {
   it('constrói: desconta o custo do servidor uma vez e ignora valores do cliente', async () => {
     const before = await money(A);
     B.events.length = 0;
-    const r = await A.post('/play/build', { region: inland.region, type: 'city', cost: {}, level: 5, endsAt: 0 });
+    expect(regionContains(inland.region, P1[0], P1[1])).toBe(true);
+    const r = await A.post('/play/build', { at: P1, type: 'city', region: coastal.region, cost: {}, level: 5, endsAt: 0 });
     expect(r.status).toBe(200);
-    expect(r.data.structure).toMatchObject({ region: inland.region, type: 'city', level: 0, building: { to: 1 } });
+    // A região vem do ponto, não da sugestão do cliente.
+    expect(r.data.structure).toMatchObject({ region: inland.region, type: 'city', level: 0, at: P1, building: { to: 1 } });
     const b = r.data.structure.building;
     expect(b.endsAt - b.startedAt).toBe(structureSeconds('city', 0) * 1000);
     expect(await money(A)).toBeCloseTo(before - structureCost('city', 0).money!, -1);
@@ -64,21 +69,24 @@ describe('economia', () => {
 
   it('recusa construção inválida sem cobrar nada', async () => {
     const before = await money(A);
-    expect((await A.post('/play/build', { region: inland.region, type: 'city' })).data.error).toBe('cannot_build');
-    expect((await A.post('/play/build', { region: inland.region, type: 'port' })).data.error).toBe('cannot_build');
-    expect((await A.post('/play/build', { region: coastal.region, type: 'depot' })).data.error).toBe('not_owner');
-    expect((await A.post('/play/build', { region: inland.region, type: 'castelo' })).status).toBe(400);
-    expect((await B.post('/play/build', { region: coastal.region, type: 'port' })).status).toBe(200);
+    expect((await A.post('/play/build', { at: [P1[0] + 0.05, P1[1]], type: 'depot' })).data.error).toBe('too_close');
+    expect((await A.post('/play/build', { at: P2(), type: 'port' })).data.error).toBe('cannot_build');
+    expect((await A.post('/play/build', { at: coastal.at, type: 'depot' })).data.error).toBe('not_owner');
+    expect((await A.post('/play/build', { at: [-30, -20], type: 'depot' })).data.error).toBe('not_owner');
+    expect((await A.post('/play/build', { at: P2(), type: 'castelo' })).status).toBe(400);
+    expect((await A.post('/play/build', { at: [500, 0], type: 'city' })).status).toBe(400);
+    expect((await B.post('/play/build', { at: coastal.at, type: 'port' })).status).toBe(200);
     expect(await money(A)).toBeCloseTo(before, -1);
   });
 
   it('limita obras simultâneas e recusa sem recursos', async () => {
-    expect((await A.post('/play/build', { region: inland.region, type: 'depot' })).status).toBe(200);
-    const third = await A.post('/play/build', { region: inland.region, type: 'factory' });
+    const p2 = P2();
+    expect((await A.post('/play/build', { at: p2, type: 'depot' })).status).toBe(200);
+    const third = await A.post('/play/build', { at: freePointIn(inland.region, [P1, p2], 60), type: 'factory' });
     expect(third.data.error).toBe('cannot_build');
     expect(third.data.message).toMatch(/obras em andamento/);
     await db.query(`UPDATE nation_resources SET amount = 0, settled_at = now() WHERE governor_id = $1`, [B.governor.id]);
-    const poor = await B.post('/play/build', { region: coastal.region, type: 'city' });
+    const poor = await B.post('/play/build', { at: freePointIn(coastal.region, [coastal.at], 40), type: 'city' });
     expect(poor.status).toBe(409);
     expect(poor.data.error).toBe('insufficient');
     expect((await db.query('SELECT COUNT(*)::int AS n FROM structures WHERE governor_id = $1', [B.governor.id])).rows[0].n).toBe(1);

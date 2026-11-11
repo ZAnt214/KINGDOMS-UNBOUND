@@ -346,6 +346,19 @@ CREATE TABLE match_results (
 );
 `,
   },
+  {
+    id: 5,
+    name: 'structure_position',
+    sql: `
+-- Construções ficam no ponto exato escolhido pelo jogador. Construções antigas, sem posição,
+-- continuam aparecendo no ponto de rótulo da região. Vários do mesmo tipo podem dividir a região;
+-- o limite passa a ser o número de espaços (área da região) e a distância entre construções.
+ALTER TABLE structures ADD COLUMN lon DOUBLE PRECISION, ADD COLUMN lat DOUBLE PRECISION;
+ALTER TABLE structures ADD CONSTRAINT structures_position CHECK ((lon IS NULL) = (lat IS NULL) AND (lon IS NULL OR (lon BETWEEN -180 AND 180 AND lat BETWEEN -90 AND 90)));
+ALTER TABLE structures DROP CONSTRAINT structures_kingdom_id_region_id_type_key;
+CREATE INDEX structures_region ON structures (kingdom_id, region_id);
+`,
+  },
 ];
 
 export async function migrate(db: Db, log: (msg: string) => void = () => {}) {

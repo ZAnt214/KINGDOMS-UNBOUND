@@ -17,7 +17,8 @@ import {
 } from '../../../shared/play/economy.js';
 import type { GameMode } from '../../../shared/play/rules.js';
 import type { EconomyView, StructureView } from '../../../shared/play/types.js';
-import { REGION_BY_ID, START_POINT_BY_ID } from '../../../shared/world/regions.js';
+import { distanceKm, REGION_BY_ID, START_POINT_BY_ID } from '../../../shared/world/regions.js';
+import { regionAt } from '../geo.js';
 import type { GovernorCtx } from '../auth.js';
 import { type Db, type Tx, tx } from '../db.js';
 import { bad, conflict, HttpError, notFound } from '../http.js';
@@ -30,11 +31,12 @@ export const structureView = (r: any): StructureView => ({
   nationId: Number(r.governor_id),
   region: r.region_id,
   type: r.type as StructureType,
+  at: r.lon === null || r.lon === undefined ? (REGION_BY_ID[r.region_id]?.at ?? [0, 0]) : [r.lon, r.lat],
   level: r.level,
   building: r.target_level === null ? null : { to: r.target_level, startedAt: new Date(r.started_at).getTime(), endsAt: new Date(r.ends_at).getTime() },
 });
 
-const STRUCTURE_COLUMNS = 'id, governor_id, region_id, type, level, target_level, started_at, ends_at';
+const STRUCTURE_COLUMNS = 'id, governor_id, region_id, type, level, target_level, started_at, ends_at, lon, lat';
 
 /**
  * Economia autoritativa: saldo, produção e construções.
@@ -155,44 +157,46 @@ export class EconomyService {
     return rows[0].n;
   }
 
-  /** Nova construção numa região do jogador. */
-  async build(g: GovernorCtx, regionId: string, type: StructureType): Promise<StructureView> {
+  /**
+   * Nova construção no ponto escolhido pelo jogador. O servidor descobre a região pelo ponto
+   * (a sugerida pelo cliente é só um atalho) e confere dono, espaços, distância e recursos.
+   */
+  async build(g: GovernorCtx, at: [number, number], type: StructureType, hint: string | null = null): Promise<StructureView> {
     if (!STRUCTURE_TYPES.includes(type)) throw bad('invalid_type', 'Construção desconhecida.');
-    const region = REGION_BY_ID[regionId];
-    if (!region) throw notFound('Região desconhecida.');
+    const [lon, lat] = at;
+    if (!Number.isFinite(lon) || !Number.isFinite(lat) || Math.abs(lon) > 180 || Math.abs(lat) > 90) throw bad('invalid_point', 'Ponto inválido.');
     await this.completeDue(g.kingdomId);
-    let created: StructureView;
-    try {
-      created = await tx(this.db, async (client) => {
-        const nation = await client.query('SELECT capital_point FROM nations WHERE governor_id = $1 FOR UPDATE', [g.id]);
-        if (!nation.rowCount) throw new HttpError(409, 'no_nation', 'Funde sua nação antes de construir.');
-        await this.open(client, g.kingdomId);
-        const owner = await client.query('SELECT governor_id FROM region_control WHERE kingdom_id = $1 AND region_id = $2', [g.kingdomId, regionId]);
-        if (Number(owner.rows[0]?.governor_id) !== g.id) throw conflict('not_owner', 'Só é possível construir em regiões da sua nação.');
-        const inRegion = await client.query('SELECT type FROM structures WHERE kingdom_id = $1 AND region_id = $2', [g.kingdomId, regionId]);
-        const capitalRegion = START_POINT_BY_ID[nation.rows[0].capital_point]?.region ?? null;
-        const problem = buildProblem(type, {
-          region: regionId,
-          coast: region.coast,
-          capitalRegion,
-          inRegion: inRegion.rows.map((r) => r.type),
-          queue: await this.queue(client, g.id),
-        });
-        if (problem) throw conflict('cannot_build', problem);
-        const same = await client.query('SELECT COUNT(*)::int AS n FROM structures WHERE governor_id = $1 AND type = $2', [g.id, type]);
-        const mode = await this.modeOf(client, g.id);
-        await this.spend(client, g.id, structureCost(type, 0, same.rows[0].n), 'esta construção');
-        const { rows } = await client.query(
-          `INSERT INTO structures (kingdom_id, governor_id, region_id, type, level, target_level, started_at, ends_at, rules_version)
-           VALUES ($1, $2, $3, $4, 0, 1, now(), now() + make_interval(secs => $5::double precision), $6) RETURNING ${STRUCTURE_COLUMNS}`,
-          [g.kingdomId, g.id, regionId, type, structureSeconds(type, 0, mode), ECONOMY_RULES_VERSION],
-        );
-        return structureView(rows[0]);
+    const created = await tx(this.db, async (client) => {
+      const nation = await client.query('SELECT capital_point FROM nations WHERE governor_id = $1 FOR UPDATE', [g.id]);
+      if (!nation.rowCount) throw new HttpError(409, 'no_nation', 'Funde sua nação antes de construir.');
+      await this.open(client, g.kingdomId);
+      const mine = await client.query('SELECT region_id FROM region_control WHERE kingdom_id = $1 AND governor_id = $2', [g.kingdomId, g.id]);
+      const owned: string[] = mine.rows.map((r) => r.region_id);
+      const regionId = regionAt(lon, lat, hint && owned.includes(hint) ? [hint, ...owned] : owned);
+      if (!regionId || !owned.includes(regionId)) throw conflict('not_owner', 'Construa dentro do seu território.');
+      const region = REGION_BY_ID[regionId];
+      const near = await client.query('SELECT region_id, lon, lat FROM structures WHERE kingdom_id = $1 AND (region_id = $2 OR lon BETWEEN $3 - 1 AND $3 + 1)', [g.kingdomId, regionId, lon]);
+      const others = near.rows.map((r) => (r.lon === null ? (REGION_BY_ID[r.region_id]?.at ?? [0, 0]) : [r.lon, r.lat]) as [number, number]);
+      if (others.some((p) => distanceKm(p, at) < ECONOMY.minDistanceKm)) throw conflict('too_close', `Muito perto de outra construção. Deixe pelo menos ${ECONOMY.minDistanceKm} km.`);
+      const capitalRegion = START_POINT_BY_ID[nation.rows[0].capital_point]?.region ?? null;
+      const problem = buildProblem(type, {
+        region: regionId,
+        coast: region.coast,
+        capitalRegion,
+        inRegion: near.rows.filter((r) => r.region_id === regionId).length,
+        queue: await this.queue(client, g.id),
       });
-    } catch (err) {
-      if ((err as { code?: string }).code === '23505') throw conflict('cannot_build', 'Esta região já tem essa construção.');
-      throw err;
-    }
+      if (problem) throw conflict('cannot_build', problem);
+      const same = await client.query('SELECT COUNT(*)::int AS n FROM structures WHERE governor_id = $1 AND type = $2', [g.id, type]);
+      const mode = await this.modeOf(client, g.id);
+      await this.spend(client, g.id, structureCost(type, 0, same.rows[0].n), 'esta construção');
+      const { rows } = await client.query(
+        `INSERT INTO structures (kingdom_id, governor_id, region_id, type, level, target_level, started_at, ends_at, rules_version, lon, lat)
+         VALUES ($1, $2, $3, $4, 0, 1, now(), now() + make_interval(secs => $5::double precision), $6, $7, $8) RETURNING ${STRUCTURE_COLUMNS}`,
+        [g.kingdomId, g.id, regionId, type, structureSeconds(type, 0, mode), ECONOMY_RULES_VERSION, lon, lat],
+      );
+      return structureView(rows[0]);
+    });
     this.hub.toKingdom(g.kingdomId, { type: 'play.structure', structure: created, completed: false, serverTime: Date.now() });
     await this.announceEconomy(g.id);
     return created;

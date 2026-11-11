@@ -196,7 +196,7 @@ export function usePlayWorld(worldId: number | null, governorId: number | null, 
   );
 
   const build = useCallback(
-    async (region: string, type: StructureType) => upsertStructure((await api.post<{ structure: StructureView }>('/play/build', { region, type })).structure),
+    async (at: [number, number], type: StructureType, region: string) => upsertStructure((await api.post<{ structure: StructureView }>('/play/build', { at, type, region })).structure),
     [upsertStructure],
   );
   const upgrade = useCallback(

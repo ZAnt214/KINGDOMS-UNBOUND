@@ -57,7 +57,7 @@ describe('tempo real entre instâncias', () => {
   it('obra concluída por um worker notifica jogador em outra instância, uma única vez', async () => {
     const point = START_POINTS.find((p) => p.id === 'cap-bra-brasilia')!;
     expect((await B.post('/play/found', { pointId: point.id, name: 'Ponte Sul', color: NATION_COLORS[2].hex, flag: DEFAULT_FLAG })).status).toBe(200);
-    const built = await B.post('/play/build', { region: point.region, type: 'city' });
+    const built = await B.post('/play/build', { at: point.at, type: 'city' });
     expect(built.status).toBe(200);
     A.events.length = 0;
     B.events.length = 0;

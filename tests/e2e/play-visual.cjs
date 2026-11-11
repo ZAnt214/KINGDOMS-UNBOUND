@@ -140,33 +140,34 @@ async function enter(page, name, color, flag) {
   // ---------- Fase B: economia e construções ----------
   check('recursos aparecem no topo depois da fundação', (await A.locator('[data-testid=resources]').count()) === 1);
   await A.click('[data-testid=dock-build]');
-  await A.waitForSelector('[data-testid=build-sheet]');
-  await A.waitForTimeout(300);
-  await A.screenshot({ path: `${OUT}/15-construcoes.png` });
-  await A.locator('[data-testid^=build-region-]').first().click();
-  await A.waitForSelector('[data-testid=build-grid]');
-  await A.waitForTimeout(800);
-  await A.screenshot({ path: `${OUT}/16-regiao-construir.png` });
+  await A.waitForSelector('[data-testid=build-bar]');
   await A.click('[data-testid=build-city]');
-  await A.waitForSelector('[data-testid=structure-panel]');
-  await A.screenshot({ path: `${OUT}/17-painel-cidade.png` });
-  check('painel da construção mostra custo, tempo e produção', /CONSTRUIR/.test(await A.locator('[data-testid=structure-act]').innerText()) && /\+/.test(await A.locator('[data-testid=structure-panel]').innerText()));
-  await A.click('[data-testid=structure-act]');
-  await A.waitForTimeout(1200);
-  await A.screenshot({ path: `${OUT}/18-obra.png` });
+  await A.waitForTimeout(500);
+  await A.screenshot({ path: `${OUT}/15-barra-construcao.png` });
+  check('barra mostra custo, tempo e produção do tipo escolhido', /\+/.test(await A.locator('[data-testid=build-bar]').innerText()));
+  // Toque direto no território: perto de Brasília (dentro de Goiás).
+  await clickMap(A, -48.6, -16.4);
+  await A.waitForTimeout(900);
+  await A.screenshot({ path: `${OUT}/16-obra-no-mapa.png` });
+  // Segundo toque, em outro ponto, ainda no modo de construção: ergue um depósito.
+  await A.click('[data-testid=build-depot]');
+  await clickMap(A, -50.2, -14.2);
+  await A.waitForTimeout(600);
   await A.waitForFunction(() => /Cidade concluída/.test(document.body.textContent ?? ''), null, { timeout: 60000 }).then(
-    () => check('a obra termina sozinha e avisa', true),
-    () => check('a obra termina sozinha e avisa', false),
+    () => check('dois toques, duas construções; a obra termina sozinha e avisa', true),
+    () => check('dois toques, duas construções; a obra termina sozinha e avisa', false),
   );
   await A.waitForTimeout(400);
-  await A.screenshot({ path: `${OUT}/19-cidade-pronta.png` });
+  await A.screenshot({ path: `${OUT}/17-cidade-pronta.png` });
+  const mine = await A.evaluate(() => window.__kuMap.structures().filter((x) => x.own));
+  check('as construções ficam no ponto tocado, não no centro da região', mine.some((x) => Math.hypot(x.lon + 48.6, x.lat + 16.4) < 0.5) && mine.some((x) => Math.hypot(x.lon + 50.2, x.lat + 14.2) < 0.5));
+  await A.click('[data-testid=build-close]');
   await A.click('[data-testid=resources]');
   await A.waitForSelector('[data-testid=economy-sheet]');
   await A.waitForTimeout(300);
   await A.screenshot({ path: `${OUT}/20-economia.png` });
   check('economia mostra os seis recursos e a energia', (await A.locator('[data-testid=economy-sheet] li').count()) === 7);
   await A.keyboard.press('Escape');
-  await A.click('[data-testid=region-card] .ku-card-close');
 
   await A.click('[data-testid=dock-ranking]');
   await A.waitForSelector('[data-testid=ranking-sheet]');

@@ -89,14 +89,17 @@ Jazidas são uma regra do jogo, não dado geológico: sorteio determinístico pe
 
 - Níveis 1 a 5. Custo × 1,6 e tempo × 1,7 a cada nível. Nível 5 de um centro tecnológico leva ~12 minutos na campanha.
 - Cada construção do mesmo tipo que a nação já tem encarece a próxima em 30% (evita multiplicação infinita).
-- Uma de cada tipo por região. Espaços: 3 por região, 5 na região da capital. Até 2 obras ao mesmo tempo.
+- **Posição livre.** O jogador escolhe o tipo na barra de construções e toca em qualquer ponto do próprio território; a construção fica exatamente nesse ponto (longitude/latitude). A barra continua aberta para erguer várias em sequência.
+- O servidor confere o ponto com o polígono real da região (`server/src/geo.ts`, a mesma malha que o cliente desenha): fora do território → "Construa dentro do seu território."; no oceano ou fora do mapa → recusado.
+- Distância mínima de 25 km entre quaisquer duas construções (`ECONOMY.minDistanceKm`).
+- Espaços por região proporcionais à área: √(área / 25.000 km²), entre 2 e 6, +2 na região da capital. Pode repetir o tipo na mesma região. Até 2 obras ao mesmo tempo. Porto só em região litorânea.
 - Construção nova não produz até o nível 1 terminar; em melhoria, continua produzindo no nível atual.
 
 ### Autoridade do servidor
 
 O saldo é guardado como "valor num instante" (`nation_resources.settled_at`). Antes de qualquer mudança que altere a produção (região ganha, obra concluída) ou o saldo (gasto), o servidor acerta o saldo até aquele instante com a produção antiga. Obras e ocupações terminam pelo relógio do banco, por três caminhos equivalentes (worker, leitura, novo pedido), com `FOR UPDATE SKIP LOCKED`. O cliente nunca envia custo, nível, duração ou saldo; quando envia, é ignorado.
 
-**Ainda não existe:** ferrovias e bônus de conexão (Fase C), distância entre estruturas (Fase C), manutenção de unidades (Fase D), centro de distribuição (Fase C).
+**Ainda não existe:** ferrovias e bônus de conexão (Fase C), manutenção de unidades (Fase D), centro de distribuição (Fase C).
 
 ## Partida rápida
 

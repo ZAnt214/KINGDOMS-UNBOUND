@@ -58,7 +58,6 @@ export function PlayApp({ me, enter, reloadMe, onLoginForm, onLogout }: Props) {
   // Motor do mapa: criado uma vez, independente das telas e dos mundos.
   useEffect(() => {
     const e = new WorldMapEngine(host.current!, { now: serverNow, neutralFill: '#3a4a6b', maxZoom: 40 });
-    e.setLayerVisible('cities', false);
     setEngine(e);
     // Gancho para testes automatizados e depuração; não é API de jogo.
     (window as unknown as { __kuMap?: unknown }).__kuMap = {
@@ -68,6 +67,8 @@ export function PlayApp({ me, enter, reloadMe, onLoginForm, onLogout }: Props) {
         const v = e.viewState();
         return [(x - v.x) * v.k + r.width / 2 + r.left, (y - v.y) * v.k + r.height / 2 + r.top];
       },
+      /** Construções desenhadas no mapa (posição exata vinda do servidor). */
+      structures: () => e.structureList().map((s) => ({ id: s.id, lon: s.lon, lat: s.lat, own: s.own })),
       get zoom() {
         return e.zoom;
       },

@@ -1,6 +1,7 @@
 // Economia e construções (Fase B). Todos os valores e fórmulas ficam aqui: o servidor aplica,
 // o cliente usa as mesmas funções para mostrar custos, tempos e a produção prevista.
 // Documentação em docs/PLAY_RULES.md.
+import { REGION_BY_ID } from '../world/regions';
 import { ECONOMY_SPEED, type GameMode, MODE_SPEED } from './rules';
 
 export const ECONOMY_RULES_VERSION = 1;
@@ -158,8 +159,12 @@ export const ECONOMY = {
   techForLevel: { 4: 15, 5: 30 } as Record<number, number>,
   /** Recursos especiais exigidos por nível do centro tecnológico (a partir do 2). */
   specialPerTechLevel: 6,
-  slotsPerRegion: 3,
-  slotsCapital: 5,
+  /** Espaços de construção: √(área ÷ 25.000 km²), entre 2 e 6; a região da capital ganha +2. */
+  slotsMin: 2,
+  slotsMax: 6,
+  slotsCapitalBonus: 2,
+  /** Distância mínima entre duas construções (km), para os selos não se sobreporem. */
+  minDistanceKm: 25,
   /** Obras simultâneas por nação. */
   buildQueue: 2,
   baseCapacity: 8000,
@@ -301,18 +306,20 @@ export function describeCost(cost: Cost): string {
 }
 
 export function slotsFor(regionId: string, capitalRegion: string | null): number {
-  return regionId === capitalRegion ? ECONOMY.slotsCapital : ECONOMY.slotsPerRegion;
+  const area = REGION_BY_ID[regionId]?.area ?? 0;
+  const base = Math.max(ECONOMY.slotsMin, Math.min(ECONOMY.slotsMax, Math.round(Math.sqrt(area / 25000))));
+  return base + (regionId === capitalRegion ? ECONOMY.slotsCapitalBonus : 0);
 }
 
-/** Por que não dá para construir este tipo nesta região agora (null = pode). Mesma regra no cliente e no servidor. */
-export function buildProblem(
-  type: StructureType,
-  ctx: { region: string; coast: boolean; capitalRegion: string | null; inRegion: StructureType[]; queue: number },
-): string | null {
+/**
+ * Por que não dá para construir este tipo nesta região agora (null = pode). Mesma regra no cliente
+ * e no servidor. A posição exata (dentro da região, longe de outras construções) é conferida à parte.
+ */
+export function buildProblem(type: StructureType, ctx: { region: string; coast: boolean; capitalRegion: string | null; inRegion: number; queue: number }): string | null {
   const def = STRUCTURES[type];
-  if (ctx.inRegion.includes(type)) return `Esta região já tem ${def.name.toLowerCase()}. Melhore a existente.`;
   if (def.coastal && !ctx.coast) return 'Só em região com litoral.';
-  if (ctx.inRegion.length >= slotsFor(ctx.region, ctx.capitalRegion)) return `A região já usa todos os ${slotsFor(ctx.region, ctx.capitalRegion)} espaços de construção.`;
+  const slots = slotsFor(ctx.region, ctx.capitalRegion);
+  if (ctx.inRegion >= slots) return `A região já usa todos os ${slots} espaços de construção.`;
   if (ctx.queue >= ECONOMY.buildQueue) return `Já há ${ECONOMY.buildQueue} obras em andamento. Aguarde uma terminar.`;
   return null;
 }

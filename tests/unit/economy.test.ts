@@ -8,6 +8,7 @@ import {
   project,
   regionDeposit,
   RESOURCES,
+  slotsFor,
   STRUCTURE_TYPES,
   STRUCTURES,
   structureCost,
@@ -112,13 +113,17 @@ describe('economia: fórmulas', () => {
 
   it('regras de construção', () => {
     const coast = REGIONS.find((r) => r.coast)!.id;
-    const ctx = { region: capital, coast: false, capitalRegion: capital, inRegion: [] as any[], queue: 0 };
+    const ctx = { region: capital, coast: false, capitalRegion: capital, inRegion: 0, queue: 0 };
     expect(buildProblem('city', ctx)).toBeNull();
     expect(buildProblem('port', ctx)).toMatch(/litoral/);
     expect(buildProblem('port', { ...ctx, region: coast, coast: true })).toBeNull();
-    expect(buildProblem('city', { ...ctx, inRegion: ['city'] })).toMatch(/já tem/);
-    expect(buildProblem('depot', { ...ctx, inRegion: ['city', 'factory', 'power', 'tech', 'refinery'] })).toMatch(/espaços/);
-    expect(buildProblem('depot', { ...ctx, region: 'X', inRegion: ['city', 'factory', 'power'] })).toMatch(/espaços/);
+    // Goiás tem ~348 mil km²: 4 espaços, +2 por ser a capital.
+    expect(slotsFor(capital, capital)).toBe(6);
+    expect(slotsFor(capital, null)).toBe(4);
+    expect(buildProblem('depot', { ...ctx, inRegion: 6 })).toMatch(/espaços/);
+    expect(buildProblem('depot', { ...ctx, capitalRegion: null, inRegion: 4 })).toMatch(/espaços/);
+    const tiny = REGIONS.reduce((a, r) => (r.area < a.area ? r : a));
+    expect(slotsFor(tiny.id, null)).toBe(ECONOMY.slotsMin);
     expect(buildProblem('city', { ...ctx, queue: ECONOMY.buildQueue })).toMatch(/obras/);
   });
 });

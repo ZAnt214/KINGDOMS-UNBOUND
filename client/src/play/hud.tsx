@@ -1,6 +1,7 @@
 import type { nationLevel } from '../../../shared/play/rules';
 import type { NationView } from '../../../shared/play/types';
 import { serverNow } from '../api';
+import { useTick } from '../hooks';
 import type { RealtimeStatus } from '../realtime';
 import { nationFlagSrc } from './identity';
 import { IcBuild, IcCapital, IcClock, IcExpand, IcGear, IcGlobe, IcMinus, IcPlus, IcRanking } from './icons';
@@ -87,6 +88,7 @@ export function ObjectiveChip({ title, value, target }: { title: string; value: 
 }
 
 export function OccupationCapsule({ name, startedAt, endsAt, onFocus }: { name: string; startedAt: number; endsAt: number; onFocus: () => void }) {
+  useTick(250);
   const now = serverNow();
   const p = Math.max(0, Math.min(1, (now - startedAt) / Math.max(1, endsAt - startedAt)));
   return (
@@ -129,6 +131,7 @@ export function Dock(p: { targets: number; occupying: boolean; building: number;
 
 /** Tempo restante da partida rápida; fica vermelho no último minuto. */
 export function MatchClock({ endsAt }: { endsAt: number }) {
+  useTick(1000);
   const left = endsAt - serverNow();
   return (
     <span className={`ku-clock ${left < 60_000 ? 'urgent' : ''}`} data-testid="match-clock" aria-label="Tempo restante da partida">

@@ -1,6 +1,5 @@
 import { useMemo } from 'react';
 import {
-  buildProblem,
   computeEconomy,
   type Cost,
   DEPOSIT_LABEL,
@@ -14,7 +13,6 @@ import {
   RESOURCES,
   type ResourceMap,
   regionDeposit,
-  slotsFor,
   STRUCTURE_TYPES,
   STRUCTURES,
   structureCost,
@@ -23,11 +21,15 @@ import {
 } from '../../../shared/play/economy';
 import type { GameMode } from '../../../shared/play/rules';
 import type { EconomyView, StructureView } from '../../../shared/play/types';
-import { REGION_BY_ID } from '../../../shared/world/regions';
+import { REGION_BY_ID, REGIONS } from '../../../shared/world/regions';
 import { serverNow } from '../api';
+import { useTick } from '../hooks';
 import { RESOURCE_GLYPH, STRUCTURE_GLYPH } from './glyphs';
 import { IcClock, IcClose } from './icons';
 import { fmtAmount, fmtClock, fmtRate, fmtSeconds } from './model';
+
+/** Região sem jazida: a prévia da barra mostra a produção base, sem bônus de jazida. */
+const PLAIN_REGION = REGIONS.find((r) => regionDeposit(r.id) === null)!.id;
 import { Sheet } from './sheets';
 
 export function Glyph({ d, size = 18, color = 'currentColor', width = 1.9 }: { d: string; size?: number; color?: string; width?: number }) {
@@ -38,9 +40,16 @@ export function Glyph({ d, size = 18, color = 'currentColor', width = 1.9 }: { d
   );
 }
 
-/** Saldo projetado agora (o servidor manda o valor num instante e a produção; o cliente só interpola). */
+export const amountsNow = (economy: EconomyView | null): ResourceMap | null =>
+  economy ? project(economy.amounts, economy.settledAt, economy.rates, economy.capacity, serverNow()) : null;
+
+/**
+ * Saldo projetado agora (o servidor manda o valor num instante e a produção; o cliente só
+ * interpola). Re-renderiza só o componente que usa, uma vez por segundo.
+ */
 export function useAmounts(economy: EconomyView | null): ResourceMap | null {
-  return economy ? project(economy.amounts, economy.settledAt, economy.rates, economy.capacity, serverNow()) : null;
+  useTick(1000);
+  return amountsNow(economy);
 }
 
 const STRIP: Resource[] = ['money', 'materials', 'metal', 'oil'];
@@ -107,7 +116,7 @@ interface PanelProps {
   ownerName?: string;
   input: EconomyInput | null;
   mode: GameMode;
-  have: ResourceMap | null;
+  economy: EconomyView | null;
   /** Quantas do tipo a nação já tem (encarece a nova). */
   sameType: number;
   /** Motivo de bloqueio vindo das regras (null = pode). */
@@ -120,6 +129,8 @@ interface PanelProps {
 
 /** Painel de uma construção: nome, ícone, nível, custo, tempo, produção, benefícios e CONSTRUIR/MELHORAR. */
 export function StructurePanel(p: PanelProps) {
+  useTick(p.structure?.building ? 250 : 1000);
+  const have = amountsNow(p.economy);
   const def = STRUCTURES[p.type];
   const level = p.structure?.level ?? 0;
   const building = p.structure?.building ?? null;
@@ -127,7 +138,7 @@ export function StructurePanel(p: PanelProps) {
   const cost = maxed ? {} : structureCost(p.type, level, p.structure ? 0 : p.sameType);
   const seconds = structureSeconds(p.type, level, p.mode);
   const preview = useMemo(() => (p.input && !maxed ? productionDelta(p.input, p.mode, p.type, p.region, level) : null), [p.input, p.mode, p.type, p.region, level, maxed]);
-  const lack = p.have ? missing(p.have, cost) : {};
+  const lack = have ? missing(have, cost) : {};
   const short = Object.keys(lack).length > 0;
   const now = serverNow();
   const progress = building ? Math.max(0, Math.min(1, (now - building.startedAt) / Math.max(1, building.endsAt - building.startedAt))) : 0;
@@ -166,7 +177,7 @@ export function StructurePanel(p: PanelProps) {
             <div>
               <dt>{p.structure ? `Nível ${level} → ${level + 1}` : 'Custo'}</dt>
               <dd>
-                <CostLine cost={cost} have={p.have} />
+                <CostLine cost={cost} have={have} />
               </dd>
             </div>
             <div>
@@ -210,53 +221,80 @@ export function StructurePanel(p: PanelProps) {
   );
 }
 
-/** Grade de construções possíveis numa região do jogador. */
-export function BuildGrid({
-  region,
-  capitalRegion,
-  structures,
-  queue,
-  have,
-  sameType,
-  onPick,
-}: {
-  region: string;
-  capitalRegion: string | null;
-  structures: StructureView[];
-  queue: number;
-  have: ResourceMap | null;
+/**
+ * Barra de construção: escolhe o tipo e o mapa entra em modo de posicionamento. Cada toque no
+ * próprio território ergue uma construção ali; a barra continua aberta para a próxima.
+ */
+export function BuildBar(p: {
+  economy: EconomyView | null;
+  selected: StructureType | null;
   sameType: (t: StructureType) => number;
-  onPick: (t: StructureType) => void;
+  input: EconomyInput | null;
+  mode: GameMode;
+  queue: number;
+  onSelect: (t: StructureType | null) => void;
+  onClose: () => void;
 }) {
-  const inRegion = structures.map((s) => s.type);
-  const def = REGION_BY_ID[region];
+  const have = useAmounts(p.economy);
+  const sel = p.selected;
+  const cost = sel ? structureCost(sel, 0, p.sameType(sel)) : null;
+  const preview = useMemo(() => {
+    if (!sel || !p.input) return null;
+    const before = computeEconomy(p.input, p.mode);
+    const after = computeEconomy({ ...p.input, structures: [...p.input.structures, { type: sel, level: 1, region: PLAIN_REGION }] }, p.mode);
+    const out: [Resource, number][] = [];
+    for (const r of RESOURCES) if (after.rates[r] - before.rates[r] >= 0.5) out.push([r, after.rates[r] - before.rates[r]]);
+    return { gains: out, capacity: after.capacity - before.capacity, supply: after.energy.supply - before.energy.supply };
+  }, [sel, p.input, p.mode]);
   return (
-    <div className="ku-build-grid" data-testid="build-grid">
-      {STRUCTURE_TYPES.filter((t) => !inRegion.includes(t)).map((t) => {
-        const problem = buildProblem(t, { region, coast: def.coast, capitalRegion, inRegion, queue });
-        const cost = structureCost(t, 0, sameType(t));
-        const short = have ? Object.keys(missing(have, cost)).length > 0 : true;
-        const blocked = !!problem && !/obras em andamento/.test(problem);
-        return (
-          <button
-            type="button"
-            key={t}
-            className={`${blocked ? 'blocked' : ''} ${short ? 'short' : ''}`}
-            onClick={() => onPick(t)}
-            data-testid={`build-${t}`}
-            title={problem ?? STRUCTURES[t].role}
-            aria-label={`${STRUCTURES[t].name}${blocked ? `: ${problem}` : ''}`}
-          >
-            <Glyph d={STRUCTURE_GLYPH[t]} size={24} />
-            <b>{STRUCTURES[t].short}</b>
-            <small>{blocked ? 'indisponível' : `$ ${fmtAmount(cost.money ?? 0)}`}</small>
-          </button>
-        );
-      })}
-      <p className="ku-note">
-        {inRegion.length}/{slotsFor(region, capitalRegion)} espaços usados{def.coast ? ' · litoral' : ''}
-        {regionDeposit(region) ? ` · ${DEPOSIT_LABEL[regionDeposit(region)!]}` : ''}
-      </p>
+    <div className="ku-buildbar" data-testid="build-bar">
+      <div className="ku-buildbar-info" role="status">
+        {sel && cost ? (
+          <>
+            <b>{STRUCTURES[sel].name}</b>
+            <CostLine cost={cost} have={have} />
+            <span>
+              <IcClock width={13} height={13} /> {fmtSeconds(structureSeconds(sel, 0, p.mode))}
+            </span>
+            {preview?.gains.map(([r, v]) => (
+              <span key={r} className="gain">
+                <Glyph d={RESOURCE_GLYPH[r]} size={13} color={RESOURCE_INFO[r].color} />
+                {fmtRate(v)}
+              </span>
+            ))}
+            {preview && preview.capacity > 0 && <span className="gain">+{fmtAmount(preview.capacity)} de estoque</span>}
+            {preview && preview.supply > 0 && <span className="gain">+{preview.supply} de energia</span>}
+            {STRUCTURES[sel].coastal && <span>só no litoral</span>}
+            <em>{p.queue >= ECONOMY.buildQueue ? `Aguarde: ${ECONOMY.buildQueue} obras em andamento.` : 'Toque no seu território para construir.'}</em>
+          </>
+        ) : (
+          <em>Escolha o que construir.</em>
+        )}
+      </div>
+      <div className="ku-buildbar-row">
+        {STRUCTURE_TYPES.map((t) => {
+          const c = structureCost(t, 0, p.sameType(t));
+          const short = have ? Object.keys(missing(have, c)).length > 0 : true;
+          return (
+            <button
+              type="button"
+              key={t}
+              className={`${sel === t ? 'on' : ''} ${short ? 'short' : ''}`}
+              aria-pressed={sel === t}
+              onClick={() => p.onSelect(sel === t ? null : t)}
+              data-testid={`build-${t}`}
+              title={STRUCTURES[t].role}
+            >
+              <Glyph d={STRUCTURE_GLYPH[t]} size={22} />
+              <b>{STRUCTURES[t].short}</b>
+              <small>$ {fmtAmount(c.money ?? 0)}</small>
+            </button>
+          );
+        })}
+        <button type="button" className="close" onClick={p.onClose} aria-label="Fechar construção" data-testid="build-close">
+          <IcClose width={20} height={20} />
+        </button>
+      </div>
     </div>
   );
 }
