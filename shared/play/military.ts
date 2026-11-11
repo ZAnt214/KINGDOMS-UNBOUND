@@ -326,13 +326,13 @@ export function projectRecruits(amount: number, settledAt: number, rate: number,
 /** Por que esta unidade não pode ser treinada agora (null = pode). */
 export function unitProblem(unit: UnitType, structures: Built, research: Research): string | null {
   const def = UNITS[unit];
-  if (def.structure && levelOf(structures, def.structure) < 1) return `Exige ${STRUCTURE_NAMES[def.structure].toLowerCase()}.`;
+  if (def.structure && levelOf(structures, def.structure) < 1) return `Exige ${(STRUCTURE_NAMES[def.structure] ?? def.structure).toLowerCase()}.`;
   if (def.research && (research[def.research] ?? 0) < 1) return `Exige a pesquisa ${TECHS[def.research].name}.`;
   return null;
 }
 
 /** Nomes das instalações militares (evita importar economy.ts aqui e criar ciclo). */
-export const STRUCTURE_NAMES: Partial<Record<StructureType, string>> & Record<string, string> = {
+export const STRUCTURE_NAMES: Partial<Record<StructureType, string>> = {
   military_base: 'Base militar',
   training_center: 'Centro de treinamento',
   arms_factory: 'Instalação de produção militar',
