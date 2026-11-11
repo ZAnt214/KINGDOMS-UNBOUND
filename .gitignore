@@ -6,3 +6,5 @@ public/
 *.log
 test-results/
 tests/e2e/screenshots/
+# client/public guarda os arquivos estáticos versionados (ícones, mapa, bandeiras).
+!client/public/

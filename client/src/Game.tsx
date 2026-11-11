@@ -5,19 +5,23 @@ import { api, ApiError, type ChatChannel, type ChatMessage, type CityState, type
 import { AlliancePanel } from './components/AlliancePanel';
 import { BuildingSheet } from './components/BuildingSheet';
 import { ChatPanel } from './components/ChatPanel';
+import { CommandCenter } from './command/CommandCenter';
 import { CityStage } from './city/CityStage';
 import { projectResources, ResourceBar } from './components/ResourceBar';
+import { IcGlobe } from './command/icons';
 import { IconCastle, IconChat, IconExit, IconHammer, IconMap, IconPower, IconShield } from './icons';
 import { type MapFocus, WorldMap } from './components/WorldMap';
 import { fmtDuration, fmtNum } from './format';
 import { useTick } from './hooks';
 import { Realtime, type RealtimeStatus } from './realtime';
 
-type Tab = 'city' | 'world' | 'alliance';
+type Tab = 'city' | 'world' | 'alliance' | 'command';
 
 interface Props {
   meta: Meta;
   me: Me;
+  /** Aba de abertura: a entrada rápida abre no comando; o login manual, na cidade. */
+  initialTab?: Tab;
   reloadMe: () => Promise<void>;
   onLogout: () => void;
 }
@@ -32,12 +36,12 @@ const BIOME_LABEL: Record<Biome, string> = {
   mountain: 'Montanha',
 };
 
-export function Game({ meta, me, reloadMe, onLogout }: Props) {
+export function Game({ meta, me, initialTab = 'city', reloadMe, onLogout }: Props) {
   const governor = me.governor!;
   const civ = CIVILIZATION_BY_ID[governor.civilization];
   const kingdom = meta.kingdoms.find((k) => k.id === governor.kingdomId)!;
 
-  const [tab, setTab] = useState<Tab>('city');
+  const [tab, setTab] = useState<Tab>(initialTab);
   const [city, setCity] = useState<CityState | null>(null);
   const [selected, setSelected] = useState<BuildingType | null>(null);
   const [cities, setCities] = useState<MapCity[]>([]);
@@ -47,6 +51,7 @@ export function Game({ meta, me, reloadMe, onLogout }: Props) {
   const [status, setStatus] = useState<RealtimeStatus>('connecting');
   const [toast, setToast] = useState<{ msg: string; err: boolean } | null>(null);
   const [allianceKey, setAllianceKey] = useState(0);
+  const [worldKey, setWorldKey] = useState(0);
   const [chatOpen, setChatOpen] = useState(false);
   const [channels, setChannels] = useState<ChatChannel[]>([]);
   const [activeChannel, setActiveChannel] = useState<number | null>(null);
@@ -97,6 +102,7 @@ export function Game({ meta, me, reloadMe, onLogout }: Props) {
     loadChannels().catch(() => {});
     setChat({});
     setAllianceKey((k) => k + 1);
+    setWorldKey((k) => k + 1);
   }, [loadCity, loadMap, loadChannels]);
 
   useEffect(() => {
@@ -132,6 +138,9 @@ export function Game({ meta, me, reloadMe, onLogout }: Props) {
           }
           case 'alliance.updated':
             setAllianceKey((k) => k + 1);
+            break;
+          case 'world.updated':
+            setWorldKey((k) => k + 1);
             break;
           case 'resync':
             resync();
@@ -369,6 +378,21 @@ export function Game({ meta, me, reloadMe, onLogout }: Props) {
         />
       )}
 
+      {tab === 'command' && (
+        <CommandCenter
+          governor={governor}
+          city={city}
+          cities={cities}
+          status={status}
+          unread={totalUnread}
+          refreshKey={worldKey}
+          onOpenCity={() => setTab('city')}
+          onOpenAlliance={() => setTab('alliance')}
+          onOpenChat={() => setChatOpen(true)}
+          onLogout={onLogout}
+        />
+      )}
+
       <nav className="hud-bottom">
         <button className={tab === 'city' ? 'on' : ''} onClick={() => setTab('city')} data-testid="tab-city">
           <IconCastle size={24} />
@@ -377,6 +401,10 @@ export function Game({ meta, me, reloadMe, onLogout }: Props) {
         <button className={tab === 'world' ? 'on' : ''} onClick={() => (setTab('world'), setSelected(null))} data-testid="tab-world">
           <IconMap size={24} />
           <span>Mundo</span>
+        </button>
+        <button className={tab === 'command' ? 'on' : ''} onClick={() => (setTab('command'), setSelected(null))} data-testid="tab-command">
+          <IcGlobe size={24} />
+          <span>Comando</span>
         </button>
         <button className={tab === 'alliance' ? 'on' : ''} onClick={() => (setTab('alliance'), setSelected(null))} data-testid="tab-alliance">
           <IconShield size={24} />

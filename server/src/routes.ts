@@ -18,6 +18,7 @@ import { conflict, handler, HttpError, notFound, parse, RateLimiter } from './ht
 import type { Hub } from './hub.js';
 import { AllianceService } from './services/alliance.js';
 import { ChatService } from './services/chat.js';
+import type { WorldService } from './services/world.js';
 import { CityService, civilizationExists, mapCitiesInArea, mapCitySummary } from './services/city.js';
 
 const id = z.coerce.number().int().positive();
@@ -31,9 +32,9 @@ const credentials = z.object({
   password: z.string().min(8, 'mínimo de 8 caracteres').max(128),
 });
 
-export function apiRouter(db: Db, hub: Hub, services: { city: CityService; alliance: AllianceService; chat: ChatService }) {
+export function apiRouter(db: Db, hub: Hub, services: { city: CityService; alliance: AllianceService; chat: ChatService; world: WorldService }) {
   const r = Router();
-  const { city, alliance, chat } = services;
+  const { city, alliance, chat, world } = services;
   const authLimiter = new RateLimiter(config.authRatePerMinute, 60);
 
   r.get(
@@ -228,6 +229,10 @@ export function apiRouter(db: Db, hub: Hub, services: { city: CityService; allia
   r.post('/alliance/members/:id/transfer', handler(async (req) => alliance.transfer(requireGovernor(req), parse(id, req.params.id))));
 
   // Chat
+  // Mundo geopolítico: leitura do estado e alistamento em bloco.
+  r.get('/world', handler(async (req) => world.snapshot(requireGovernor(req))));
+  r.post('/world/enlist', handler(async (req) => world.enlist(requireGovernor(req), parse(z.object({ blocId: id }), req.body).blocId)));
+
   r.get('/chat/channels', handler(async (req) => ({ channels: await chat.channels(requireGovernor(req)) })));
   r.get(
     '/chat/:id/messages',

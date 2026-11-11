@@ -121,3 +121,31 @@ export interface ChatMessage {
 
 export const newIdempotencyKey = () =>
   (crypto.randomUUID?.() ?? `${Date.now()}-${Math.random().toString(36).slice(2)}`).replace(/[^a-zA-Z0-9-]/g, '');
+
+/** Estado geopolítico do reino (GET /api/world). O servidor é a fonte da verdade. */
+export interface WorldBloc {
+  id: number;
+  key: string;
+  name: string;
+  color: string;
+  territories: number;
+  members: number;
+}
+
+export interface WorldWar {
+  id: number;
+  attackerBlocId: number;
+  defenderBlocId: number;
+  theater: string;
+  countryCode: string | null;
+  startedAt: number;
+}
+
+export interface WorldSnapshot {
+  serverTime: number;
+  myBlocId: number | null;
+  blocs: WorldBloc[];
+  territories: { code: string; blocId: number | null; version: number }[];
+  wars: WorldWar[];
+  systems: { armies: boolean; wars: boolean; diplomacy: boolean; espionage: boolean };
+}
