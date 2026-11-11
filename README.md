@@ -2,7 +2,7 @@
 
 **MMO persistente de estratégia, civilizações, cidades, alianças e guerras territoriais.**
 
-> Status atual: **Fase A implementada e testada** (contas, governador, civilizações, reinos, cidade com obras por relógio de servidor, economia com ledger, mapa compartilhado em tempo real, alianças R1–R5 e chats global/reino/aliança). Fases B–E ainda não existem. Ver [Progresso](docs/PROGRESS.md) e [Relatório de testes](docs/TEST_REPORT.md).
+> Status atual: **Fase A da nova visão implementada** (fundar nação no mapa e expandir por regiões). Estado real em [docs/PROGRESS.md](docs/PROGRESS.md); regras em [docs/PLAY_RULES.md](docs/PLAY_RULES.md).
 
 ## Visão
 

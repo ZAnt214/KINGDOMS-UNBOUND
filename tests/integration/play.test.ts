@@ -1,7 +1,7 @@
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { DEFAULT_FLAG } from '../../shared/play/flags.js';
 import { expansionSeconds, NATION_COLORS } from '../../shared/play/rules.js';
-import { REGION_BY_ID, START_POINTS, type StartPoint } from '../../shared/world/regions.js';
+import { REGION_BY_ID, REGIONS, START_POINTS, type StartPoint } from '../../shared/world/regions.js';
 import type { Db } from '../../server/src/db.js';
 import { Player, resetDb, startServer, type TestPlayer } from './helpers.js';
 
@@ -129,8 +129,9 @@ describe('expansão territorial', () => {
     expect((await A.post('/play/expand', { region: 'XXX-0' })).status).toBe(404);
     expect((await A.post('/play/expand', { region: S.p.region })).data.error).toBe('region_owned');
     expect((await A.post('/play/expand', { region: S.q.region })).data.error).toBe('region_taken');
-    const far = START_POINTS.find((s) => !REGION_BY_ID[S.p.region].neighbors.includes(s.region) && s.region !== S.p.region && s.region !== S.q.region)!;
-    expect((await A.post('/play/expand', { region: far.region })).data.error).toBe('not_adjacent');
+    const starts = new Set(START_POINTS.map((s) => s.region));
+    const far = REGIONS.find((r) => !starts.has(r.id) && !REGION_BY_ID[S.p.region].neighbors.includes(r.id))!;
+    expect((await A.post('/play/expand', { region: far.id })).data.error).toBe('not_adjacent');
     expect((await A.get('/play/state')).data.occupations).toEqual([]);
   });
 

@@ -120,3 +120,25 @@ Baseada em `work/city-reference-art` (`c5f4751`). Decisão em `docs/adr/0003-map
 ### 2026-11-11 — Entrada rápida no lugar da tela de login
 
 A pedido, o jogo deixou de abrir no formulário de login: cria uma conta de comandante pelas rotas de cadastro existentes e abre direto na aba Comando. As credenciais geradas ficam no navegador (`localStorage`), então a conta se perde se os dados do site forem apagados. O formulário continua em `/?login=1` e após "Sair"; os testes E2E usam esse caminho. A CI de `c894089` passou (typecheck, integração com Postgres, build).
+
+## 2026-11-11 — Nova visão, Fase A: fundar no mapa e expandir (branch `claude/fase-a-capital-expansao`)
+
+Baseada em `work/world-map-command-center` (`5ca2115`). Decisões em `docs/adr/0004-regioes-como-unidade-de-conquista.md`; fórmulas em `docs/PLAY_RULES.md`.
+
+**Entregue e funcionando de ponta a ponta**
+- [x] Tela inicial, seleção de modo (Campanha aberta; Partida rápida e Equipe bloqueadas com o motivo) e tela de identidade: nome, 16 cores, 12 bandeiras prontas, editor e envio de imagem validado.
+- [x] Mapa neutro com 279 pontos de partida; tocar mostra capital, país, área inicial, fronteiras e prévia tracejada; CONFIRMAR LOCALIZAÇÃO funda a nação no servidor.
+- [x] Fundação animada: feixe de luz, cor se espalhando a partir da capital, bandeira fincada, som.
+- [x] Expansão para regiões neutras vizinhas com duração do servidor; preenchimento progressivo sincronizado com o relógio do servidor; clarão, bandeira e som na conclusão.
+- [x] Domínio de país (100% das regiões) com bandeira no país e aviso.
+- [x] HUD: nação e nível, regiões e países, meta atual, Território / Expandir / Ranking, ocupação em andamento, configurações (música, efeitos, mudo, reduzir animações, sair).
+- [x] Tempo real entre jogadores do mesmo mundo (`play.nation`, `play.occupation`, `play.region`) e releitura ao reconectar.
+
+**Não existe ainda (e não aparece como se existisse):** recursos e produção, construções, ferrovias, exército, ataques a outras nações, mísseis, diplomacia da nova visão, temporada de 10 dias, partida rápida, equipes, travessia marítima.
+
+**Dívidas**
+- [ ] O único custo de expandir é o tempo (ver PLAY_RULES).
+- [ ] Jogadores em ilhas não têm para onde expandir até existir Marinha (o cartão do ponto avisa antes).
+- [ ] Governador e cidade clássicos ainda são criados para cada jogador.
+- [ ] Sem moderação de imagens de bandeira; contas de início rápido são descartáveis.
+- [ ] Teste em iPhone/Safari físico e medição de FPS em aparelho.

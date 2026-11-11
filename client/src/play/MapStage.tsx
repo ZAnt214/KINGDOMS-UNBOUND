@@ -209,6 +209,13 @@ export function MapStage({ engine, state, status, active, draft, onDraft, userna
         setPoint(null);
         return;
       }
+      if (pick.kind === 'flag' && !mine) {
+        // Antes de fundar, bandeiras só informam de quem é o lugar.
+        const [kind, id] = pick.id.split(':');
+        const owner = kind === 'cap' ? s.nations.get(Number(id)) : kind === 'reg' ? s.nations.get(s.control.get(id) ?? -1) : undefined;
+        if (owner) toast(`Território de ${owner.name}.`, 'info', nationFlagSrc(owner));
+        return;
+      }
       if (pick.kind === 'flag') {
         const [kind, id] = pick.id.split(':');
         if (kind === 'reg') return void (audio.play('tap'), setRegion(id));
@@ -347,6 +354,7 @@ export function MapStage({ engine, state, status, active, draft, onDraft, userna
     try {
       await found(point.id);
       setPoint(null);
+      setRegion(null);
     } catch (e) {
       audio.play('deny');
       setCardError(e instanceof ApiError ? e.message : 'Não foi possível fundar a nação. Tente de novo.');
