@@ -145,4 +145,16 @@ describe('conta com recursos infinitos (users.unlimited)', () => {
     expect(s.military.recruits.amount).toBeLessThan(1);
     expect((await state(B)).economy.unlimited).toBe(false);
   });
+
+  it('contas criadas com KU_UNLIMITED_NEW_ACCOUNTS ligado (padrão) nascem com recursos infinitos', async () => {
+    process.env.KU_UNLIMITED_NEW_ACCOUNTS = '1';
+    try {
+      const C = (await Player.create(srv.base, 'Novato', 1)) as TestPlayer;
+      const { rows } = await db.query('SELECT unlimited FROM users WHERE username = $1', [C.username]);
+      expect(rows[0].unlimited).toBe(true);
+      C.close();
+    } finally {
+      process.env.KU_UNLIMITED_NEW_ACCOUNTS = '0';
+    }
+  });
 });

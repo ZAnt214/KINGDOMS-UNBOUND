@@ -17,7 +17,7 @@ import {
   SESSION_COOKIE,
   verifyPassword,
 } from './auth.js';
-import { config } from './config.js';
+import { config, unlimitedNewAccounts } from './config.js';
 import { type Db, tx } from './db.js';
 import { conflict, handler, HttpError, notFound, parse, RateLimiter } from './http.js';
 import type { FoundInput } from '../../shared/play/types.js';
@@ -76,9 +76,11 @@ export function apiRouter(
       const { username, password } = parse(credentials, req.body);
       const exists = await db.query('SELECT 1 FROM users WHERE lower(username) = lower($1)', [username]);
       if (exists.rowCount) throw conflict('username_taken', 'Este usuário já existe.');
-      const u = await db.query('INSERT INTO users (username, password_hash) VALUES ($1, $2) RETURNING id', [
+      // Fase de testes: contas novas nascem com recursos infinitos (KU_UNLIMITED_NEW_ACCOUNTS=0 desliga).
+      const u = await db.query('INSERT INTO users (username, password_hash, unlimited) VALUES ($1, $2, $3) RETURNING id', [
         username,
         await hashPassword(password),
+        unlimitedNewAccounts(),
       ]);
       await createSession(db, u.rows[0].id, res);
       return { ok: true };

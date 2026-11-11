@@ -5,6 +5,6 @@ export default defineConfig({
     include: ['tests/integration/**/*.test.ts', 'tests/unit/**/*.test.ts'],
     fileParallelism: false,
     testTimeout: 20000,
-    env: { AUTH_RATE_PER_MINUTE: '10000' },
+    env: { AUTH_RATE_PER_MINUTE: '10000', KU_UNLIMITED_NEW_ACCOUNTS: '0' },
   },
 });
