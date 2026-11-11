@@ -12,6 +12,8 @@ import { apiRouter } from './routes.js';
 import { AllianceService } from './services/alliance.js';
 import { ChatService } from './services/chat.js';
 import { CityService } from './services/city.js';
+import { NationService } from './services/nation.js';
+import { TerritoryService } from './services/territory.js';
 import { seedGeopolitics, WorldService } from './services/world.js';
 
 export const log = (msg: string, extra: Record<string, unknown> = {}) =>
@@ -43,6 +45,8 @@ export async function createGameServer(
   const alliance = new AllianceService(db, hub);
   const chat = new ChatService(db, hub);
   const world = new WorldService(db, hub);
+  const territory = new TerritoryService(db, hub);
+  const nation = new NationService(db, hub, territory);
 
   app.use((_req, res, next) => {
     res.setHeader('X-Content-Type-Options', 'nosniff');
@@ -60,7 +64,7 @@ export async function createGameServer(
       .catch(() => res.status(503).json({ ok: false }));
   });
 
-  app.use('/api', express.json({ limit: '16kb' }), csrfGuard, authMiddleware(db), apiRouter(db, hub, { city, alliance, chat, world }));
+  app.use('/api', express.json({ limit: '16kb' }), csrfGuard, authMiddleware(db), apiRouter(db, hub, { city, alliance, chat, world, nation, territory }));
   app.use('/api', errorMiddleware);
 
   if (opts.staticDir && fs.existsSync(opts.staticDir)) {
@@ -68,13 +72,12 @@ export async function createGameServer(
     app.get('*', (_req, res) => res.sendFile(path.join(opts.staticDir!, 'index.html')));
   }
 
-  // Worker de obras: estado vem do banco, então reiniciar o processo não perde nada.
+  // Worker de obras e ocupações: o estado vem do banco, então reiniciar o processo não perde nada.
   let running = false;
   const worker = setInterval(() => {
     if (running) return;
     running = true;
-    city
-      .processDue()
+    Promise.all([city.processDue(), territory.processDue()])
       .catch((err) => console.error(JSON.stringify({ level: 'error', msg: 'worker', err: String(err) })))
       .finally(() => (running = false));
   }, config.workerIntervalMs);
@@ -83,7 +86,7 @@ export async function createGameServer(
     app,
     server,
     hub,
-    services: { world },
+    services: { world, nation, territory },
     async close() {
       clearInterval(worker);
       hub.close();

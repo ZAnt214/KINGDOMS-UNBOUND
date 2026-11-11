@@ -72,7 +72,75 @@ export interface MapLayer {
   draw(ctx: CanvasRenderingContext2D, view: MapView): void;
 }
 
-export type MapPick = { kind: 'country'; code: string } | { kind: 'city'; code: string; city: MapCity } | { kind: 'marker'; id: string };
+export type MapPick =
+  | { kind: 'country'; code: string }
+  | { kind: 'city'; code: string; city: MapCity }
+  | { kind: 'marker'; id: string }
+  | { kind: 'region'; id: string; code: string }
+  | { kind: 'point'; id: string }
+  | { kind: 'flag'; id: string };
+
+/** Topologia de regiões gerada por tools/build-regions.mjs (arcos compartilhados, deltas quantizados). */
+export interface RegionTopology {
+  v: number;
+  q: number;
+  arcs: number[][];
+  regions: { id: string; c: string; n: string; at: [number, number]; r: number[][] }[];
+}
+
+/** Território de um dono: conjunto de regiões pintado com uma cor e cercado por uma fronteira. */
+export interface MapTerritory {
+  id: string;
+  color: string;
+  regions: string[];
+  /** Território de quem está jogando: fronteira mais forte. */
+  own?: boolean;
+}
+
+/** Preenchimento progressivo de uma região, do ponto de origem para fora, guiado pelo relógio do motor. */
+export interface MapFill {
+  id: string;
+  region: string;
+  color: string;
+  /** Origem em [longitude, latitude]; sem origem, parte do centro da região. */
+  origin?: [number, number];
+  /** Ou: a divisa com esta região é a origem. */
+  fromRegion?: string;
+  startAt: number;
+  endAt: number;
+}
+
+/** Ponto de partida (capital ou local estratégico). */
+export interface MapPoint {
+  id: string;
+  lon: number;
+  lat: number;
+  kind: 'capital' | 'strategic';
+  state: 'free' | 'taken' | 'selected';
+  label?: string;
+}
+
+export interface MapFlag {
+  id: string;
+  lon: number;
+  lat: number;
+  /** Imagem 3:2 já carregada; sem imagem desenha um retângulo na cor. */
+  image: CanvasImageSource | null;
+  color: string;
+  /** 1 = bandeira de capital; maiores para países dominados. */
+  scale?: number;
+  label?: string;
+  /** Zoom mínimo para aparecer; bandeiras assim cedem lugar quando não há espaço. */
+  minZoom?: number;
+  /** Instante (performance.now) em que foi fincada: anima a subida. */
+  plantedAt?: number;
+}
+
+/** Efeitos de uma só vez. */
+export type MapEffect =
+  | { kind: 'beacon'; at: [number, number]; color: string; ms?: number }
+  | { kind: 'conquest'; region: string; color: string; ms?: number }
+  | { kind: 'ring'; at: [number, number]; color: string; ms?: number };
 
 export interface MapEvents {
   select: MapPick | null;
@@ -88,4 +156,11 @@ export interface MapOptions {
   reducedMotion?: boolean;
 }
 
-export type BuiltinLayer = 'graticule' | 'labels' | 'cities' | 'markers' | 'routes';
+export interface RegionInfo {
+  id: string;
+  country: string;
+  name: string;
+  at: [number, number];
+}
+
+export type BuiltinLayer = 'graticule' | 'labels' | 'cities' | 'markers' | 'routes' | 'points' | 'flags';

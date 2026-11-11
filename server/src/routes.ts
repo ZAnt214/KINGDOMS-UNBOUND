@@ -1,5 +1,6 @@
 import { Router } from 'express';
 import { z } from 'zod';
+import { MODES_AVAILABLE, PLAY_RULES_VERSION } from '../../shared/play/rules.js';
 import { BUILDING_TYPES, BUILDINGS, CIVILIZATIONS, RULES_VERSION } from '../../shared/rules.js';
 import {
   clearSessionCookie,
@@ -15,9 +16,12 @@ import {
 import { config } from './config.js';
 import { type Db, tx } from './db.js';
 import { conflict, handler, HttpError, notFound, parse, RateLimiter } from './http.js';
+import type { FoundInput } from '../../shared/play/types.js';
 import type { Hub } from './hub.js';
 import { AllianceService } from './services/alliance.js';
 import { ChatService } from './services/chat.js';
+import type { NationService } from './services/nation.js';
+import type { TerritoryService } from './services/territory.js';
 import type { WorldService } from './services/world.js';
 import { CityService, civilizationExists, mapCitiesInArea, mapCitySummary } from './services/city.js';
 
@@ -32,20 +36,26 @@ const credentials = z.object({
   password: z.string().min(8, 'mínimo de 8 caracteres').max(128),
 });
 
-export function apiRouter(db: Db, hub: Hub, services: { city: CityService; alliance: AllianceService; chat: ChatService; world: WorldService }) {
+export function apiRouter(
+  db: Db,
+  hub: Hub,
+  services: { city: CityService; alliance: AllianceService; chat: ChatService; world: WorldService; nation: NationService; territory: TerritoryService },
+) {
   const r = Router();
-  const { city, alliance, chat, world } = services;
+  const { city, alliance, chat, world, nation, territory } = services;
   const authLimiter = new RateLimiter(config.authRatePerMinute, 60);
 
   r.get(
     '/meta',
     handler(async () => {
       const k = await db.query(
-        `SELECT k.id, k.name, k.width, k.height, k.seed, k.status, COUNT(g.id)::int AS population
+        `SELECT k.id, k.name, k.width, k.height, k.seed, k.status, k.mode, COUNT(g.id)::int AS population
            FROM kingdoms k LEFT JOIN governors g ON g.kingdom_id = k.id GROUP BY k.id ORDER BY k.id`,
       );
       return {
         rulesVersion: RULES_VERSION,
+        playRulesVersion: PLAY_RULES_VERSION,
+        modes: MODES_AVAILABLE,
         serverTime: Date.now(),
         civilizations: CIVILIZATIONS,
         buildings: BUILDING_TYPES.map((t) => BUILDINGS[t]),
@@ -232,6 +242,51 @@ export function apiRouter(db: Db, hub: Hub, services: { city: CityService; allia
   // Mundo geopolítico: leitura do estado e alistamento em bloco.
   r.get('/world', handler(async (req) => world.snapshot(requireGovernor(req))));
   r.post('/world/enlist', handler(async (req) => world.enlist(requireGovernor(req), parse(z.object({ blocId: id }), req.body).blocId)));
+
+  // Nações e território (ciclo principal): estado do mundo, fundação e expansão.
+  r.get('/play/state', handler(async (req) => nation.snapshot(requireGovernor(req))));
+  r.get(
+    '/play/colors',
+    handler(async (req) => {
+      const gov = requireGovernor(req);
+      const q = parse(z.object({ pointId: z.string().min(1).max(80) }), req.query);
+      return { blocked: await nation.blockedColors(gov.kingdomId, q.pointId) };
+    }),
+  );
+  r.post(
+    '/play/found',
+    handler(async (req) =>
+      nation.found(
+        requireGovernor(req),
+        parse(
+          z.object({
+            pointId: z.string().min(1).max(80),
+            name: z.string().max(60),
+            color: z.string().max(9),
+            flag: z.unknown(),
+            flagImage: z.string().max(13000).nullish(),
+          }),
+          req.body,
+        ) as FoundInput,
+      ),
+    ),
+  );
+  r.post(
+    '/play/expand',
+    handler(async (req) => territory.expand(requireGovernor(req), parse(z.object({ region: z.string().min(1).max(40) }), req.body).region)),
+  );
+  r.get(
+    '/play/flag/:id',
+    handler(async (req, res) => {
+      const gov = requireGovernor(req);
+      const image = await nation.flagImage(gov.kingdomId, parse(id, req.params.id));
+      if (!image) throw notFound('Bandeira não encontrada.');
+      // O conteúdo foi validado na fundação; a versão na URL permite cache longo.
+      res.setHeader('Content-Type', image.type);
+      res.setHeader('Cache-Control', 'private, max-age=31536000, immutable');
+      res.end(image.bytes);
+    }),
+  );
 
   r.get('/chat/channels', handler(async (req) => ({ channels: await chat.channels(requireGovernor(req)) })));
   r.get(

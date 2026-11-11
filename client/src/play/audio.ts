@@ -1,0 +1,262 @@
+// Identidade sonora do jogo, toda sintetizada com Web Audio: nenhum arquivo de áudio é baixado.
+// Efeitos curtos e discretos para cada ação e uma trilha ambiente lenta. Volumes ficam salvos
+// no navegador; o áudio só começa depois do primeiro toque (exigência dos navegadores).
+
+export type SoundName = 'tap' | 'select' | 'confirm' | 'deny' | 'found' | 'expand' | 'conquest' | 'country' | 'level' | 'notify';
+
+export interface AudioSettings {
+  music: number;
+  effects: number;
+  muted: boolean;
+}
+
+const KEY = 'ku.audio';
+const DEFAULTS: AudioSettings = { music: 0.5, effects: 0.7, muted: false };
+
+function load(): AudioSettings {
+  try {
+    const raw = JSON.parse(localStorage.getItem(KEY) ?? '{}');
+    return {
+      music: typeof raw.music === 'number' ? Math.max(0, Math.min(1, raw.music)) : DEFAULTS.music,
+      effects: typeof raw.effects === 'number' ? Math.max(0, Math.min(1, raw.effects)) : DEFAULTS.effects,
+      muted: raw.muted === true,
+    };
+  } catch {
+    return { ...DEFAULTS };
+  }
+}
+
+const midi = (n: number) => 440 * 2 ** ((n - 69) / 12);
+
+class GameAudio {
+  settings: AudioSettings = load();
+  private ctx: AudioContext | null = null;
+  private fxBus: GainNode | null = null;
+  private musicBus: GainNode | null = null;
+  private musicTimer: number | undefined;
+  private musicOn = false;
+  private step = 0;
+  private listeners = new Set<() => void>();
+
+  /** Chamar dentro de um gesto do usuário. */
+  unlock() {
+    if (!this.ctx) {
+      const Ctor = window.AudioContext ?? (window as unknown as { webkitAudioContext?: typeof AudioContext }).webkitAudioContext;
+      if (!Ctor) return;
+      try {
+        this.ctx = new Ctor();
+      } catch {
+        return;
+      }
+      const master = this.ctx.createDynamicsCompressor();
+      master.threshold.value = -14;
+      master.ratio.value = 5;
+      master.connect(this.ctx.destination);
+      this.fxBus = this.ctx.createGain();
+      this.musicBus = this.ctx.createGain();
+      // Eco curto e filtrado: dá espaço à trilha sem precisar de reverberação por convolução.
+      const delay = this.ctx.createDelay(1.5);
+      delay.delayTime.value = 0.46;
+      const feedback = this.ctx.createGain();
+      feedback.gain.value = 0.38;
+      const damp = this.ctx.createBiquadFilter();
+      damp.type = 'lowpass';
+      damp.frequency.value = 1500;
+      this.musicBus.connect(master);
+      this.musicBus.connect(delay);
+      delay.connect(damp);
+      damp.connect(feedback);
+      feedback.connect(delay);
+      damp.connect(master);
+      this.fxBus.connect(master);
+      this.apply();
+    }
+    if (this.ctx.state === 'suspended') void this.ctx.resume().catch(() => {});
+  }
+
+  subscribe(fn: () => void) {
+    this.listeners.add(fn);
+    return () => void this.listeners.delete(fn);
+  }
+
+  update(patch: Partial<AudioSettings>) {
+    this.settings = { ...this.settings, ...patch };
+    try {
+      localStorage.setItem(KEY, JSON.stringify(this.settings));
+    } catch {
+      /* sem armazenamento: vale só nesta sessão */
+    }
+    this.apply();
+    for (const fn of this.listeners) fn();
+  }
+
+  private apply() {
+    if (!this.ctx || !this.fxBus || !this.musicBus) return;
+    const t = this.ctx.currentTime;
+    const s = this.settings;
+    this.fxBus.gain.setTargetAtTime(s.muted ? 0 : s.effects * 0.9, t, 0.03);
+    this.musicBus.gain.setTargetAtTime(s.muted ? 0 : s.music * 0.5, t, 0.2);
+  }
+
+  private tone(o: { f: number; to?: number; at?: number; dur: number; type?: OscillatorType; gain?: number; attack?: number; bus?: GainNode | null; lp?: number }) {
+    const ctx = this.ctx;
+    const bus = o.bus ?? this.fxBus;
+    if (!ctx || !bus) return;
+    const t0 = ctx.currentTime + (o.at ?? 0);
+    const osc = ctx.createOscillator();
+    const g = ctx.createGain();
+    osc.type = o.type ?? 'sine';
+    osc.frequency.setValueAtTime(o.f, t0);
+    if (o.to) osc.frequency.exponentialRampToValueAtTime(o.to, t0 + o.dur);
+    const peak = o.gain ?? 0.2;
+    g.gain.setValueAtTime(0.0001, t0);
+    g.gain.exponentialRampToValueAtTime(peak, t0 + (o.attack ?? 0.008));
+    g.gain.exponentialRampToValueAtTime(0.0001, t0 + o.dur);
+    if (o.lp) {
+      const f = ctx.createBiquadFilter();
+      f.type = 'lowpass';
+      f.frequency.value = o.lp;
+      osc.connect(f);
+      f.connect(g);
+    } else osc.connect(g);
+    g.connect(bus);
+    osc.start(t0);
+    osc.stop(t0 + o.dur + 0.05);
+  }
+
+  private noise(o: { at?: number; dur: number; from: number; to: number; gain?: number; q?: number }) {
+    const ctx = this.ctx;
+    if (!ctx || !this.fxBus) return;
+    const t0 = ctx.currentTime + (o.at ?? 0);
+    const len = Math.ceil(ctx.sampleRate * o.dur);
+    const buf = ctx.createBuffer(1, len, ctx.sampleRate);
+    const data = buf.getChannelData(0);
+    for (let i = 0; i < len; i++) data[i] = Math.random() * 2 - 1;
+    const src = ctx.createBufferSource();
+    src.buffer = buf;
+    const f = ctx.createBiquadFilter();
+    f.type = 'bandpass';
+    f.Q.value = o.q ?? 1.2;
+    f.frequency.setValueAtTime(o.from, t0);
+    f.frequency.exponentialRampToValueAtTime(o.to, t0 + o.dur);
+    const g = ctx.createGain();
+    const peak = o.gain ?? 0.15;
+    g.gain.setValueAtTime(0.0001, t0);
+    g.gain.exponentialRampToValueAtTime(peak, t0 + o.dur * 0.35);
+    g.gain.exponentialRampToValueAtTime(0.0001, t0 + o.dur);
+    src.connect(f);
+    f.connect(g);
+    g.connect(this.fxBus);
+    src.start(t0);
+  }
+
+  play(name: SoundName) {
+    if (!this.ctx || this.settings.muted || this.settings.effects <= 0) return;
+    switch (name) {
+      case 'tap':
+        this.tone({ f: 880, to: 660, dur: 0.07, type: 'triangle', gain: 0.1 });
+        break;
+      case 'select':
+        this.tone({ f: midi(76), dur: 0.16, type: 'triangle', gain: 0.14 });
+        this.tone({ f: midi(83), at: 0.07, dur: 0.24, type: 'sine', gain: 0.12 });
+        break;
+      case 'confirm':
+        [72, 76, 79].forEach((n, i) => this.tone({ f: midi(n), at: i * 0.06, dur: 0.3, type: 'triangle', gain: 0.13 }));
+        break;
+      case 'deny':
+        this.tone({ f: 196, to: 150, dur: 0.2, type: 'sawtooth', gain: 0.08, lp: 700 });
+        break;
+      case 'notify':
+        this.tone({ f: midi(81), dur: 0.14, gain: 0.1 });
+        this.tone({ f: midi(88), at: 0.1, dur: 0.3, gain: 0.08 });
+        break;
+      case 'expand':
+        // Avanço: sopro que sobe e um grave curto.
+        this.noise({ dur: 0.7, from: 300, to: 2400, gain: 0.12 });
+        this.tone({ f: 110, to: 165, dur: 0.5, type: 'sine', gain: 0.16 });
+        this.tone({ f: midi(67), at: 0.12, dur: 0.4, type: 'triangle', gain: 0.07 });
+        break;
+      case 'conquest':
+        // Bandeira fincada: batida grave e três notas ascendentes.
+        this.tone({ f: 150, to: 55, dur: 0.35, type: 'sine', gain: 0.3 });
+        this.noise({ dur: 0.18, from: 3000, to: 800, gain: 0.07 });
+        [67, 72, 76, 79].forEach((n, i) => this.tone({ f: midi(n), at: 0.05 + i * 0.085, dur: 0.5, type: 'triangle', gain: 0.13 }));
+        this.tone({ f: midi(91), at: 0.4, dur: 0.9, type: 'sine', gain: 0.05 });
+        break;
+      case 'found':
+        // Fundação: impacto, acorde que cresce e chamada de quatro notas.
+        this.tone({ f: 120, to: 40, dur: 0.9, type: 'sine', gain: 0.34 });
+        this.noise({ dur: 1.4, from: 200, to: 3200, gain: 0.1, q: 0.7 });
+        [50, 57, 62, 66, 69].forEach((n) => this.tone({ f: midi(n), at: 0.1, dur: 2.4, type: 'sawtooth', gain: 0.05, attack: 0.7, lp: 1400 }));
+        [74, 78, 81, 86].forEach((n, i) => this.tone({ f: midi(n), at: 0.7 + i * 0.14, dur: 0.8, type: 'triangle', gain: 0.13 }));
+        break;
+      case 'country':
+        this.tone({ f: 100, to: 45, dur: 0.8, type: 'sine', gain: 0.32 });
+        [60, 64, 67, 72, 76, 79, 84].forEach((n, i) => this.tone({ f: midi(n), at: i * 0.09, dur: 1.1, type: 'triangle', gain: 0.12 }));
+        [48, 55, 64].forEach((n) => this.tone({ f: midi(n), at: 0.05, dur: 2.2, type: 'sawtooth', gain: 0.05, attack: 0.4, lp: 1200 }));
+        break;
+      case 'level':
+        [72, 79, 84, 91].forEach((n, i) => this.tone({ f: midi(n), at: i * 0.07, dur: 0.5, type: 'sine', gain: 0.11 }));
+        break;
+    }
+  }
+
+  // ---------- trilha ambiente ----------
+
+  /** Acordes abertos em ré menor, um a cada ~11 s, com ataque e cauda longos. */
+  private static CHORDS = [
+    [38, 50, 57, 64, 65],
+    [34, 46, 53, 60, 65],
+    [41, 48, 57, 60, 67],
+    [36, 48, 55, 62, 64],
+  ];
+
+  private chord() {
+    const ctx = this.ctx;
+    if (!ctx || !this.musicBus) return;
+    const notes = GameAudio.CHORDS[this.step % GameAudio.CHORDS.length];
+    this.step++;
+    const t0 = ctx.currentTime;
+    const hold = 11;
+    const filter = ctx.createBiquadFilter();
+    filter.type = 'lowpass';
+    filter.Q.value = 0.6;
+    filter.frequency.setValueAtTime(320, t0);
+    filter.frequency.linearRampToValueAtTime(1150, t0 + hold * 0.5);
+    filter.frequency.linearRampToValueAtTime(380, t0 + hold + 3);
+    const g = ctx.createGain();
+    g.gain.setValueAtTime(0.0001, t0);
+    g.gain.linearRampToValueAtTime(0.11, t0 + 4);
+    g.gain.setValueAtTime(0.11, t0 + hold - 2);
+    g.gain.linearRampToValueAtTime(0.0001, t0 + hold + 4);
+    filter.connect(g);
+    g.connect(this.musicBus);
+    for (const n of notes) {
+      for (const detune of [-7, 7]) {
+        const osc = ctx.createOscillator();
+        osc.type = n < 45 ? 'sine' : 'sawtooth';
+        osc.frequency.value = midi(n);
+        osc.detune.value = detune;
+        osc.connect(filter);
+        osc.start(t0);
+        osc.stop(t0 + hold + 4.2);
+      }
+    }
+    // Nota alta esparsa, como um sinal distante.
+    const top = notes[notes.length - 1] + 12 + (this.step % 2 ? 7 : 0);
+    this.tone({ f: midi(top), at: 3 + (this.step % 3), dur: 3.5, gain: 0.035, attack: 0.9, bus: this.musicBus });
+  }
+
+  music(on: boolean) {
+    if (on === this.musicOn) return;
+    this.musicOn = on;
+    window.clearInterval(this.musicTimer);
+    if (!on || !this.ctx) return;
+    this.chord();
+    this.musicTimer = window.setInterval(() => {
+      if (document.visibilityState === 'visible' && !this.settings.muted && this.settings.music > 0) this.chord();
+    }, 11000);
+  }
+}
+
+export const audio = new GameAudio();

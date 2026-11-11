@@ -1,17 +1,19 @@
-import { useCallback, useEffect, useState } from 'react';
+import { lazy, Suspense, useCallback, useEffect, useState } from 'react';
 import { api, ApiError, type Me, type Meta } from './api';
-import { Game } from './Game';
+import { PlayApp } from './play/PlayApp';
+
+// O jogo clássico (cidade medieval da primeira Fase A) só é baixado em /?login=1.
+const Game = lazy(() => import('./Game').then((m) => ({ default: m.Game })));
 
 const QUICK_KEY = 'ku.quick-entry';
 const rand = (n: number) => Array.from(crypto.getRandomValues(new Uint8Array(n)), (b) => (b % 36).toString(36)).join('');
 
 /**
- * Entrada rápida (fase de testes): em vez da tela de login, cria uma conta de comandante e entra.
- * Usa as mesmas rotas de cadastro do formulário, então o servidor continua validando tudo.
+ * Conta de teste: cria (ou reencontra) uma conta descartável pelas rotas normais de cadastro.
  * As credenciais geradas ficam neste navegador para a conta ser reencontrada se a sessão expirar;
- * é uma conta descartável, não um substituto de login para contas reais.
+ * não substitui o login de contas reais.
  */
-async function quickEntry(meta: Meta): Promise<void> {
+async function quickAccount(): Promise<void> {
   let saved: { username: string; password: string } | null = null;
   try {
     saved = JSON.parse(localStorage.getItem(QUICK_KEY) ?? 'null');
@@ -21,24 +23,26 @@ async function quickEntry(meta: Meta): Promise<void> {
   if (saved) {
     try {
       await api.post('/auth/login', saved);
+      return;
     } catch (e) {
       if (!(e instanceof ApiError) || e.status !== 401) throw e;
-      saved = null;
     }
   }
-  if (!saved) {
-    saved = { username: `cmd_${rand(8)}`, password: rand(24) };
-    await api.post('/auth/register', saved);
-    try {
-      localStorage.setItem(QUICK_KEY, JSON.stringify(saved));
-    } catch {
-      /* a conta vale só enquanto a sessão durar */
-    }
+  saved = { username: `cmd_${rand(8)}`, password: rand(24) };
+  await api.post('/auth/register', saved);
+  try {
+    localStorage.setItem(QUICK_KEY, JSON.stringify(saved));
+  } catch {
+    /* a conta vale só enquanto a sessão durar */
   }
+}
+
+/** Todo jogador precisa de um governador num mundo aberto; quem ainda não tem ganha um agora. */
+async function ensureGovernor(meta: Meta): Promise<void> {
   const me = await api.get<Me>('/me');
   if (me.governor) return;
   const kingdom = meta.kingdoms.find((k) => k.status === 'open' && k.population < k.capacity);
-  if (!kingdom) throw new ApiError(409, 'kingdom_full', 'Todos os reinos estão lotados.');
+  if (!kingdom) throw new ApiError(409, 'kingdom_full', 'Todos os mundos estão lotados.');
   for (let attempt = 0; ; attempt++) {
     try {
       await api.post('/governor', { name: `Comandante ${rand(4).toUpperCase()}`, civilization: meta.civilizations[0].id, kingdomId: kingdom.id });
@@ -53,8 +57,9 @@ export function App() {
   const [meta, setMeta] = useState<Meta | null>(null);
   const [me, setMe] = useState<Me | null | undefined>(undefined);
   const [error, setError] = useState<string | null>(null);
-  // `?login=1` (ou sair da conta) mostra o formulário de login em vez da entrada rápida.
-  const [manual, setManual] = useState(() => new URLSearchParams(location.search).has('login'));
+  // `?login=1` abre o jogo clássico (formulário de login + cidade), usado pelos testes da primeira Fase A.
+  const [manual] = useState(() => new URLSearchParams(location.search).has('login'));
+  const [loginForm, setLoginForm] = useState(false);
 
   const loadMe = useCallback(async () => {
     try {
@@ -85,30 +90,59 @@ export function App() {
     );
   }
   if (!meta || me === undefined) {
-    return (
+    return manual ? (
       <div className="splash">
         <Logo />
         <p className="muted">Conectando ao reino…</p>
       </div>
+    ) : (
+      <div className="ku-splash" role="status">
+        Conectando…
+      </div>
     );
   }
-  if (!manual && (!me || !me.governor)) {
-    return <QuickEntry meta={meta} onDone={loadMe} onManual={() => setManual(true)} />;
+  if (!manual) {
+    if (loginForm && !me) return <AuthScreen onDone={loadMe} onBack={() => setLoginForm(false)} />;
+    return (
+      <PlayApp
+        meta={meta}
+        me={me}
+        enter={async () => {
+          if (!me) await quickAccount();
+          await ensureGovernor(meta);
+          await loadMe();
+        }}
+        onLoginForm={() => setLoginForm(true)}
+        onLogout={async () => {
+          await api.post('/auth/logout').catch(() => {});
+          setLoginForm(false);
+          setMe(null);
+        }}
+      />
+    );
   }
   if (!me) return <AuthScreen onDone={loadMe} />;
   if (!me.governor) return <SetupScreen meta={meta} me={me} onDone={loadMe} />;
   return (
-    <Game
-      meta={meta}
-      me={me}
-      initialTab={manual ? 'city' : 'command'}
-      reloadMe={loadMe}
-      onLogout={async () => {
-        await api.post('/auth/logout').catch(() => {});
-        setManual(true);
-        setMe(null);
-      }}
-    />
+    <Suspense
+      fallback={
+        <div className="splash">
+          <Logo />
+          <p className="muted">Carregando…</p>
+        </div>
+      }
+    >
+      <Game
+        meta={meta}
+        me={me}
+        initialTab="city"
+        reloadMe={loadMe}
+        onLogout={async () => {
+          await api.post('/auth/logout').catch(() => {});
+          setMe(null);
+        }}
+      />
+    </Suspense>
   );
 }
 
@@ -126,41 +160,7 @@ function Logo() {
   );
 }
 
-function QuickEntry({ meta, onDone, onManual }: { meta: Meta; onDone: () => void; onManual: () => void }) {
-  const [error, setError] = useState<string | null>(null);
-  const [attempt, setAttempt] = useState(0);
-  useEffect(() => {
-    let cancelled = false;
-    setError(null);
-    quickEntry(meta)
-      .then(() => !cancelled && onDone())
-      .catch((e) => !cancelled && setError(e instanceof ApiError ? e.message : 'Falha ao entrar.'));
-    return () => {
-      cancelled = true;
-    };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [attempt]);
-  return (
-    <div className="splash" data-testid="quick-entry">
-      <Logo />
-      {error ? (
-        <>
-          <p>{error}</p>
-          <button className="btn primary" onClick={() => setAttempt((n) => n + 1)}>
-            Tentar novamente
-          </button>
-          <button className="btn" onClick={onManual}>
-            Entrar com usuário e senha
-          </button>
-        </>
-      ) : (
-        <p className="muted">Preparando seu centro de comando…</p>
-      )}
-    </div>
-  );
-}
-
-function AuthScreen({ onDone }: { onDone: () => void }) {
+function AuthScreen({ onDone, onBack }: { onDone: () => void; onBack?: () => void }) {
   const [mode, setMode] = useState<'login' | 'register'>('register');
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
@@ -221,6 +221,11 @@ function AuthScreen({ onDone }: { onDone: () => void }) {
         <button className="btn primary wide" disabled={busy} data-testid="auth-submit">
           {mode === 'register' ? 'Criar conta e jogar' : 'Entrar'}
         </button>
+        {onBack && (
+          <button type="button" className="btn wide" onClick={onBack}>
+            Voltar
+          </button>
+        )}
       </form>
     </div>
   );

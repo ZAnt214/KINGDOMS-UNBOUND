@@ -40,6 +40,10 @@ export class Player {
   get(path: string) {
     return this.req('GET', path);
   }
+  /** Resposta crua (para rotas que não devolvem JSON, como imagens). */
+  raw(path: string) {
+    return fetch(`${this.base}/api${path}`, { headers: { 'X-KU': '1', ...(this.cookie ? { Cookie: this.cookie } : {}) } });
+  }
   post(path: string, body: unknown = {}) {
     return this.req('POST', path, body);
   }

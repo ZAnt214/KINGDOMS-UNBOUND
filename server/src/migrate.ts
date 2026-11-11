@@ -223,6 +223,59 @@ ALTER TABLE governors ADD COLUMN bloc_id INT REFERENCES world_blocs(id) ON DELET
 CREATE INDEX governors_bloc ON governors (bloc_id);
 `,
   },
+  {
+    id: 3,
+    name: 'nations_territory',
+    sql: `
+-- Cada linha de kingdoms é um mundo de jogo; o modo define ritmo e condição de vitória.
+ALTER TABLE kingdoms ADD COLUMN mode TEXT NOT NULL DEFAULT 'campaign' CHECK (mode IN ('campaign','quick','team'));
+
+CREATE TABLE nations (
+  governor_id BIGINT PRIMARY KEY REFERENCES governors(id) ON DELETE CASCADE,
+  kingdom_id INT NOT NULL REFERENCES kingdoms(id),
+  name TEXT NOT NULL,
+  color TEXT NOT NULL CHECK (color ~ '^#[0-9a-f]{6}$'),
+  flag JSONB NOT NULL,
+  flag_image BYTEA,
+  flag_image_type TEXT,
+  flag_image_version INT NOT NULL DEFAULT 0,
+  capital_point TEXT NOT NULL,
+  founded_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  CHECK ((flag_image IS NULL) = (flag_image_type IS NULL))
+);
+CREATE UNIQUE INDEX nations_name_unique ON nations (kingdom_id, lower(name));
+CREATE UNIQUE INDEX nations_capital_unique ON nations (kingdom_id, capital_point);
+
+-- Quem controla cada região de cada mundo. Região sem linha é neutra.
+CREATE TABLE region_control (
+  kingdom_id INT NOT NULL REFERENCES kingdoms(id),
+  region_id TEXT NOT NULL,
+  governor_id BIGINT NOT NULL REFERENCES nations(governor_id) ON DELETE CASCADE,
+  since TIMESTAMPTZ NOT NULL DEFAULT now(),
+  PRIMARY KEY (kingdom_id, region_id)
+);
+CREATE INDEX region_control_owner ON region_control (governor_id);
+
+-- Ocupações em andamento e concluídas. Os índices parciais garantem, no banco, uma ocupação
+-- ativa por nação e uma por região: dois pedidos simultâneos não passam os dois.
+CREATE TABLE occupations (
+  id BIGSERIAL PRIMARY KEY,
+  kingdom_id INT NOT NULL REFERENCES kingdoms(id),
+  governor_id BIGINT NOT NULL REFERENCES nations(governor_id) ON DELETE CASCADE,
+  region_id TEXT NOT NULL,
+  from_region_id TEXT NOT NULL,
+  rules_version INT NOT NULL,
+  started_at TIMESTAMPTZ NOT NULL,
+  ends_at TIMESTAMPTZ NOT NULL,
+  status TEXT NOT NULL DEFAULT 'active' CHECK (status IN ('active','done','failed')),
+  completed_at TIMESTAMPTZ,
+  CHECK (ends_at > started_at)
+);
+CREATE UNIQUE INDEX occupations_one_per_nation ON occupations (governor_id) WHERE status = 'active';
+CREATE UNIQUE INDEX occupations_one_per_region ON occupations (kingdom_id, region_id) WHERE status = 'active';
+CREATE INDEX occupations_due ON occupations (ends_at) WHERE status = 'active';
+`,
+  },
 ];
 
 export async function migrate(db: Db, log: (msg: string) => void = () => {}) {
