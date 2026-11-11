@@ -2,10 +2,59 @@ import { useCallback, useEffect, useState } from 'react';
 import { api, ApiError, type Me, type Meta } from './api';
 import { Game } from './Game';
 
+const QUICK_KEY = 'ku.quick-entry';
+const rand = (n: number) => Array.from(crypto.getRandomValues(new Uint8Array(n)), (b) => (b % 36).toString(36)).join('');
+
+/**
+ * Entrada rápida (fase de testes): em vez da tela de login, cria uma conta de comandante e entra.
+ * Usa as mesmas rotas de cadastro do formulário, então o servidor continua validando tudo.
+ * As credenciais geradas ficam neste navegador para a conta ser reencontrada se a sessão expirar;
+ * é uma conta descartável, não um substituto de login para contas reais.
+ */
+async function quickEntry(meta: Meta): Promise<void> {
+  let saved: { username: string; password: string } | null = null;
+  try {
+    saved = JSON.parse(localStorage.getItem(QUICK_KEY) ?? 'null');
+  } catch {
+    /* sem armazenamento: cria uma conta nova */
+  }
+  if (saved) {
+    try {
+      await api.post('/auth/login', saved);
+    } catch (e) {
+      if (!(e instanceof ApiError) || e.status !== 401) throw e;
+      saved = null;
+    }
+  }
+  if (!saved) {
+    saved = { username: `cmd_${rand(8)}`, password: rand(24) };
+    await api.post('/auth/register', saved);
+    try {
+      localStorage.setItem(QUICK_KEY, JSON.stringify(saved));
+    } catch {
+      /* a conta vale só enquanto a sessão durar */
+    }
+  }
+  const me = await api.get<Me>('/me');
+  if (me.governor) return;
+  const kingdom = meta.kingdoms.find((k) => k.status === 'open' && k.population < k.capacity);
+  if (!kingdom) throw new ApiError(409, 'kingdom_full', 'Todos os reinos estão lotados.');
+  for (let attempt = 0; ; attempt++) {
+    try {
+      await api.post('/governor', { name: `Comandante ${rand(4).toUpperCase()}`, civilization: meta.civilizations[0].id, kingdomId: kingdom.id });
+      return;
+    } catch (e) {
+      if (!(e instanceof ApiError) || e.code !== 'name_taken' || attempt >= 4) throw e;
+    }
+  }
+}
+
 export function App() {
   const [meta, setMeta] = useState<Meta | null>(null);
   const [me, setMe] = useState<Me | null | undefined>(undefined);
   const [error, setError] = useState<string | null>(null);
+  // `?login=1` (ou sair da conta) mostra o formulário de login em vez da entrada rápida.
+  const [manual, setManual] = useState(() => new URLSearchParams(location.search).has('login'));
 
   const loadMe = useCallback(async () => {
     try {
@@ -43,15 +92,20 @@ export function App() {
       </div>
     );
   }
+  if (!manual && (!me || !me.governor)) {
+    return <QuickEntry meta={meta} onDone={loadMe} onManual={() => setManual(true)} />;
+  }
   if (!me) return <AuthScreen onDone={loadMe} />;
   if (!me.governor) return <SetupScreen meta={meta} me={me} onDone={loadMe} />;
   return (
     <Game
       meta={meta}
       me={me}
+      initialTab={manual ? 'city' : 'command'}
       reloadMe={loadMe}
       onLogout={async () => {
         await api.post('/auth/logout').catch(() => {});
+        setManual(true);
         setMe(null);
       }}
     />
@@ -68,6 +122,40 @@ function Logo() {
         <div className="logo-title">KINGDOMS</div>
         <div className="logo-sub">UNBOUND</div>
       </div>
+    </div>
+  );
+}
+
+function QuickEntry({ meta, onDone, onManual }: { meta: Meta; onDone: () => void; onManual: () => void }) {
+  const [error, setError] = useState<string | null>(null);
+  const [attempt, setAttempt] = useState(0);
+  useEffect(() => {
+    let cancelled = false;
+    setError(null);
+    quickEntry(meta)
+      .then(() => !cancelled && onDone())
+      .catch((e) => !cancelled && setError(e instanceof ApiError ? e.message : 'Falha ao entrar.'));
+    return () => {
+      cancelled = true;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [attempt]);
+  return (
+    <div className="splash" data-testid="quick-entry">
+      <Logo />
+      {error ? (
+        <>
+          <p>{error}</p>
+          <button className="btn primary" onClick={() => setAttempt((n) => n + 1)}>
+            Tentar novamente
+          </button>
+          <button className="btn" onClick={onManual}>
+            Entrar com usuário e senha
+          </button>
+        </>
+      ) : (
+        <p className="muted">Preparando seu centro de comando…</p>
+      )}
     </div>
   );
 }

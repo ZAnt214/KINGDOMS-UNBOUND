@@ -34,7 +34,8 @@ const { chromium } = require(process.env.PLAYWRIGHT_MODULE || 'playwright');
     } else throw Error('Unexpected API request: '+u.pathname);
     await route.fulfill({json:data});
   });
-  await page.goto(process.env.VISUAL_URL || 'http://127.0.0.1:5173');
+  // `?login=1`: fluxo de login manual, que abre na cidade (sem ele o jogo abre direto no comando).
+  await page.goto((process.env.VISUAL_URL || 'http://127.0.0.1:5173') + '/?login=1');
   await page.locator('[data-mode="webgl"]').waitFor({timeout:60000});
   assert.equal(imageAssets.size, 2, 'both transparent atlases loaded');
   await page.screenshot({quality:85,path:path.join(out,'desktop.jpg')});

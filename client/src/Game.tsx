@@ -20,6 +20,8 @@ type Tab = 'city' | 'world' | 'alliance' | 'command';
 interface Props {
   meta: Meta;
   me: Me;
+  /** Aba de abertura: a entrada rápida abre no comando; o login manual, na cidade. */
+  initialTab?: Tab;
   reloadMe: () => Promise<void>;
   onLogout: () => void;
 }
@@ -34,12 +36,12 @@ const BIOME_LABEL: Record<Biome, string> = {
   mountain: 'Montanha',
 };
 
-export function Game({ meta, me, reloadMe, onLogout }: Props) {
+export function Game({ meta, me, initialTab = 'city', reloadMe, onLogout }: Props) {
   const governor = me.governor!;
   const civ = CIVILIZATION_BY_ID[governor.civilization];
   const kingdom = meta.kingdoms.find((k) => k.id === governor.kingdomId)!;
 
-  const [tab, setTab] = useState<Tab>('city');
+  const [tab, setTab] = useState<Tab>(initialTab);
   const [city, setCity] = useState<CityState | null>(null);
   const [selected, setSelected] = useState<BuildingType | null>(null);
   const [cities, setCities] = useState<MapCity[]>([]);

@@ -116,3 +116,7 @@ Baseada em `work/city-reference-art` (`c5f4751`). Decisão em `docs/adr/0003-map
 - [ ] Nova economia (dinheiro, petróleo, população) se o tema migrar.
 - [ ] Tornar a aba Comando a tela de abertura (hoje a abertura continua sendo a cidade para não quebrar o E2E existente).
 - [ ] Teste em iPhone/Safari físico e medição de FPS.
+
+### 2026-11-11 — Entrada rápida no lugar da tela de login
+
+A pedido, o jogo deixou de abrir no formulário de login: cria uma conta de comandante pelas rotas de cadastro existentes e abre direto na aba Comando. As credenciais geradas ficam no navegador (`localStorage`), então a conta se perde se os dados do site forem apagados. O formulário continua em `/?login=1` e após "Sair"; os testes E2E usam esse caminho. A CI de `c894089` passou (typecheck, integração com Postgres, build).

@@ -16,7 +16,8 @@ function check(id, name, ok, detail = '') {
 }
 
 async function signup(page, user) {
-  await page.goto(BASE);
+  // `?login=1` mostra o formulário; sem ele o jogo usa a entrada rápida.
+  await page.goto(`${BASE}/?login=1`);
   await page.click('[data-testid=mode-register]');
   await page.fill('[data-testid=username]', user);
   await page.fill('[data-testid=password]', 'senha-segura-1');

@@ -69,7 +69,8 @@ function worldFixture() {
     await route.fulfill({ json: data });
   });
 
-  await page.goto(process.env.VISUAL_URL || 'http://127.0.0.1:5173');
+  // `?login=1`: fluxo de login manual, que abre na cidade (sem ele o jogo abre direto no comando).
+  await page.goto((process.env.VISUAL_URL || 'http://127.0.0.1:5173') + '/?login=1');
   await page.getByTestId('tab-command').click();
   await page.locator('[data-testid=world-map][data-state=ready]').waitFor({ timeout: 30000 });
   await page.getByTestId('cc-legend').waitFor();
