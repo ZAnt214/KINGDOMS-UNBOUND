@@ -8,6 +8,8 @@ import type {
   MilitaryView,
   NationView,
   OccupationView,
+  OperationView,
+  StrikeView,
   PlayEvent,
   PlaySnapshot,
   StructureView,
@@ -31,6 +33,9 @@ export interface WorldState {
   economy: EconomyView | null;
   /** Exército próprio (Fase D). */
   military: MilitaryView | null;
+  /** Operações militares ativas e recém-terminadas, e mísseis (Fase E). */
+  operations: Map<number, OperationView>;
+  strikes: Map<number, StrikeView>;
 }
 
 /** Acontecimentos que a interface anima (derivados de eventos do servidor ou da diferença entre estados). */
@@ -42,7 +47,9 @@ export type WorldMoment =
   | { kind: 'structure'; structure: StructureView; completed: boolean }
   | { kind: 'match'; world: WorldView }
   | { kind: 'rail'; link: Link; nationId: number }
-  | { kind: 'military'; done: MilitaryDone };
+  | { kind: 'military'; done: MilitaryDone }
+  | { kind: 'operation'; operation: OperationView; started: boolean }
+  | { kind: 'strike'; strike: StrikeView; launched: boolean };
 
 function fromSnapshot(s: PlaySnapshot): WorldState {
   return {
@@ -54,6 +61,8 @@ function fromSnapshot(s: PlaySnapshot): WorldState {
     structures: new Map(s.structures.map((x) => [x.id, x])),
     economy: s.economy,
     military: s.military ?? null,
+    operations: new Map((s.operations ?? []).map((o) => [o.id, o])),
+    strikes: new Map((s.strikes ?? []).map((x) => [x.id, x])),
   };
 }
 
@@ -150,6 +159,7 @@ export function usePlayWorld(worldId: number | null, governorId: number | null, 
       const e = event as PlayEvent;
       const next: WorldState = { ...prev, nations: new Map(prev.nations), control: new Map(prev.control), structures: new Map(prev.structures) };
       let done: MilitaryDone | null = null;
+      let after: WorldMoment | null = null;
       if (e.type === 'play.nation') {
         next.nations.set(e.nation.id, e.nation);
         next.control.set(e.region, e.nation.id);
@@ -174,13 +184,30 @@ export function usePlayWorld(worldId: number | null, governorId: number | null, 
         if (e.done) done = e.done;
       } else if (e.type === 'play.power') {
         const n = next.nations.get(e.nationId);
-        if (n) next.nations.set(e.nationId, { ...n, power: e.power });
+        if (n) next.nations.set(e.nationId, { ...n, power: e.power, troops: e.troops });
+      } else if (e.type === 'play.operation') {
+        const old = prev.operations.get(e.operation.id);
+        next.operations = new Map(prev.operations);
+        // A versão com as próprias tropas (só para os lados) prevalece sobre a pública.
+        const op = { ...e.operation, mine: e.operation.mine ?? old?.mine };
+        next.operations.set(op.id, op);
+        if (!old || old.status !== op.status) after = { kind: 'operation', operation: op, started: !old && op.status === 'active' };
+      } else if (e.type === 'play.strike') {
+        const old = prev.strikes.get(e.strike.id);
+        next.strikes = new Map(prev.strikes);
+        next.strikes.set(e.strike.id, e.strike);
+        if (!old || old.status !== e.strike.status) after = { kind: 'strike', strike: e.strike, launched: !old };
+      } else if (e.type === 'play.transfer') {
+        for (const x of e.structures) next.structures.set(x.id, x);
+      } else if (e.type === 'play.structure.removed') {
+        next.structures.delete(e.structureId);
       } else if (e.type === 'play.match') {
         next.world = e.world;
         if (e.world.finishedAt) next.occupations = [];
       }
       commit(next, true);
       if (done) moment.current({ kind: 'military', done }, next);
+      if (after) moment.current(after, next);
     };
     const rt = new Realtime(apply, setStatus, () => void refresh());
     rt.connect();
@@ -194,6 +221,8 @@ export function usePlayWorld(worldId: number | null, governorId: number | null, 
     if (state.world.endsAt) ends.push(state.world.endsAt);
     if (state.military?.training[0]) ends.push(state.military.training[0].endsAt);
     if (state.military?.researching) ends.push(state.military.researching.endsAt);
+    for (const o of state.operations.values()) if (o.status === 'active') ends.push(o.endsAt);
+    for (const x of state.strikes.values()) if (x.status === 'flying') ends.push(x.impactAt);
     return ends.length ? Math.min(...ends) : null;
   }, [state]);
   useEffect(() => {
@@ -257,5 +286,40 @@ export function usePlayWorld(worldId: number | null, governorId: number | null, 
   );
   const research = useCallback(async (tech: TechType) => setMilitary((await api.post<{ military: MilitaryView }>('/play/research', { tech })).military), [setMilitary]);
 
-  return { state, status, error, refresh, found, expand, build, upgrade, train, research };
+  const upsertOperation = useCallback(
+    (operation: OperationView) => {
+      const prev = current.current;
+      if (!prev) return;
+      const operations = new Map(prev.operations);
+      const started = !operations.has(operation.id);
+      operations.set(operation.id, operation);
+      const next = { ...prev, operations };
+      commit(next, true);
+      if (started) moment.current({ kind: 'operation', operation, started: true }, next);
+    },
+    [commit],
+  );
+  const attack = useCallback(
+    async (region: string, percent: number) => upsertOperation((await api.post<{ operation: OperationView }>('/play/attack', { region, percent })).operation),
+    [upsertOperation],
+  );
+  const reinforce = useCallback(
+    async (operationId: number, percent: number) => upsertOperation((await api.post<{ operation: OperationView }>('/play/reinforce', { operationId, percent })).operation),
+    [upsertOperation],
+  );
+  const launch = useCallback(
+    async (siloId: number, region: string) => {
+      const { strike } = await api.post<{ strike: StrikeView }>('/play/launch', { siloId, region });
+      const prev = current.current;
+      if (!prev || prev.strikes.has(strike.id)) return;
+      const strikes = new Map(prev.strikes);
+      strikes.set(strike.id, strike);
+      const next = { ...prev, strikes };
+      commit(next, true);
+      moment.current({ kind: 'strike', strike, launched: true }, next);
+    },
+    [commit],
+  );
+
+  return { state, status, error, refresh, found, expand, build, upgrade, train, research, attack, reinforce, launch };
 }

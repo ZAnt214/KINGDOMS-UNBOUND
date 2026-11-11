@@ -1,8 +1,10 @@
 import { Router } from 'express';
 import { z } from 'zod';
 import { ECONOMY_RULES_VERSION, STRUCTURE_TYPES } from '../../shared/play/economy.js';
+import { WAR_RULES_VERSION } from '../../shared/play/war.js';
 import { MILITARY, MILITARY_RULES_VERSION, TECH_TYPES, UNIT_TYPES } from '../../shared/play/military.js';
 import type { MilitaryService } from './services/military.js';
+import type { WarService } from './services/war.js';
 import { MODES_AVAILABLE, PLAY_RULES_VERSION } from '../../shared/play/rules.js';
 import {
   clearSessionCookie,
@@ -41,10 +43,10 @@ const credentials = z.object({
 export function apiRouter(
   db: Db,
   hub: Hub,
-  services: { alliance: AllianceService; chat: ChatService; nation: NationService; territory: TerritoryService; economy: EconomyService; match: MatchService; military: MilitaryService },
+  services: { alliance: AllianceService; chat: ChatService; nation: NationService; territory: TerritoryService; economy: EconomyService; match: MatchService; military: MilitaryService; war: WarService },
 ) {
   const r = Router();
-  const { alliance, chat, nation, territory, economy, match, military } = services;
+  const { alliance, chat, nation, territory, economy, match, military, war } = services;
   const authLimiter = new RateLimiter(config.authRatePerMinute, 60);
 
   r.get(
@@ -59,6 +61,7 @@ export function apiRouter(
         playRulesVersion: PLAY_RULES_VERSION,
         economyRulesVersion: ECONOMY_RULES_VERSION,
         militaryRulesVersion: MILITARY_RULES_VERSION,
+        warRulesVersion: WAR_RULES_VERSION,
         modes: MODES_AVAILABLE,
         serverTime: Date.now(),
         worlds: k.rows.map((row) => ({ ...row, capacity: config.kingdomCapacity })),
@@ -260,6 +263,28 @@ export function apiRouter(
         req.body,
       );
       return { structure: await economy.build(requireGovernor(req), input.at, input.type, input.region ?? null) };
+    }),
+  );
+  // Fase E: guerra.
+  r.post(
+    '/play/attack',
+    handler(async (req) => {
+      const body = parse(z.object({ region: z.string().min(1).max(40), percent: z.number().int() }), req.body);
+      return { operation: await war.attack(requireGovernor(req), body.region, body.percent) };
+    }),
+  );
+  r.post(
+    '/play/reinforce',
+    handler(async (req) => {
+      const body = parse(z.object({ operationId: id, percent: z.number().int() }), req.body);
+      return { operation: await war.reinforce(requireGovernor(req), body.operationId, body.percent) };
+    }),
+  );
+  r.post(
+    '/play/launch',
+    handler(async (req) => {
+      const body = parse(z.object({ siloId: id, region: z.string().min(1).max(40) }), req.body);
+      return { strike: await war.launch(requireGovernor(req), body.siloId, body.region) };
     }),
   );
   // Fase D: treinamento e pesquisa militar.

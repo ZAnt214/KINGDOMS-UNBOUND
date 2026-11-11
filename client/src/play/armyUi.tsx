@@ -37,6 +37,7 @@ const GROUP_LABEL: Record<PowerGroup | 'infrastructure', string> = {
   aviation: 'Aviação',
   navy: 'Marinha',
   defense: 'Defesa',
+  missiles: 'Mísseis',
   infrastructure: 'Infraestrutura militar',
 };
 const GROUP_COLOR: Record<PowerGroup | 'infrastructure', string> = {
@@ -45,6 +46,7 @@ const GROUP_COLOR: Record<PowerGroup | 'infrastructure', string> = {
   aviation: '#7cc4ff',
   navy: '#5b8cff',
   defense: '#c9b3ff',
+  missiles: '#ff7a59',
   infrastructure: '#ffc53d',
 };
 
@@ -59,6 +61,8 @@ function effectText(tech: TechType): string {
   if (e.kind === 'units') return `+${pct} de ataque e defesa por nível: ${e.units.map((u) => UNITS[u].short.toLowerCase()).join(', ')}`;
   if (e.kind === 'defense') return `+${pct} de defesa de todo o exército por nível`;
   if (e.kind === 'upkeep') return `−${pct} de manutenção por nível`;
+  if (e.kind === 'range') return `+${pct} de alcance dos mísseis a partir do nível 2`;
+  if (e.kind === 'interception') return `+${pct} de chance de interceptar mísseis por nível (exige sistema antimísseis)`;
   return `−${pct} no tempo de treinamento por nível`;
 }
 

@@ -13,6 +13,7 @@ import { AllianceService } from './services/alliance.js';
 import { ChatService } from './services/chat.js';
 import { STRUCTURES } from '../../shared/play/economy.js';
 import { MilitaryService } from './services/military.js';
+import { WarService } from './services/war.js';
 import { EconomyService } from './services/economy.js';
 import { MatchService } from './services/match.js';
 import { NationService } from './services/nation.js';
@@ -58,9 +59,12 @@ export async function createGameServer(
   economy.afterStructure = async (governorId, type) => {
     if (STRUCTURES[type]?.military) await military.refreshPower(governorId);
   };
-  const nation = new NationService(db, hub, territory, economy, military);
+  const war = new WarService(db, hub, economy, military);
+  const nation = new NationService(db, hub, territory, economy, military, war);
   const match = new MatchService(db, hub, nation, territory, economy);
   match.military = military;
+  match.war = war;
+  war.onRegion = (kingdomId) => match.check(kingdomId);
   // Toda região conquistada numa partida rápida pode decidir a partida.
   territory.onRegion = (kingdomId) => match.check(kingdomId);
 
@@ -80,7 +84,7 @@ export async function createGameServer(
       .catch(() => res.status(503).json({ ok: false }));
   });
 
-  app.use('/api', express.json({ limit: '16kb' }), csrfGuard, authMiddleware(db), apiRouter(db, hub, { alliance, chat, nation, territory, economy, match, military }));
+  app.use('/api', express.json({ limit: '16kb' }), csrfGuard, authMiddleware(db), apiRouter(db, hub, { alliance, chat, nation, territory, economy, match, military, war }));
   app.use('/api', errorMiddleware);
 
   if (opts.staticDir && fs.existsSync(opts.staticDir)) {
@@ -98,6 +102,7 @@ export async function createGameServer(
       await territory.processDue();
       await economy.processDue();
       await military.processDue();
+      await war.processDue();
       await match.check();
       await match.tick();
     })()

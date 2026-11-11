@@ -45,6 +45,7 @@ import { inspectFlagImage, parseFlag } from '../../../shared/play/flags';
 import { botIdentities, buildArena, matchOutcome, pickBotPoints, QUICK, rank, THEATERS } from '../../../shared/play/match';
 import { cleanNationName, COLOR_EXCLUSION_KM, expansionSeconds, type GameMode, MODES_AVAILABLE, NATION_COLOR_BY_HEX, nationNameProblem } from '../../../shared/play/rules';
 import type { EconomyView, MilitaryView, NationView, OccupationView, StructureView, WorldView } from '../../../shared/play/types';
+import { estimate } from '../../../shared/play/war';
 import { freePointIn, regionAt } from '../../../server/src/geo';
 import { borderingRegion, distanceKm, expansionTargets, REGION_BY_ID, START_POINT_BY_ID, type StartPoint } from '../../../shared/world/regions';
 
@@ -146,6 +147,7 @@ function militaryView(w: World, gid: number): MilitaryView | null {
     research: { ...a.research },
     researching: a.researching,
     power: militaryPower(a.units, a.research, builtOf(w, gid)),
+    engaged: {},
   };
 }
 function refreshPower(w: World, gid: number) {
@@ -153,7 +155,8 @@ function refreshPower(w: World, gid: number) {
   const power = militaryPower(w.army.get(gid)!.units, w.army.get(gid)!.research, builtOf(w, gid)).power;
   if (n && n.power !== power) {
     n.power = power;
-    send(w.view.id, { type: 'play.power', nationId: gid, power });
+    n.troops = estimate(militaryPower(w.army.get(gid)!.units, {}, []).troops);
+    send(w.view.id, { type: 'play.power', nationId: gid, power, troops: n.troops });
   }
 }
 function train(w: World, gid: number, unit: UnitType, amount: number) {
@@ -316,7 +319,7 @@ function createNation(w: World, gid: number, point: StartPoint, name: string, co
   if (w.control.has(point.region)) throw new Fail(409, 'region_taken', 'Esta região já pertence a outra nação. Escolha outro ponto.');
   if ([...w.nations.values()].some((n) => n.name.toLowerCase() === name.toLowerCase())) throw new Fail(409, 'name_taken', 'Já existe uma nação com este nome neste mundo.');
   if (blockedColors(w, point.id).includes(color)) throw new Fail(409, 'color_taken', 'Uma nação vizinha já usa esta cor. Escolha outra para que as fronteiras fiquem legíveis.');
-  const nation: NationView = { id: gid, name, color, flag, flagImage: image ? 1 : null, capital: point.id, foundedAt: Date.now(), bot, alliance: null, power: 0 };
+  const nation: NationView = { id: gid, name, color, flag, flagImage: image ? 1 : null, capital: point.id, foundedAt: Date.now(), bot, alliance: null, power: 0, troops: 0 };
   w.nations.set(gid, { ...nation, image });
   w.control.set(point.region, gid);
   w.wallet.set(gid, { amounts: { ...ECONOMY.starting }, settledAt: Date.now() });
@@ -330,7 +333,7 @@ function expand(w: World, gid: number, region: string) {
   if (w.view.finishedAt) throw new Fail(409, 'match_over', 'Esta partida já terminou.');
   if (w.view.arena && !w.view.arena.includes(region)) throw new Fail(409, 'outside_arena', 'Esta região fica fora da área da partida.');
   if (w.occupations.some((o) => o.nationId === gid)) throw new Fail(409, 'occupation_busy', 'Sua nação já está ocupando uma região. Aguarde a conclusão.');
-  if (w.control.has(region)) throw new Fail(409, 'region_taken', 'Esta região pertence a outra nação. Ataques ainda não existem no servidor.');
+  if (w.control.has(region)) throw new Fail(409, 'region_taken', 'Esta região pertence a outra nação. Para tomá-la, ataque.');
   if (w.occupations.some((o) => o.region === region)) throw new Fail(409, 'region_contested', 'Outra nação já está ocupando esta região.');
   const owned = [...w.control].filter(([, o]) => o === gid).map(([r]) => r);
   const from = borderingRegion(owned, region);
@@ -397,6 +400,8 @@ const snapshot = (w: World, gid: number | null) => ({
   structures: [...w.structures.values()],
   economy: gid !== null ? economyView(w, gid) : null,
   military: gid !== null ? militaryView(w, gid) : null,
+  operations: [],
+  strikes: [],
 });
 
 const seatsOf = (s: Session) =>

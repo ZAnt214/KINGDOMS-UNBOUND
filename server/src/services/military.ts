@@ -17,6 +17,7 @@ import {
   type UnitType,
 } from '../../../shared/play/military.js';
 import type { MilitaryDone, MilitaryView } from '../../../shared/play/types.js';
+import { engagedIn, estimate, sumArmies } from '../../../shared/play/war.js';
 import type { GovernorCtx } from '../auth.js';
 import { type Db, type Tx, tx } from '../db.js';
 import { bad, conflict, HttpError } from '../http.js';
@@ -49,6 +50,15 @@ export class MilitaryService {
     return Object.fromEntries(rows.map((r) => [r.unit, r.amount]));
   }
 
+  /** Tropas em operações ativas (Fase E). */
+  async engaged(q: Queryable, governorId: number): Promise<Army> {
+    const { rows } = await q.query(
+      `SELECT attacker_id, defender_id, setup, events FROM operations WHERE status = 'active' AND (attacker_id = $1 OR defender_id = $1)`,
+      [governorId],
+    );
+    return sumArmies(...rows.map((r) => engagedIn({ attackerId: Number(r.attacker_id), defenderId: Number(r.defender_id), setup: r.setup, events: r.events }, governorId)));
+  }
+
   private async research(q: Queryable, governorId: number): Promise<{ levels: Research; active: any | null }> {
     const { rows } = await q.query('SELECT tech, level, target_level, started_at, ends_at FROM research WHERE governor_id = $1', [governorId]);
     return {
@@ -60,12 +70,13 @@ export class MilitaryService {
   async view(q: Queryable, governorId: number): Promise<MilitaryView | null> {
     const mil = await q.query('SELECT recruits::float8 AS recruits, settled_at FROM military WHERE governor_id = $1', [governorId]);
     if (!mil.rows[0]) return null;
-    const [structures, army, research, training, econ] = await Promise.all([
+    const [structures, army, research, training, econ, engaged] = await Promise.all([
       this.structures(q, governorId),
       this.army(q, governorId),
       this.research(q, governorId),
       q.query('SELECT id, unit, amount, started_at, ends_at FROM training WHERE governor_id = $1 ORDER BY ends_at, id', [governorId]),
       Promise.all([this.economy.inputs(q, governorId), this.economy.modeOf(q, governorId)]).then(([input, mode]) => computeEconomy(input, mode)),
+      this.engaged(q, governorId),
     ]);
     return {
       recruits: { amount: mil.rows[0].recruits, settledAt: new Date(mil.rows[0].settled_at).getTime(), rate: econ.recruits.rate, cap: econ.recruits.cap },
@@ -86,19 +97,29 @@ export class MilitaryService {
             endsAt: new Date(research.active.ends_at).getTime(),
           }
         : null,
-      power: militaryPower(army, research.levels, structures),
+      power: militaryPower(sumArmies(army, engaged), research.levels, structures),
+      engaged,
     };
   }
 
   /** Recalcula o poder militar guardado e avisa o mundo se mudou. */
   async refreshPower(governorId: number) {
-    const [structures, army, research] = await Promise.all([this.structures(this.db, governorId), this.army(this.db, governorId), this.research(this.db, governorId)]);
-    const power = militaryPower(army, research.levels, structures).power;
+    const [structures, army, research, engaged] = await Promise.all([
+      this.structures(this.db, governorId),
+      this.army(this.db, governorId),
+      this.research(this.db, governorId),
+      this.engaged(this.db, governorId),
+    ]);
+    const p = militaryPower(sumArmies(army, engaged), research.levels, structures);
+    const troops = estimate(p.troops);
     const { rows } = await this.db.query(
-      'UPDATE military m SET power = $2 FROM (SELECT power AS old FROM military WHERE governor_id = $1) o WHERE m.governor_id = $1 RETURNING o.old, m.kingdom_id',
-      [governorId, power],
+      `UPDATE military m SET power = $2, troops = $3 FROM (SELECT power AS old, troops AS old_troops FROM military WHERE governor_id = $1) o
+        WHERE m.governor_id = $1 RETURNING o.old, o.old_troops, m.kingdom_id`,
+      [governorId, p.power, troops],
     );
-    if (rows[0] && rows[0].old !== power) this.hub.toKingdom(rows[0].kingdom_id, { type: 'play.power', nationId: governorId, power, serverTime: Date.now() });
+    if (rows[0] && (rows[0].old !== p.power || rows[0].old_troops !== troops)) {
+      this.hub.toKingdom(rows[0].kingdom_id, { type: 'play.power', nationId: governorId, power: p.power, troops, serverTime: Date.now() });
+    }
   }
 
   async announce(governorId: number, done?: MilitaryDone) {

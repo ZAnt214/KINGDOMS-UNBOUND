@@ -413,6 +413,64 @@ CREATE INDEX research_due ON research (ends_at) WHERE target_level IS NOT NULL;
 CREATE UNIQUE INDEX research_one_active ON research (governor_id) WHERE target_level IS NOT NULL;
 `,
   },
+  {
+    id: 7,
+    name: 'war',
+    sql: `
+-- Fase E: operações militares (ataques terrestres e navais) e mísseis. Regras em shared/play/war.ts.
+-- A batalha é determinística: guarda-se o início (setup) e os acontecimentos (events); o estado em
+-- qualquer instante é simulado de novo. ends_at é a previsão do fim com os acontecimentos conhecidos.
+CREATE TABLE operations (
+  id BIGSERIAL PRIMARY KEY,
+  kingdom_id INT NOT NULL REFERENCES kingdoms(id),
+  attacker_id BIGINT NOT NULL REFERENCES nations(governor_id) ON DELETE CASCADE,
+  defender_id BIGINT NOT NULL REFERENCES nations(governor_id) ON DELETE CASCADE,
+  region_id TEXT NOT NULL,
+  from_region TEXT NOT NULL,
+  naval BOOLEAN NOT NULL DEFAULT false,
+  started_at TIMESTAMPTZ NOT NULL,
+  ends_at TIMESTAMPTZ NOT NULL,
+  setup JSONB NOT NULL,
+  events JSONB NOT NULL DEFAULT '[]',
+  status TEXT NOT NULL DEFAULT 'active' CHECK (status IN ('active', 'won', 'failed')),
+  finished_at TIMESTAMPTZ,
+  result JSONB,
+  rules_version INT NOT NULL,
+  CHECK (attacker_id <> defender_id)
+);
+CREATE UNIQUE INDEX operations_one_per_region ON operations (kingdom_id, region_id) WHERE status = 'active';
+CREATE INDEX operations_due ON operations (ends_at) WHERE status = 'active';
+CREATE INDEX operations_attacker ON operations (attacker_id) WHERE status = 'active';
+CREATE INDEX operations_defender ON operations (defender_id) WHERE status = 'active';
+
+-- Mísseis: a interceptação é decidida no lançamento (sorteio reproduzível pelo id) e só aparece no
+-- instante da interceptação; o impacto é aplicado em impact_at.
+CREATE TABLE strikes (
+  id BIGSERIAL PRIMARY KEY,
+  kingdom_id INT NOT NULL REFERENCES kingdoms(id),
+  attacker_id BIGINT NOT NULL REFERENCES nations(governor_id) ON DELETE CASCADE,
+  defender_id BIGINT NOT NULL REFERENCES nations(governor_id) ON DELETE CASCADE,
+  silo_id BIGINT NOT NULL,
+  from_lon DOUBLE PRECISION NOT NULL,
+  from_lat DOUBLE PRECISION NOT NULL,
+  region_id TEXT NOT NULL,
+  launched_at TIMESTAMPTZ NOT NULL,
+  flight_at TIMESTAMPTZ NOT NULL,
+  intercept_at TIMESTAMPTZ NOT NULL,
+  impact_at TIMESTAMPTZ NOT NULL,
+  chance REAL NOT NULL,
+  intercepted BOOLEAN NOT NULL,
+  status TEXT NOT NULL DEFAULT 'flying' CHECK (status IN ('flying', 'intercepted', 'impact')),
+  result JSONB,
+  rules_version INT NOT NULL
+);
+CREATE UNIQUE INDEX strikes_one_per_silo ON strikes (silo_id) WHERE status = 'flying';
+CREATE INDEX strikes_due ON strikes (impact_at) WHERE status = 'flying';
+
+-- Tropas estimadas, públicas como o poder (inteligência).
+ALTER TABLE military ADD COLUMN troops INT NOT NULL DEFAULT 0;
+`,
+  },
 ];
 
 export async function migrate(db: Db, log: (msg: string) => void = () => {}) {

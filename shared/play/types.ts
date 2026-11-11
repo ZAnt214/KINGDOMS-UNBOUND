@@ -23,6 +23,8 @@ export interface NationView {
   alliance: number | null;
   /** Poder militar total (Fase D), público para comparar nações. */
   power: number;
+  /** Tropas estimadas (Fase E, inteligência): total arredondado a 2 algarismos. */
+  troops: number;
 }
 
 export interface OccupationView {
@@ -64,6 +66,48 @@ export interface EconomyView {
 }
 
 /** Exército da própria nação (Fase D). Outras nações só veem o poder total (`NationView.power`). */
+/** Operação militar (Fase E). Pública: todos veem a guerra no mapa; detalhes só para os lados. */
+export interface OperationView {
+  id: number;
+  attackerId: number;
+  defenderId: number;
+  region: string;
+  from: string;
+  naval: boolean;
+  startedAt: number;
+  /** Fim previsto com o que se sabe agora (muda com reforços e mísseis). */
+  endsAt: number;
+  /** Ocupação no instante `at` e a variação por segundo, para a tela extrapolar. */
+  progress: { at: number; value: number; rate: number };
+  /** Tropas estimadas de cada lado agora (arredondadas). */
+  attackerTroops: number;
+  defenderTroops: number;
+  status: 'active' | 'won' | 'failed';
+  /** Só para os dois lados: as próprias tropas enviadas e restantes. */
+  mine?: { side: 'attacker' | 'defender'; sent: Army; remaining: Army };
+  /** Ao terminar: baixas de cada lado (total de unidades). */
+  result?: { attackerLosses: number; defenderLosses: number };
+}
+
+/** Míssil (Fase E). */
+export interface StrikeView {
+  id: number;
+  attackerId: number;
+  defenderId: number;
+  from: [number, number];
+  region: string;
+  to: [number, number];
+  launchedAt: number;
+  /** Início do voo (depois da preparação e da abertura do silo). */
+  flightAt: number;
+  interceptAt: number;
+  impactAt: number;
+  /** Decidido no lançamento (sorteio reproduzível pelo id); público. */
+  intercepted: boolean;
+  status: 'flying' | 'intercepted' | 'impact';
+  result?: { troopsLost: number; structure: { type: StructureType; from: number; to: number } | null; engaged: boolean };
+}
+
 export interface MilitaryView {
   recruits: { amount: number; settledAt: number; rate: number; cap: number };
   army: Army;
@@ -72,6 +116,8 @@ export interface MilitaryView {
   research: Research;
   researching: { tech: TechType; to: number; startedAt: number; endsAt: number } | null;
   power: MilitaryPower;
+  /** Tropas fora de casa, em operações (Fase E). */
+  engaged: Army;
 }
 
 export interface ResultView {
@@ -108,6 +154,8 @@ export interface PlaySnapshot {
   economy: EconomyView | null;
   /** Exército da própria nação (Fase D), ou null se ainda não fundou. */
   military: MilitaryView | null;
+  operations: OperationView[];
+  strikes: StrikeView[];
 }
 
 /** O que acabou de terminar (para o aviso e o som). */
@@ -123,7 +171,11 @@ export type PlayEvent =
   | { type: 'play.economy'; economy: EconomyView }
   | { type: 'play.alliance'; nationId: number; alliance: number | null }
   | { type: 'play.military'; military: MilitaryView; done?: MilitaryDone }
-  | { type: 'play.power'; nationId: number; power: number }
+  | { type: 'play.power'; nationId: number; power: number; troops: number }
+  | { type: 'play.operation'; operation: OperationView }
+  | { type: 'play.strike'; strike: StrikeView }
+  | { type: 'play.transfer'; structures: StructureView[] }
+  | { type: 'play.structure.removed'; structureId: number }
   | { type: 'play.match'; world: WorldView };
 
 export interface FoundInput {

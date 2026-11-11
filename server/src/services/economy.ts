@@ -17,6 +17,7 @@ import {
   zero,
 } from '../../../shared/play/economy.js';
 import { MILITARY, projectRecruits } from '../../../shared/play/military.js';
+import { engagedIn, sumArmies } from '../../../shared/play/war.js';
 import type { GameMode } from '../../../shared/play/rules.js';
 import type { EconomyView, StructureView } from '../../../shared/play/types.js';
 import { distanceKm, REGION_BY_ID, START_POINT_BY_ID } from '../../../shared/world/regions.js';
@@ -61,7 +62,7 @@ export class EconomyService {
 
   /** Entradas do cálculo de produção, lidas do banco. */
   async inputs(q: Queryable, governorId: number): Promise<EconomyInput> {
-    const [regions, structures, nation, allied, army, research] = await Promise.all([
+    const [regions, structures, nation, allied, army, operations, research] = await Promise.all([
       q.query('SELECT region_id FROM region_control WHERE governor_id = $1', [governorId]),
       q.query('SELECT id, type, level, region_id, lon, lat FROM structures WHERE governor_id = $1 AND level > 0', [governorId]),
       q.query('SELECT capital_point FROM nations WHERE governor_id = $1', [governorId]),
@@ -76,6 +77,7 @@ export class EconomyService {
         [governorId],
       ),
       q.query('SELECT unit, amount FROM army WHERE governor_id = $1', [governorId]),
+      q.query(`SELECT attacker_id, defender_id, setup, events FROM operations WHERE status = 'active' AND (attacker_id = $1 OR defender_id = $1)`, [governorId]),
       q.query('SELECT tech, level FROM research WHERE governor_id = $1', [governorId]),
     ]);
     return {
@@ -83,7 +85,11 @@ export class EconomyService {
       capitalRegion: START_POINT_BY_ID[nation.rows[0]?.capital_point]?.region ?? null,
       structures: structures.rows.map((r) => ({ id: Number(r.id), type: r.type, level: r.level, region: r.region_id, at: pointOf(r) })),
       allied: allied.rows.map((r) => ({ id: Number(r.id), nation: Number(r.governor_id), type: r.type, level: r.level, region: r.region_id, at: pointOf(r) })),
-      army: Object.fromEntries(army.rows.map((r) => [r.unit, r.amount])),
+      // Manutenção: tropas em casa e as que estão em operações (valores iniciais até o fim da operação).
+      army: sumArmies(
+        Object.fromEntries(army.rows.map((r) => [r.unit, r.amount])),
+        ...operations.rows.map((r) => engagedIn({ attackerId: Number(r.attacker_id), defenderId: Number(r.defender_id), setup: r.setup, events: r.events }, governorId)),
+      ),
       research: Object.fromEntries(research.rows.map((r) => [r.tech, r.level])),
     };
   }

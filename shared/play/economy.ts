@@ -41,6 +41,8 @@ export const STRUCTURE_TYPES = [
   'air_base',
   'naval_base',
   'defense_center',
+  'missile_silo',
+  'antimissile',
 ] as const;
 export type StructureType = (typeof STRUCTURE_TYPES)[number];
 
@@ -232,6 +234,31 @@ export const STRUCTURES: Record<StructureType, StructureDef> = {
     military: true,
     cost: { money: 1000, materials: 700, metal: 300 },
     seconds: 70,
+    produces: {},
+    energy: 2,
+  },
+  // Fase E: mísseis e defesa antimísseis.
+  missile_silo: {
+    id: 'missile_silo',
+    short: 'Silo',
+    name: 'Silo de lançamento de mísseis',
+    role: 'Fabrica e lança mísseis contra regiões no alcance (2.500 km, +750 km por nível).',
+    tier: 'Militar',
+    military: true,
+    cost: { money: 2200, materials: 1000, metal: 800, oil: 400, tech: 60 },
+    seconds: 150,
+    produces: {},
+    energy: 3,
+  },
+  antimissile: {
+    id: 'antimissile',
+    short: 'Antimíssil',
+    name: 'Sistema antimísseis',
+    role: 'Radar e interceptadores: 20% de chance por nível de derrubar mísseis contra a nação.',
+    tier: 'Militar',
+    military: true,
+    cost: { money: 1500, materials: 600, metal: 500, tech: 40 },
+    seconds: 100,
     produces: {},
     energy: 2,
   },

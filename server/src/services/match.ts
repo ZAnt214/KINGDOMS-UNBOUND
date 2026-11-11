@@ -8,6 +8,8 @@ import { conflict } from '../http.js';
 import type { Hub } from '../hub.js';
 import { MILITARY, projectRecruits, UNITS, unitProblem, type UnitType } from '../../../shared/play/military.js';
 import type { MilitaryService } from './military.js';
+import type { WarService } from './war.js';
+import { attackPower, estimatedDefense, share, WAR } from '../../../shared/play/war.js';
 import type { EconomyService } from './economy.js';
 import type { NationService } from './nation.js';
 import type { TerritoryService } from './territory.js';
@@ -32,6 +34,8 @@ export class MatchService {
 
   /** Exército dos bots (Fase D). Definido em app.ts. */
   military: MilitaryService | null = null;
+  /** Guerra dos bots (Fase E). Definido em app.ts. */
+  war: WarService | null = null;
 
   /** Entra na partida rápida em andamento do usuário ou cria uma nova. */
   async start(userId: number): Promise<{ worldId: number; created: boolean }> {
@@ -143,7 +147,7 @@ export class MatchService {
     this.ticking = true;
     try {
       const { rows } = await this.db.query(
-        `SELECT g.id, g.name, g.kingdom_id, k.arena FROM governors g
+        `SELECT g.id, g.name, g.kingdom_id, k.arena, k.ends_at FROM governors g
            JOIN kingdoms k ON k.id = g.kingdom_id
            JOIN nations n ON n.governor_id = g.id
           WHERE g.is_bot AND k.mode = 'quick' AND k.finished_at IS NULL AND k.ends_at IS NOT NULL AND ($1::int IS NULL OR k.id = $1)`,
@@ -157,6 +161,7 @@ export class MatchService {
         const ctx: GovernorCtx = { id, name: b.name, kingdomId: b.kingdom_id, mode: 'quick', allianceId: null, allianceRank: null };
         await this.botBuild(ctx).catch(() => {});
         await this.botArmy(ctx).catch(() => {});
+        await this.botWar(ctx, b.ends_at ? new Date(b.ends_at).getTime() : null).catch(() => {});
         await this.botExpand(ctx, b.arena as string[]).catch(() => {});
       }
     } finally {
@@ -218,6 +223,50 @@ export class MatchService {
     // Melhora a construção mais barata de melhorar.
     const up = mine.filter((s) => s.level >= 1 && s.level < ECONOMY.maxLevel && (s.type === 'city' || s.type === 'factory')).sort((a, b) => a.level - b.level)[0];
     if (up && affordable(up.type, up.level)) await this.economy.upgrade(g, up.id);
+  }
+
+  /**
+   * Bots na guerra: reforçam uma vez a região atacada (50% das tropas em casa) e, passados 4 minutos
+   * de partida, atacam a região inimiga mais fraca vizinha quando o ataque com 50% das tropas passa
+   * de 2,5× a defesa estimada (a mesma estimativa pública que o jogador vê).
+   */
+  private async botWar(g: GovernorCtx, endsAt: number | null) {
+    if (!this.war) return;
+    const ops = await this.db.query(`SELECT id, attacker_id, defender_id, region_id, events FROM operations WHERE kingdom_id = $1 AND status = 'active'`, [g.kingdomId]);
+    for (const o of ops.rows) {
+      if (Number(o.defender_id) === g.id && !(o.events as { kind: string }[]).some((e) => e.kind === 'reinforce')) {
+        await this.war.reinforce(g, Number(o.id), 50).catch(() => {});
+      }
+    }
+    if (!endsAt || endsAt - Date.now() > (QUICK.minutes - 4) * 60_000) return;
+    if (ops.rows.some((o) => Number(o.attacker_id) === g.id)) return;
+    const [control, nations, home, research] = await Promise.all([
+      this.territory.control(g.kingdomId),
+      this.db.query(
+        `SELECT n.governor_id, n.capital_point, COALESCE(m.power, 0) AS power FROM nations n LEFT JOIN military m ON m.governor_id = n.governor_id WHERE n.kingdom_id = $1`,
+        [g.kingdomId],
+      ),
+      this.db.query('SELECT unit, amount FROM army WHERE governor_id = $1', [g.id]),
+      this.db.query('SELECT tech, level FROM research WHERE governor_id = $1 AND level > 0', [g.id]),
+    ]);
+    const army = Object.fromEntries(home.rows.map((r) => [r.unit, r.amount]));
+    const sent = attackPower(share(army, 50), Object.fromEntries(research.rows.map((r) => [r.tech, r.level])));
+    if (sent <= 0) return;
+    const owner = new Map(control);
+    const regionsOf = (id: number) => control.filter(([, o]) => o === id).length;
+    const info = new Map(nations.rows.map((r) => [Number(r.governor_id), { power: Number(r.power), capital: START_POINT_BY_ID[r.capital_point]?.region }]));
+    const mine = control.filter(([, o]) => o === g.id).map(([r]) => r);
+    const busy = new Set(ops.rows.map((o) => o.region_id));
+    let best: { region: string; def: number } | null = null;
+    for (const r of mine) {
+      for (const n of REGION_BY_ID[r].neighbors) {
+        const o = owner.get(n);
+        if (o === undefined || o === g.id || busy.has(n) || info.get(o)?.capital === n) continue;
+        const def = estimatedDefense(info.get(o)?.power ?? 0, regionsOf(o)) + WAR.militia;
+        if (!best || def < best.def) best = { region: n, def };
+      }
+    }
+    if (best && sent >= 2.5 * best.def) await this.war.attack(g, best.region, 50);
   }
 
   /** Bots treinam com os recrutas que têm, gastando no máximo 40% do dinheiro por vez. */

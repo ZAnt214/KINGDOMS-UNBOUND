@@ -2,6 +2,7 @@ import { expansionCost } from '../../../shared/play/economy.js';
 import { EXPANSION, expansionSeconds, type GameMode, PLAY_RULES_VERSION } from '../../../shared/play/rules.js';
 import type { OccupationView } from '../../../shared/play/types.js';
 import { borderingRegion, REGION_BY_ID } from '../../../shared/world/regions.js';
+import { attackOrigin, WAR } from '../../../shared/play/war.js';
 import type { GovernorCtx } from '../auth.js';
 import { type Db, type Tx, tx } from '../db.js';
 import { conflict, HttpError, notFound } from '../http.js';
@@ -84,12 +85,24 @@ export class TerritoryService {
         if (owner.rowCount) {
           throw Number(owner.rows[0].governor_id) === g.id
             ? conflict('region_owned', 'Esta região já é sua.')
-            : conflict('region_taken', 'Esta região pertence a outra nação. Ataques ainda não existem no servidor.');
+            : conflict('region_taken', 'Esta região pertence a outra nação. Para tomá-la, ataque.');
         }
         const mine = await client.query('SELECT region_id FROM region_control WHERE governor_id = $1', [g.id]);
         const owned: string[] = mine.rows.map((r) => r.region_id);
-        const from = borderingRegion(owned, regionId);
-        if (!from) throw conflict('not_adjacent', 'Só é possível ocupar regiões que fazem fronteira terrestre com o seu território.');
+        // Por terra (fronteira) ou, com navios (Fase E), por mar: região litorânea a até 700 km.
+        let from = borderingRegion(owned, regionId);
+        if (!from && target.coast) {
+          const navy = await client.query(`SELECT amount FROM army WHERE governor_id = $1 AND unit = 'navy'`, [g.id]);
+          from = attackOrigin(owned, regionId, (navy.rows[0]?.amount ?? 0) > 0)?.from ?? null;
+        }
+        if (!from) {
+          throw conflict(
+            'not_adjacent',
+            target.coast
+              ? `Sem fronteira terrestre. Por mar, é preciso ter navios e uma região litorânea sua a até ${WAR.seaRangeKm} km.`
+              : 'Só é possível ocupar regiões que fazem fronteira terrestre com o seu território.',
+          );
+        }
         if (await this.contested(client, g.kingdomId, regionId)) throw conflict('region_contested', 'Outra nação já está ocupando esta região.');
         await this.economy.spend(client, g.id, expansionCost(owned.length), 'ocupar esta região');
         const seconds = expansionSeconds(target.area, owned.length, world.mode as GameMode);

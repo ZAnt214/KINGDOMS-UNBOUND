@@ -9,17 +9,30 @@ import { ECONOMY_SPEED, type GameMode, MODE_SPEED } from './rules';
 
 export const MILITARY_RULES_VERSION = 1;
 
-export const UNIT_TYPES = ['infantry', 'mechanized', 'armor', 'artillery', 'special', 'defense', 'aviation', 'navy'] as const;
+export const UNIT_TYPES = ['infantry', 'mechanized', 'armor', 'artillery', 'special', 'defense', 'aviation', 'navy', 'missile'] as const;
 export type UnitType = (typeof UNIT_TYPES)[number];
 
-export const TECH_TYPES = ['doctrine', 'motorization', 'armor', 'ballistics', 'special_ops', 'fortification', 'jets', 'naval', 'military_logistics', 'training_methods'] as const;
+export const TECH_TYPES = [
+  'doctrine',
+  'motorization',
+  'armor',
+  'ballistics',
+  'special_ops',
+  'fortification',
+  'jets',
+  'naval',
+  'military_logistics',
+  'training_methods',
+  'rocketry',
+  'interception',
+] as const;
 export type TechType = (typeof TECH_TYPES)[number];
 
 export type Army = Partial<Record<UnitType, number>>;
 export type Research = Partial<Record<TechType, number>>;
 
 /** Grupo da unidade no detalhamento do poder militar. */
-export type PowerGroup = 'troops' | 'equipment' | 'aviation' | 'navy' | 'defense';
+export type PowerGroup = 'troops' | 'equipment' | 'aviation' | 'navy' | 'defense' | 'missiles';
 
 export interface UnitDef {
   id: UnitType;
@@ -167,6 +180,22 @@ export const UNITS: Record<UnitType, UnitDef> = {
     structure: 'naval_base',
     research: 'naval',
   },
+  // Fase E: estoque de mísseis, lançados do silo contra regiões distantes (não entram no combate terrestre).
+  missile: {
+    id: 'missile',
+    name: 'Mísseis balísticos',
+    short: 'Mísseis',
+    role: 'Lançados do silo contra regiões distantes: danificam construções e tropas no alvo.',
+    group: 'missiles',
+    cost: { money: 900, metal: 300, oil: 200, tech: 40 },
+    recruits: 1,
+    seconds: 45,
+    attack: 25,
+    defense: 1,
+    upkeep: { money: 10 },
+    structure: 'missile_silo',
+    research: 'rocketry',
+  },
 };
 
 export interface TechDef {
@@ -176,7 +205,13 @@ export interface TechDef {
   /** Unidade liberada pelo nível 1. */
   unlocks?: UnitType;
   /** Efeito por nível. */
-  effect: { kind: 'units'; units: UnitType[]; perLevel: number } | { kind: 'defense'; perLevel: number } | { kind: 'upkeep'; perLevel: number } | { kind: 'training'; perLevel: number };
+  effect:
+    | { kind: 'units'; units: UnitType[]; perLevel: number }
+    | { kind: 'defense'; perLevel: number }
+    | { kind: 'upkeep'; perLevel: number }
+    | { kind: 'training'; perLevel: number }
+    | { kind: 'range'; perLevel: number }
+    | { kind: 'interception'; perLevel: number };
   /** Custo do nível 1 (dobra a cada nível). */
   cost: Cost;
   /** Segundos do nível 1 (campanha). */
@@ -269,6 +304,23 @@ export const TECHS: Record<TechType, TechDef> = {
     cost: { money: 600, tech: 40 },
     seconds: 60,
   },
+  rocketry: {
+    id: 'rocketry',
+    name: 'Foguetes balísticos',
+    role: 'Propulsão e guiagem de mísseis.',
+    unlocks: 'missile',
+    effect: { kind: 'range', perLevel: 0.2 },
+    cost: { money: 1600, metal: 400, oil: 300, tech: 140 },
+    seconds: 150,
+  },
+  interception: {
+    id: 'interception',
+    name: 'Interceptação',
+    role: 'Radares e mísseis interceptadores: aumenta a chance de derrubar mísseis inimigos.',
+    effect: { kind: 'interception', perLevel: 0.1 },
+    cost: { money: 1200, metal: 300, tech: 100 },
+    seconds: 120,
+  },
 };
 
 export const MILITARY = {
@@ -301,11 +353,11 @@ export const MILITARY = {
   maxTrainingCut: 0.6,
 };
 
-export const MILITARY_STRUCTURES: StructureType[] = ['military_base', 'training_center', 'arms_factory', 'air_base', 'naval_base', 'defense_center'];
+export const MILITARY_STRUCTURES: StructureType[] = ['military_base', 'training_center', 'arms_factory', 'air_base', 'naval_base', 'defense_center', 'missile_silo', 'antimissile'];
 
 type Built = { type: StructureType; level: number }[];
 
-const levelOf = (structures: Built, type: StructureType) => structures.filter((s) => s.type === type && s.level > 0).reduce((n, s) => n + s.level, 0);
+export const levelOf = (structures: Built, type: StructureType) => structures.filter((s) => s.type === type && s.level > 0).reduce((n, s) => n + s.level, 0);
 
 /** Recrutamento: recrutas por hora e teto, já no ritmo do modo. */
 export function recruitment(structures: Built, mode: GameMode = 'campaign'): { rate: number; cap: number } {
@@ -339,6 +391,8 @@ export const STRUCTURE_NAMES: Partial<Record<StructureType, string>> = {
   air_base: 'Base aérea',
   naval_base: 'Base naval',
   defense_center: 'Centro de defesa',
+  missile_silo: 'Silo de lançamento de mísseis',
+  antimissile: 'Sistema antimísseis',
   tech: 'Centro tecnológico',
 };
 
@@ -393,7 +447,7 @@ export function upkeep(army: Army, research: Research, mode: GameMode = 'campaig
 }
 
 /** Multiplicador da pesquisa para uma unidade. */
-function techBonus(unit: UnitType, research: Research): number {
+export function techBonus(unit: UnitType, research: Research): number {
   let b = 0;
   for (const t of TECH_TYPES) {
     const e = TECHS[t].effect;
@@ -421,7 +475,7 @@ export interface MilitaryPower {
  */
 export function militaryPower(army: Army, research: Research, structures: Built): MilitaryPower {
   const defenseMult = 1 + TECHS.fortification.effect.perLevel * (research.fortification ?? 0) + MILITARY.defenseCenterPerLevel * levelOf(structures, 'defense_center');
-  const groups: MilitaryPower['groups'] = { troops: 0, equipment: 0, aviation: 0, navy: 0, defense: 0, infrastructure: 0 };
+  const groups: MilitaryPower['groups'] = { troops: 0, equipment: 0, aviation: 0, navy: 0, defense: 0, missiles: 0, infrastructure: 0 };
   let attack = 0;
   let defense = 0;
   let troops = 0;

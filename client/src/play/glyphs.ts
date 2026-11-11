@@ -30,6 +30,10 @@ export const STRUCTURE_GLYPH: Record<StructureType, string> = {
   naval_base: 'M3 15h18l-2.5 4h-13zM6 15v-3h7v3M8 12V9h3v3M13 12h4l1 3M2 21c1.5 0 1.5-1 3-1s1.5 1 3 1 1.5-1 3-1 1.5 1 3 1 1.5-1 3-1 1.5 1 3 1',
   // Torre de radar com ameias.
   defense_center: 'M5 21V9h14v12M3 9h18M5 9V5h2v2h2V5h2v2h2V5h2v2h2V5h2v4M10 21v-5h4v5',
+  // Silo: tampa aberta sobre o poço, com o míssil apontado para cima.
+  missile_silo: 'M3 21h18M6 21v-6h12v6M4 15l4-3M20 15l-4-3M12 3l2 3v7h-4V6zM10 13l-1.5 2M14 13l1.5 2',
+  // Radar parabólico com onda.
+  antimissile: 'M4 20h16M12 20v-6M6 9a6 6 0 0 0 10 4.5zM11 11.5 16.5 6M17 3.5a5 5 0 0 1 3.5 3.5M15.5 5a2.5 2.5 0 0 1 2 2',
 };
 
 /** Ícones das unidades (mesma grade de 24). Desenhos próprios. */
@@ -50,7 +54,12 @@ export const UNIT_GLYPH: Record<UnitType, string> = {
   aviation: 'M12 2l1.5 5 7.5 6v2l-7.5-2.5L13 18l3 2v1.5L12 20l-4 1.5V20l3-2-.5-5.5L3 15v-2l7.5-6z',
   // Destróier.
   navy: 'M2 15h20l-3 5H5zM6 15v-3h10v3M9 12V8h3v4M12 8h5M14 10h3M10.5 8V5',
+  // Míssil com aletas.
+  missile: 'M12 2c1.5 1.5 2.5 4 2.5 7v8h-5V9c0-3 1-5.5 2.5-7zM9.5 13 7 17v2h2.5M14.5 13l2.5 4v2h-2.5M11 19.5h2l-1 2.5z',
 };
+
+/** Espadas cruzadas: operação militar. */
+export const BATTLE_GLYPH = 'M4 4l9 9M4 4h3.5M4 4v3.5M20 4l-9 9M20 4h-3.5M20 4v3.5M9.5 14.5 6 18M14.5 14.5 18 18M4.5 16.5l3 3M19.5 16.5l-3 3';
 
 /** Ícone genérico de pesquisa militar: frasco com engrenagem. */
 export const RESEARCH_GLYPH = 'M9 3h6M10 3v6l-5 9a2 2 0 0 0 1.7 3h10.6a2 2 0 0 0 1.7-3l-5-9V3M7.5 15h9';
