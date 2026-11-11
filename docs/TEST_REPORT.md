@@ -277,3 +277,6 @@ CI do commit `fc7e637`: verde — typecheck e **106/106** testes (12 arquivos), 
 
 ### Desempenho
 Mapa sem guerra: 60 fps parado e arrastando, 41 fps no zoom por roda. **Não medido:** quadros por segundo com várias operações e mísseis ao mesmo tempo.
+
+### Resultado
+CI do commit `c0d2cea`: verde — typecheck e **128/128** testes (14 arquivos), incluindo `tests/integration/war.test.ts` 7/7. Prévia `kingdoms-unbound-ibgrrrfym-test11-1d8d.vercel.app`: `GET /api/meta` 200 com `warRulesVersion: 1`.
