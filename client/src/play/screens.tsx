@@ -9,9 +9,13 @@ import {
   type FlagSpec,
   flagDataUrl,
 } from '../../../shared/play/flags';
+import { OUTCOME_LABEL, QUICK } from '../../../shared/play/match';
 import { cleanNationName, type GameMode, MODES_AVAILABLE, NATION_COLORS, nationNameProblem } from '../../../shared/play/rules';
+import type { NationView, WorldSeat, WorldView } from '../../../shared/play/types';
+import { serverNow } from '../api';
 import { audio } from './audio';
-import { draftFlagSrc, type IdentityDraft, prepareFlagImage } from './identity';
+import { draftFlagSrc, type IdentityDraft, nationFlagSrc, prepareFlagImage } from './identity';
+import { fmtArea, fmtClock } from './model';
 import { Emblem, IcBack, IcBolt, IcGlobe, IcLock, IcTeam, IcUpload } from './icons';
 
 export function TitleScreen({ busy, error, returning, onStart, onLogin }: { busy: boolean; error: string | null; returning: boolean; onStart: () => void; onLogin: () => void }) {
@@ -42,31 +46,21 @@ export function TitleScreen({ busy, error, returning, onStart, onLogin }: { busy
   );
 }
 
-const MODES: { id: GameMode; name: string; text: string; detail: string; icon: typeof IcGlobe }[] = [
-  {
-    id: 'campaign',
-    name: 'Campanha',
-    text: 'Um mundo persistente e compartilhado. Sua nação continua lá quando você sai.',
-    detail: 'Progressão longa. A temporada de 10 dias com ranking final ainda será ligada.',
-    icon: IcGlobe,
-  },
-  {
-    id: 'quick',
-    name: 'Partida rápida',
-    text: 'Tudo acelerado: quem ocupar 100% do território disponível primeiro vence.',
-    detail: 'Ainda não existe no servidor.',
-    icon: IcBolt,
-  },
-  {
-    id: 'team',
-    name: 'Equipe',
-    text: 'Você entra numa equipe sorteada e conquista o mapa em conjunto.',
-    detail: 'Ainda não existe no servidor.',
-    icon: IcTeam,
-  },
+const MODES: { id: GameMode; name: string; text: string; icon: typeof IcGlobe }[] = [
+  { id: 'campaign', name: 'Campanha', text: 'Um mundo persistente e compartilhado com outros jogadores. Sua nação continua lá quando você sai.', icon: IcGlobe },
+  { id: 'quick', name: 'Partida rápida', text: `Você contra ${QUICK.bots} nações do servidor numa arena de ${QUICK.arenaSize} regiões. ${QUICK.minutes} minutos, tudo acelerado.`, icon: IcBolt },
+  { id: 'team', name: 'Equipe', text: 'Você entra numa equipe sorteada e conquista o mapa em conjunto.', icon: IcTeam },
 ];
 
-export function ModeSelect({ worldName, nations, onPick, onBack }: { worldName: string; nations: number; onPick: (mode: GameMode) => void; onBack: () => void }) {
+export function ModeSelect({ seats, busy, error, onPick, onBack }: { seats: WorldSeat[]; busy: GameMode | null; error: string | null; onPick: (mode: GameMode) => void; onBack: () => void }) {
+  const quick = seats.find((s) => s.mode === 'quick' && !s.finished) ?? null;
+  const detail = (id: GameMode): string => {
+    if (!MODES_AVAILABLE[id]) return 'Ainda não existe no servidor.';
+    if (id === 'campaign') return 'A temporada de 10 dias com ranking final ainda será ligada.';
+    if (quick?.endsAt) return `Partida em andamento: ${fmtClock(quick.endsAt - serverNow())} restantes.`;
+    if (quick) return 'Partida criada: falta fundar sua nação.';
+    return `Vence quem dominar mais da metade da arena, ou tiver mais regiões ao fim do tempo.`;
+  };
   return (
     <div className="ku-panel-screen" data-testid="mode-select">
       <header className="ku-screen-head">
@@ -75,6 +69,11 @@ export function ModeSelect({ worldName, nations, onPick, onBack }: { worldName: 
         </button>
         <h2>Como você quer jogar?</h2>
       </header>
+      {error && (
+        <p className="ku-alert" role="alert">
+          {error}
+        </p>
+      )}
       <div className="ku-modes">
         {MODES.map((m) => {
           const open = MODES_AVAILABLE[m.id];
@@ -84,7 +83,7 @@ export function ModeSelect({ worldName, nations, onPick, onBack }: { worldName: 
               type="button"
               key={m.id}
               className={`ku-mode ${open ? '' : 'locked'}`}
-              disabled={!open}
+              disabled={!open || busy !== null}
               onClick={() => {
                 audio.play('confirm');
                 onPick(m.id);
@@ -95,17 +94,68 @@ export function ModeSelect({ worldName, nations, onPick, onBack }: { worldName: 
                 <Ic width={26} height={26} />
               </span>
               <span className="ku-mode-body">
-                <b>{m.name}</b>
+                <b>
+                  {m.name}
+                  {m.id === 'quick' && quick && open ? <em>Retomar</em> : null}
+                </b>
                 <span>{m.text}</span>
                 <small>
                   {!open && <IcLock width={13} height={13} />}
-                  {open ? `${worldName}: ${nations} ${nations === 1 ? 'nação fundada' : 'nações fundadas'}. ${m.detail}` : m.detail}
+                  {busy === m.id ? 'Preparando…' : detail(m.id)}
                 </small>
               </span>
             </button>
           );
         })}
       </div>
+    </div>
+  );
+}
+
+export function MatchEnd({ world, me, nations, onAgain, onCampaign }: { world: WorldView; me: number | null; nations: Map<number, NationView>; onAgain: () => void; onCampaign: () => void }) {
+  const mine = world.results.find((r) => r.nationId === me) ?? null;
+  const won = world.winner !== null && world.winner === me;
+  const title = won ? 'VITÓRIA' : world.outcome === 'expired' ? 'PARTIDA EXPIRADA' : 'DERROTA';
+  return (
+    <div className="ku-panel-screen ku-match-end" data-testid="match-end" data-won={won}>
+      <div className="ku-match-head">
+        <b className={won ? 'won' : ''}>{title}</b>
+        <span>
+          {world.outcome ? OUTCOME_LABEL[world.outcome] : ''}
+          {mine ? ` · você ficou em ${mine.rank}º lugar` : ''}
+        </span>
+      </div>
+      <ol className="ku-ranking">
+        {world.results.map((r) => {
+          const n = nations.get(r.nationId);
+          return (
+            <li key={r.nationId} className={r.nationId === me ? 'me' : ''}>
+              <div>
+                <em>{r.rank}</em>
+                {n && <img src={nationFlagSrc(n)} alt="" />}
+                <span>
+                  <b>
+                    {n?.name ?? 'Nação'}
+                    {n?.bot ? ' (servidor)' : ''}
+                  </b>
+                  <small>
+                    {r.regions} {r.regions === 1 ? 'região' : 'regiões'} da arena · {fmtArea(r.area)}
+                  </small>
+                </span>
+                <i style={{ background: n?.color ?? '#8792a6' }} />
+              </div>
+            </li>
+          );
+        })}
+      </ol>
+      <footer className="ku-screen-foot">
+        <button type="button" className="ku-cta" onClick={onAgain} data-testid="match-again">
+          NOVA PARTIDA
+        </button>
+        <button type="button" className="ku-link" onClick={onCampaign} data-testid="match-campaign">
+          Ir para a campanha
+        </button>
+      </footer>
     </div>
   );
 }

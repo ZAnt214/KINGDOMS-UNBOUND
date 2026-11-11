@@ -60,7 +60,7 @@ async function enter(page, name, color, flag) {
   await A.waitForSelector('[data-testid=mode-select]');
   await A.waitForTimeout(400);
   await A.screenshot({ path: `${OUT}/02-modos.png` });
-  check('modos ainda inexistentes ficam bloqueados', (await A.locator('[data-testid=mode-quick]').isDisabled()) && (await A.locator('[data-testid=mode-team]').isDisabled()));
+  check('modo Equipe ainda bloqueado; Partida rápida disponível', (await A.locator('[data-testid=mode-team]').isDisabled()) && !(await A.locator('[data-testid=mode-quick]').isDisabled()));
   await A.click('[data-testid=mode-campaign]');
   await A.waitForSelector('[data-testid=identity-screen]');
   check('sem nome não dá para continuar', await A.locator('[data-testid=identity-done]').isDisabled());
@@ -127,6 +127,8 @@ async function enter(page, name, color, flag) {
     await A.reload();
     await A.waitForSelector('[data-testid=play-root][data-map=ready]');
     await A.click('[data-testid=start]');
+    await A.waitForSelector('[data-testid=mode-select]');
+    await A.click('[data-testid=mode-campaign]');
     await A.waitForSelector('[data-testid=map-stage][data-phase=play]', { timeout: 15000 });
     check('recarregar a página mantém a nação e as 2 regiões', /^2\s/.test((await A.locator('[data-testid=stat-regions]').innerText()).trim()));
     await A.waitForTimeout(1500);
@@ -134,6 +136,37 @@ async function enter(page, name, color, flag) {
     await A.waitForTimeout(1300);
     await A.screenshot({ path: `${OUT}/12-alvos.png` });
   }
+
+  // ---------- Fase B: economia e construções ----------
+  check('recursos aparecem no topo depois da fundação', (await A.locator('[data-testid=resources]').count()) === 1);
+  await A.click('[data-testid=dock-build]');
+  await A.waitForSelector('[data-testid=build-sheet]');
+  await A.waitForTimeout(300);
+  await A.screenshot({ path: `${OUT}/15-construcoes.png` });
+  await A.locator('[data-testid^=build-region-]').first().click();
+  await A.waitForSelector('[data-testid=build-grid]');
+  await A.waitForTimeout(800);
+  await A.screenshot({ path: `${OUT}/16-regiao-construir.png` });
+  await A.click('[data-testid=build-city]');
+  await A.waitForSelector('[data-testid=structure-panel]');
+  await A.screenshot({ path: `${OUT}/17-painel-cidade.png` });
+  check('painel da construção mostra custo, tempo e produção', /CONSTRUIR/.test(await A.locator('[data-testid=structure-act]').innerText()) && /\+/.test(await A.locator('[data-testid=structure-panel]').innerText()));
+  await A.click('[data-testid=structure-act]');
+  await A.waitForTimeout(1200);
+  await A.screenshot({ path: `${OUT}/18-obra.png` });
+  await A.waitForFunction(() => /Cidade concluída/.test(document.body.textContent ?? ''), null, { timeout: 60000 }).then(
+    () => check('a obra termina sozinha e avisa', true),
+    () => check('a obra termina sozinha e avisa', false),
+  );
+  await A.waitForTimeout(400);
+  await A.screenshot({ path: `${OUT}/19-cidade-pronta.png` });
+  await A.click('[data-testid=resources]');
+  await A.waitForSelector('[data-testid=economy-sheet]');
+  await A.waitForTimeout(300);
+  await A.screenshot({ path: `${OUT}/20-economia.png` });
+  check('economia mostra os seis recursos e a energia', (await A.locator('[data-testid=economy-sheet] li').count()) === 7);
+  await A.keyboard.press('Escape');
+  await A.click('[data-testid=region-card] .ku-card-close');
 
   await A.click('[data-testid=dock-ranking]');
   await A.waitForSelector('[data-testid=ranking-sheet]');
@@ -146,6 +179,38 @@ async function enter(page, name, color, flag) {
   await A.click('[data-testid=mute]');
   check('som pode ser desligado', (await A.locator('[data-testid=mute]').getAttribute('aria-pressed')) === 'true');
   await A.screenshot({ path: `${OUT}/14-configuracoes.png` });
+
+  // ---------- Partida rápida com bots ----------
+  await A.click('[data-testid=switch-mode]');
+  await A.waitForSelector('[data-testid=mode-select]');
+  await A.click('[data-testid=mode-quick]');
+  await A.waitForSelector('[data-testid=identity-screen]', { timeout: 15000 });
+  await A.click('[data-testid=identity-done]');
+  await A.waitForSelector('[data-testid=map-stage][data-phase=select]');
+  await A.waitForTimeout(1500);
+  await A.screenshot({ path: `${OUT}/21-rapida-arena.png` });
+  const quick = await A.evaluate(async () => {
+    const seat = (await (await fetch('/api/me')).json()).worlds.find((w) => w.mode === 'quick' && !w.finished);
+    const st = await (await fetch('/api/play/state', { headers: { 'X-KU-World': String(seat.id) } })).json();
+    return { arena: st.world.arena, taken: st.control.map((c) => c[0]), bots: st.nations.filter((n) => n.bot).length };
+  });
+  check('partida rápida começa com 3 nações do servidor', quick.bots === 3);
+  const points = JSON.parse(fs.readFileSync(require.resolve('../../shared/world/startpoints.json'), 'utf8'));
+  const free = points.find((p) => quick.arena.includes(p.region) && !quick.taken.includes(p.region));
+  await clickMap(A, free.at[0], free.at[1]);
+  await A.waitForSelector('[data-testid=point-card]');
+  await A.click('[data-testid=confirm-location]');
+  await A.waitForSelector('[data-testid=match-clock]', { timeout: 15000 });
+  check('relógio da partida aparece depois da fundação', true);
+  await A.waitForTimeout(8000);
+  await A.screenshot({ path: `${OUT}/22-rapida-jogo.png` });
+  await A.click('[data-testid=open-settings]');
+  await A.click('[data-testid=leave]');
+  await A.click('[data-testid=leave-confirm]');
+  await A.waitForSelector('[data-testid=match-end]', { timeout: 10000 });
+  await A.waitForTimeout(700);
+  await A.screenshot({ path: `${OUT}/23-fim-de-partida.png` });
+  check('abandonar mostra o fim da partida com a classificação', /DERROTA/.test(await A.locator('[data-testid=match-end]').innerText()));
 
   const overflow = await A.evaluate(() => document.documentElement.scrollWidth > window.innerWidth);
   check('sem rolagem horizontal', !overflow);

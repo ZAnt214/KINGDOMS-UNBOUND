@@ -3,7 +3,7 @@ import type { NationView } from '../../../shared/play/types';
 import { serverNow } from '../api';
 import type { RealtimeStatus } from '../realtime';
 import { nationFlagSrc } from './identity';
-import { IcCapital, IcExpand, IcGear, IcGlobe, IcMinus, IcPlus, IcRanking } from './icons';
+import { IcBuild, IcCapital, IcClock, IcExpand, IcGear, IcGlobe, IcMinus, IcPlus, IcRanking } from './icons';
 import { fmtClock, type NationStats } from './model';
 
 export interface Toast {
@@ -102,23 +102,39 @@ export function OccupationCapsule({ name, startedAt, endsAt, onFocus }: { name: 
   );
 }
 
-export function Dock({ targets, occupying, onExpand, onCapital, onRanking }: { targets: number; occupying: boolean; onExpand: () => void; onCapital: () => void; onRanking: () => void }) {
+export function Dock(p: { targets: number; occupying: boolean; building: number; onExpand: () => void; onCapital: () => void; onBuild: () => void; onRanking: () => void }) {
   return (
     <nav className="ku-dock" aria-label="Ações">
-      <button type="button" onClick={onCapital} data-testid="dock-capital">
+      <button type="button" onClick={p.onCapital} data-testid="dock-capital">
         <IcCapital />
         <span>Território</span>
       </button>
-      <button type="button" className={`primary ${!occupying && targets > 0 ? 'ready' : ''}`} onClick={onExpand} data-testid="dock-expand">
+      <button type="button" className={`primary ${!p.occupying && p.targets > 0 ? 'ready' : ''}`} onClick={p.onExpand} data-testid="dock-expand">
         <IcExpand width={26} height={26} />
         <span>Expandir</span>
-        {!occupying && targets > 0 && <em>{targets}</em>}
+        {!p.occupying && p.targets > 0 && <em>{p.targets}</em>}
       </button>
-      <button type="button" onClick={onRanking} data-testid="dock-ranking">
+      <button type="button" onClick={p.onBuild} data-testid="dock-build">
+        <IcBuild />
+        <span>Construções</span>
+        {p.building > 0 && <em className="soft">{p.building}</em>}
+      </button>
+      <button type="button" onClick={p.onRanking} data-testid="dock-ranking">
         <IcRanking />
         <span>Ranking</span>
       </button>
     </nav>
+  );
+}
+
+/** Tempo restante da partida rápida; fica vermelho no último minuto. */
+export function MatchClock({ endsAt }: { endsAt: number }) {
+  const left = endsAt - serverNow();
+  return (
+    <span className={`ku-clock ${left < 60_000 ? 'urgent' : ''}`} data-testid="match-clock" aria-label="Tempo restante da partida">
+      <IcClock width={15} height={15} />
+      {fmtClock(left)}
+    </span>
   );
 }
 

@@ -3,6 +3,8 @@ import bcrypt from 'bcryptjs';
 import type { NextFunction, Request, Response } from 'express';
 import { config } from './config.js';
 import type { Db } from './db.js';
+import type { GameMode } from '../../shared/play/rules.js';
+import type { WorldSeat } from '../../shared/play/types.js';
 import { HttpError } from './http.js';
 
 export const SESSION_COOKIE = 'ku_session';
@@ -11,8 +13,7 @@ export interface GovernorCtx {
   id: number;
   name: string;
   kingdomId: number;
-  civilization: string;
-  cityId: number;
+  mode: GameMode;
   allianceId: number | null;
   allianceRank: number | null;
 }
@@ -20,7 +21,9 @@ export interface GovernorCtx {
 export interface AuthCtx {
   userId: number;
   username: string;
+  /** Lugar do usuário no mundo pedido (cabeçalho X-KU-World); sem pedido, o da campanha. */
   governor: GovernorCtx | null;
+  worlds: WorldSeat[];
 }
 
 declare module 'express-serve-static-core' {
@@ -78,29 +81,44 @@ export function clearSessionCookie(res: Response) {
   res.setHeader('Set-Cookie', `${SESSION_COOKIE}=; Path=/; HttpOnly; SameSite=Lax; Max-Age=0`);
 }
 
-export async function loadGovernor(db: Db, userId: number): Promise<GovernorCtx | null> {
-  const { rows } = await db.query(
-    `SELECT g.id, g.name, g.kingdom_id, g.civilization, c.id AS city_id, m.alliance_id, m.rank
-       FROM governors g
-       JOIN cities c ON c.governor_id = g.id
-       LEFT JOIN alliance_members m ON m.governor_id = g.id
-      WHERE g.user_id = $1`,
-    [userId],
-  );
-  const r = rows[0];
-  if (!r) return null;
-  return {
-    id: r.id,
-    name: r.name,
-    kingdomId: r.kingdom_id,
-    civilization: r.civilization,
-    cityId: r.city_id,
-    allianceId: r.alliance_id ?? null,
-    allianceRank: r.rank ?? null,
-  };
+interface Seat extends GovernorCtx {
+  worldName: string;
+  finished: boolean;
+  endsAt: number | null;
 }
 
-export async function authFromToken(db: Db, token: string | undefined): Promise<AuthCtx | null> {
+/** Todos os lugares do usuário: campanha primeiro, depois partidas rápidas da mais recente para a mais antiga. */
+export async function loadSeats(db: Db, userId: number): Promise<Seat[]> {
+  const { rows } = await db.query(
+    `SELECT g.id, g.name, g.kingdom_id, k.mode, k.name AS world_name, k.finished_at, k.ends_at, m.alliance_id, m.rank
+       FROM governors g
+       JOIN kingdoms k ON k.id = g.kingdom_id
+       LEFT JOIN alliance_members m ON m.governor_id = g.id
+      WHERE g.user_id = $1
+      ORDER BY (k.mode = 'campaign') DESC, g.id DESC`,
+    [userId],
+  );
+  return rows.map((r) => ({
+    id: Number(r.id),
+    name: r.name,
+    kingdomId: r.kingdom_id,
+    mode: r.mode as GameMode,
+    allianceId: r.alliance_id === null ? null : Number(r.alliance_id),
+    allianceRank: r.rank ?? null,
+    worldName: r.world_name,
+    finished: r.finished_at !== null,
+    endsAt: r.ends_at ? new Date(r.ends_at).getTime() : null,
+  }));
+}
+
+/** Escolhe o lugar do mundo pedido; sem pedido (ou pedido de mundo onde não está), o da campanha. */
+export function pickSeat<T extends { kingdomId: number; mode: GameMode }>(seats: T[], worldId: number | null): T | null {
+  return (worldId !== null ? seats.find((s) => s.kingdomId === worldId) : undefined) ?? seats.find((s) => s.mode === 'campaign') ?? null;
+}
+
+const toCtx = (s: Seat): GovernorCtx => ({ id: s.id, name: s.name, kingdomId: s.kingdomId, mode: s.mode, allianceId: s.allianceId, allianceRank: s.allianceRank });
+
+export async function authFromToken(db: Db, token: string | undefined, worldId: number | null = null): Promise<AuthCtx | null> {
   if (!token) return null;
   const { rows } = await db.query(
     `SELECT u.id, u.username FROM sessions s JOIN users u ON u.id = s.user_id
@@ -109,13 +127,25 @@ export async function authFromToken(db: Db, token: string | undefined): Promise<
   );
   const u = rows[0];
   if (!u) return null;
-  return { userId: u.id, username: u.username, governor: await loadGovernor(db, u.id) };
+  const seats = await loadSeats(db, Number(u.id));
+  const seat = pickSeat(seats, worldId);
+  return {
+    userId: Number(u.id),
+    username: u.username,
+    governor: seat && toCtx(seat),
+    worlds: seats.map((s) => ({ id: s.kingdomId, name: s.worldName, mode: s.mode, governorId: s.id, finished: s.finished, endsAt: s.endsAt })),
+  };
 }
+
+export const worldParam = (raw: unknown): number | null => {
+  const n = Number(raw);
+  return Number.isInteger(n) && n > 0 ? n : null;
+};
 
 export function authMiddleware(db: Db) {
   return (req: Request, _res: Response, next: NextFunction) => {
     const token = parseCookies(req.headers.cookie)[SESSION_COOKIE];
-    authFromToken(db, token)
+    authFromToken(db, token, worldParam(req.headers['x-ku-world']))
       .then((auth) => {
         if (auth) req.auth = auth;
         next();
@@ -131,7 +161,7 @@ export function requireUser(req: Request): AuthCtx {
 
 export function requireGovernor(req: Request): GovernorCtx {
   const auth = requireUser(req);
-  if (!auth.governor) throw new HttpError(409, 'no_governor', 'Crie seu governador primeiro.');
+  if (!auth.governor) throw new HttpError(409, 'no_governor', 'Você ainda não entrou neste mundo.');
   return auth.governor;
 }
 

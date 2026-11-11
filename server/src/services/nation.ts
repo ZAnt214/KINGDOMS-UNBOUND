@@ -1,16 +1,20 @@
 import { type FlagSpec, inspectFlagImage, parseFlag } from '../../../shared/play/flags.js';
+import { QUICK } from '../../../shared/play/match.js';
 import { cleanNationName, COLOR_EXCLUSION_KM, type GameMode, NATION_COLOR_BY_HEX, NATION_COLORS, nationNameProblem } from '../../../shared/play/rules.js';
-import type { FoundInput, NationView, PlaySnapshot } from '../../../shared/play/types.js';
-import { distanceKm, START_POINT_BY_ID } from '../../../shared/world/regions.js';
+import type { FoundInput, NationView, PlaySnapshot, WorldView } from '../../../shared/play/types.js';
+import { distanceKm, START_POINT_BY_ID, type StartPoint } from '../../../shared/world/regions.js';
 import type { GovernorCtx } from '../auth.js';
 import { type Db, type Tx, tx } from '../db.js';
 import { bad, conflict, notFound } from '../http.js';
 import type { Hub } from '../hub.js';
+import type { EconomyService } from './economy.js';
 import type { TerritoryService } from './territory.js';
 
 type Queryable = Pick<Db, 'query'> | Pick<Tx, 'query'>;
 
-const NATION_SQL = `SELECT governor_id, name, color, flag, flag_image_version, (flag_image IS NOT NULL) AS has_image, capital_point, founded_at FROM nations`;
+const NATION_SQL = `SELECT n.governor_id, n.name, n.color, n.flag, n.flag_image_version, (n.flag_image IS NOT NULL) AS has_image,
+                           n.capital_point, n.founded_at, g.is_bot
+                      FROM nations n JOIN governors g ON g.id = n.governor_id`;
 
 const nationView = (r: any): NationView => ({
   id: Number(r.governor_id),
@@ -20,41 +24,77 @@ const nationView = (r: any): NationView => ({
   flagImage: r.has_image ? r.flag_image_version : null,
   capital: r.capital_point,
   foundedAt: new Date(r.founded_at).getTime(),
+  bot: r.is_bot === true,
 });
+
+export interface NewNation {
+  governorId: number;
+  kingdomId: number;
+  point: StartPoint;
+  name: string;
+  color: string;
+  flag: FlagSpec;
+  image?: { bytes: Buffer; type: string } | null;
+}
 
 /**
  * Nações: identidade (nome, cor, bandeira) e fundação no ponto de partida escolhido.
- * A fundação é uma transação única: valida a identidade, reserva o ponto e entrega a região inicial.
+ * A fundação é uma transação única: valida a identidade, reserva o ponto, entrega a região inicial
+ * e abre o saldo inicial.
  */
 export class NationService {
   constructor(
     private db: Db,
     private hub: Hub,
     private territory: TerritoryService,
+    private economy: EconomyService,
   ) {}
 
   async list(kingdomId: number, q: Queryable = this.db): Promise<NationView[]> {
-    const { rows } = await q.query(`${NATION_SQL} WHERE kingdom_id = $1 ORDER BY founded_at, governor_id`, [kingdomId]);
+    const { rows } = await q.query(`${NATION_SQL} WHERE n.kingdom_id = $1 ORDER BY n.founded_at, n.governor_id`, [kingdomId]);
     return rows.map(nationView);
+  }
+
+  async world(kingdomId: number, q: Queryable = this.db): Promise<WorldView> {
+    const [w, results] = await Promise.all([
+      q.query('SELECT id, name, mode, arena, ends_at, finished_at, outcome, winner_governor_id FROM kingdoms WHERE id = $1', [kingdomId]),
+      q.query('SELECT governor_id, rank, regions, area FROM match_results WHERE kingdom_id = $1 ORDER BY rank', [kingdomId]),
+    ]);
+    const r = w.rows[0];
+    return {
+      id: r.id,
+      name: r.name,
+      mode: r.mode as GameMode,
+      arena: (r.arena as string[] | null) ?? null,
+      endsAt: r.ends_at ? new Date(r.ends_at).getTime() : null,
+      finishedAt: r.finished_at ? new Date(r.finished_at).getTime() : null,
+      outcome: r.outcome ?? null,
+      winner: r.winner_governor_id === null ? null : Number(r.winner_governor_id),
+      results: results.rows.map((x) => ({ nationId: Number(x.governor_id), rank: x.rank, regions: x.regions, area: Number(x.area) })),
+    };
   }
 
   /** Estado completo do mundo do governador. Conclui antes o que já venceu. */
   async snapshot(g: GovernorCtx): Promise<PlaySnapshot> {
     await this.territory.completeDue(g.kingdomId);
-    const [world, nations, control, occupations] = await Promise.all([
-      this.db.query('SELECT id, name, mode FROM kingdoms WHERE id = $1', [g.kingdomId]),
+    await this.economy.completeDue(g.kingdomId);
+    const [world, nations, control, occupations, structures] = await Promise.all([
+      this.world(g.kingdomId),
       this.list(g.kingdomId),
       this.territory.control(g.kingdomId),
       this.territory.occupations(g.kingdomId),
+      this.economy.structures(g.kingdomId),
     ]);
-    const w = world.rows[0];
+    const mine = nations.some((n) => n.id === g.id);
     return {
       serverTime: Date.now(),
-      world: { id: w.id, name: w.name, mode: w.mode as GameMode },
-      me: nations.some((n) => n.id === g.id) ? g.id : null,
+      world,
+      me: mine ? g.id : null,
       nations,
       control,
       occupations,
+      structures,
+      economy: mine ? await this.economy.view(this.db, g.id) : null,
     };
   }
 
@@ -70,6 +110,34 @@ export class NationService {
     }
     // Com todas as cores tomadas por perto a regra deixaria o ponto inutilizável: é dispensada.
     return near.size >= NATION_COLORS.length ? [] : [...near];
+  }
+
+  /** Cria a nação dentro de uma transação que já travou o mundo. Usado por jogadores e bots. */
+  async create(client: Tx, n: NewNation): Promise<NationView> {
+    const exists = await client.query('SELECT 1 FROM nations WHERE governor_id = $1', [n.governorId]);
+    if (exists.rowCount) throw conflict('nation_exists', 'Você já fundou sua nação neste mundo.');
+    const world = (await client.query('SELECT arena, finished_at FROM kingdoms WHERE id = $1', [n.kingdomId])).rows[0];
+    if (world.finished_at) throw conflict('match_over', 'Esta partida já terminou.');
+    if (world.arena && !(world.arena as string[]).includes(n.point.region)) throw conflict('outside_arena', 'Este ponto fica fora da área da partida.');
+    const taken = await client.query('SELECT 1 FROM region_control WHERE kingdom_id = $1 AND region_id = $2', [n.kingdomId, n.point.region]);
+    if (taken.rowCount) throw conflict('region_taken', 'Esta região já pertence a outra nação. Escolha outro ponto.');
+    if (await this.territory.contested(client, n.kingdomId, n.point.region)) {
+      throw conflict('region_contested', 'Outra nação está ocupando esta região agora. Escolha outro ponto.');
+    }
+    const sameName = await client.query('SELECT 1 FROM nations WHERE kingdom_id = $1 AND lower(name) = lower($2)', [n.kingdomId, n.name]);
+    if (sameName.rowCount) throw conflict('name_taken', 'Já existe uma nação com este nome neste mundo.');
+    if ((await this.blockedColors(n.kingdomId, n.point.id, client)).includes(n.color)) {
+      throw conflict('color_taken', 'Uma nação vizinha já usa esta cor. Escolha outra para que as fronteiras fiquem legíveis.');
+    }
+    const { rows } = await client.query(
+      `INSERT INTO nations (governor_id, kingdom_id, name, color, flag, flag_image, flag_image_type, flag_image_version, capital_point)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9) RETURNING governor_id`,
+      [n.governorId, n.kingdomId, n.name, n.color, JSON.stringify(n.flag), n.image?.bytes ?? null, n.image?.type ?? null, n.image ? 1 : 0, n.point.id],
+    );
+    await this.territory.claim(client, n.kingdomId, n.point.region, n.governorId);
+    await this.economy.init(client, n.governorId);
+    const view = await client.query(`${NATION_SQL} WHERE n.governor_id = $1`, [rows[0].governor_id]);
+    return nationView(view.rows[0]);
   }
 
   async found(g: GovernorCtx, input: FoundInput): Promise<PlaySnapshot> {
@@ -95,33 +163,20 @@ export class NationService {
     const nation = await tx(this.db, async (client) => {
       // Fundações do mesmo mundo passam uma de cada vez: ponto, nome e cor são conferidos sem corrida.
       await client.query('SELECT id FROM kingdoms WHERE id = $1 FOR UPDATE', [g.kingdomId]);
-      const exists = await client.query('SELECT 1 FROM nations WHERE governor_id = $1', [g.id]);
-      if (exists.rowCount) throw conflict('nation_exists', 'Você já fundou sua nação neste mundo.');
-      const taken = await client.query('SELECT 1 FROM region_control WHERE kingdom_id = $1 AND region_id = $2', [g.kingdomId, point.region]);
-      if (taken.rowCount) throw conflict('region_taken', 'Esta região já pertence a outra nação. Escolha outro ponto.');
-      if (await this.territory.contested(client, g.kingdomId, point.region)) {
-        throw conflict('region_contested', 'Outra nação está ocupando esta região agora. Escolha outro ponto.');
-      }
-      const sameName = await client.query('SELECT 1 FROM nations WHERE kingdom_id = $1 AND lower(name) = lower($2)', [g.kingdomId, name]);
-      if (sameName.rowCount) throw conflict('name_taken', 'Já existe uma nação com este nome neste mundo.');
-      if ((await this.blockedColors(g.kingdomId, point.id, client)).includes(color)) {
-        throw conflict('color_taken', 'Uma nação vizinha já usa esta cor. Escolha outra para que as fronteiras fiquem legíveis.');
-      }
-      const { rows } = await client.query(
-        `WITH created AS (
-           INSERT INTO nations (governor_id, kingdom_id, name, color, flag, flag_image, flag_image_type, flag_image_version, capital_point)
-           VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9) RETURNING *
-         ) ${NATION_SQL.replace('FROM nations', 'FROM created')}`,
-        [g.id, g.kingdomId, name, color, JSON.stringify(flag), image?.bytes ?? null, image?.type ?? null, image ? 1 : 0, point.id],
+      const created = await this.create(client, { governorId: g.id, kingdomId: g.kingdomId, point, name, color, flag, image });
+      // Partida rápida: o relógio começa quando o jogador funda a nação.
+      await client.query(
+        `UPDATE kingdoms SET ends_at = now() + make_interval(mins => $2) WHERE id = $1 AND mode = 'quick' AND ends_at IS NULL`,
+        [g.kingdomId, QUICK.minutes],
       );
-      await this.territory.claim(client, g.kingdomId, point.region, g.id);
       await client.query(
         `INSERT INTO audit_logs (actor_governor_id, action, target_type, target_id, data) VALUES ($1, 'nation.founded', 'region', $2, $3)`,
         [g.id, point.region, { kingdomId: g.kingdomId, point: point.id, color }],
       );
-      return nationView(rows[0]);
+      return created;
     });
     this.hub.toKingdom(g.kingdomId, { type: 'play.nation', nation, region: point.region, serverTime: Date.now() });
+    this.hub.toKingdom(g.kingdomId, { type: 'play.match', world: await this.world(g.kingdomId), serverTime: Date.now() });
     return this.snapshot(g);
   }
 

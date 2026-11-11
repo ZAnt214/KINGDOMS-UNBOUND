@@ -2,7 +2,7 @@
 // Efeitos curtos e discretos para cada ação e uma trilha ambiente lenta. Volumes ficam salvos
 // no navegador; o áudio só começa depois do primeiro toque (exigência dos navegadores).
 
-export type SoundName = 'tap' | 'select' | 'confirm' | 'deny' | 'found' | 'expand' | 'conquest' | 'country' | 'level' | 'notify';
+export type SoundName = 'tap' | 'select' | 'confirm' | 'deny' | 'found' | 'expand' | 'conquest' | 'country' | 'level' | 'notify' | 'build' | 'built' | 'victory' | 'defeat';
 
 export interface AudioSettings {
   music: number;
@@ -194,6 +194,27 @@ class GameAudio {
         this.tone({ f: 100, to: 45, dur: 0.8, type: 'sine', gain: 0.32 });
         [60, 64, 67, 72, 76, 79, 84].forEach((n, i) => this.tone({ f: midi(n), at: i * 0.09, dur: 1.1, type: 'triangle', gain: 0.12 }));
         [48, 55, 64].forEach((n) => this.tone({ f: midi(n), at: 0.05, dur: 2.2, type: 'sawtooth', gain: 0.05, attack: 0.4, lp: 1200 }));
+        break;
+      case 'build':
+        // Canteiro: três batidas secas, como martelo em estrutura metálica.
+        [0, 0.12, 0.24].forEach((at, i) => {
+          this.noise({ at, dur: 0.07, from: 2600 - i * 300, to: 1200, gain: 0.12, q: 4 });
+          this.tone({ f: 330 + i * 40, to: 220, at, dur: 0.09, type: 'square', gain: 0.04, lp: 1800 });
+        });
+        break;
+      case 'built':
+        // Obra pronta: base grave e acorde maior subindo.
+        this.tone({ f: 130, to: 65, dur: 0.4, type: 'sine', gain: 0.22 });
+        [64, 68, 71, 76].forEach((n, i) => this.tone({ f: midi(n), at: 0.04 + i * 0.07, dur: 0.45, type: 'triangle', gain: 0.11 }));
+        break;
+      case 'victory':
+        this.tone({ f: 98, to: 49, dur: 1.2, type: 'sine', gain: 0.3 });
+        [55, 62, 67].forEach((n) => this.tone({ f: midi(n), at: 0.05, dur: 2.8, type: 'sawtooth', gain: 0.05, attack: 0.5, lp: 1500 }));
+        [67, 71, 74, 79, 83, 86].forEach((n, i) => this.tone({ f: midi(n), at: 0.2 + i * 0.12, dur: 0.9, type: 'triangle', gain: 0.12 }));
+        break;
+      case 'defeat':
+        [62, 58, 55, 50].forEach((n, i) => this.tone({ f: midi(n), at: i * 0.22, dur: 0.8, type: 'triangle', gain: 0.1, lp: 1200 }));
+        this.tone({ f: 73, to: 55, at: 0.6, dur: 1.4, type: 'sine', gain: 0.18 });
         break;
       case 'level':
         [72, 79, 84, 91].forEach((n, i) => this.tone({ f: midi(n), at: i * 0.07, dur: 0.5, type: 'sine', gain: 0.11 }));

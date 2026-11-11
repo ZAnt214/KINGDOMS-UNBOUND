@@ -1,9 +1,8 @@
-import { ALLIANCE_MAX_MEMBERS, hasAlliancePermission } from '../../../shared/rules.js';
+import { ALLIANCE_MAX_MEMBERS, hasAlliancePermission } from '../../../shared/social.js';
 import type { GovernorCtx } from '../auth.js';
 import { type Db, type Tx, tx } from '../db.js';
 import { bad, conflict, forbidden, notFound } from '../http.js';
 import type { Hub } from '../hub.js';
-import { mapCitySummary } from './city.js';
 
 async function audit(client: Tx, actor: number, action: string, targetType: string, targetId: string | number, data = {}) {
   await client.query(
@@ -276,14 +275,9 @@ export class AllianceService {
     return { ok: true };
   }
 
-  /** Atualiza ACL das conexões em tempo real e a etiqueta da cidade no mapa. */
+  /** Atualiza a ACL das conexões em tempo real. */
   private async afterMembershipChange(governorId: number, allianceId: number) {
     await this.hub.refreshGovernor(governorId);
     this.hub.toGovernor(governorId, { type: 'membership.changed', allianceId });
-    const c = await this.db.query('SELECT id, kingdom_id FROM cities WHERE governor_id = $1', [governorId]);
-    if (c.rows[0]) {
-      const summary = await mapCitySummary(this.db, c.rows[0].id);
-      if (summary) this.hub.toKingdom(c.rows[0].kingdom_id, { type: 'map.city', city: summary });
-    }
   }
 }

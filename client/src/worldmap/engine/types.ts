@@ -78,7 +78,28 @@ export type MapPick =
   | { kind: 'marker'; id: string }
   | { kind: 'region'; id: string; code: string }
   | { kind: 'point'; id: string }
-  | { kind: 'flag'; id: string };
+  | { kind: 'flag'; id: string }
+  | { kind: 'structure'; id: string };
+
+/** Construção no mapa: um selo com ícone, perto do ponto da região. */
+export interface MapStructure {
+  id: string;
+  /** Ponto da região; os selos da mesma região se alinham lado a lado abaixo dele. */
+  anchor: [number, number];
+  slot: number;
+  slots: number;
+  color: string;
+  /** Caminho SVG do ícone (grade 24×24). */
+  glyph: string;
+  level: number;
+  /** Obra em andamento (tempo do relógio do motor). */
+  building?: { startAt: number; endAt: number } | null;
+  /** Instante (performance.now) em que a obra terminou: anima a conclusão. */
+  completedAt?: number;
+  minZoom?: number;
+  /** Construção do jogador: borda mais forte. */
+  own?: boolean;
+}
 
 /** Topologia de regiões gerada por tools/build-regions.mjs (arcos compartilhados, deltas quantizados). */
 export interface RegionTopology {
@@ -163,4 +184,4 @@ export interface RegionInfo {
   at: [number, number];
 }
 
-export type BuiltinLayer = 'graticule' | 'labels' | 'cities' | 'markers' | 'routes' | 'points' | 'flags';
+export type BuiltinLayer = 'graticule' | 'labels' | 'cities' | 'markers' | 'routes' | 'points' | 'flags' | 'structures';

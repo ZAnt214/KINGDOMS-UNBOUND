@@ -11,10 +11,10 @@ import { migrate, seedWorld } from './migrate.js';
 import { apiRouter } from './routes.js';
 import { AllianceService } from './services/alliance.js';
 import { ChatService } from './services/chat.js';
-import { CityService } from './services/city.js';
+import { EconomyService } from './services/economy.js';
+import { MatchService } from './services/match.js';
 import { NationService } from './services/nation.js';
 import { TerritoryService } from './services/territory.js';
-import { seedGeopolitics, WorldService } from './services/world.js';
 
 export const log = (msg: string, extra: Record<string, unknown> = {}) =>
   console.log(JSON.stringify({ level: 'info', time: new Date().toISOString(), msg, ...extra }));
@@ -29,7 +29,6 @@ export async function createGameServer(
   try {
     await migrate(direct, log);
     await seedWorld(direct);
-    await seedGeopolitics(direct);
   } finally {
     await direct.end();
   }
@@ -41,12 +40,14 @@ export async function createGameServer(
   const hub = new Hub(db);
   hub.attach(server);
   await hub.startBus(directUrl);
-  const city = new CityService(db, hub);
   const alliance = new AllianceService(db, hub);
   const chat = new ChatService(db, hub);
-  const world = new WorldService(db, hub);
-  const territory = new TerritoryService(db, hub);
-  const nation = new NationService(db, hub, territory);
+  const economy = new EconomyService(db, hub);
+  const territory = new TerritoryService(db, hub, economy);
+  const nation = new NationService(db, hub, territory, economy);
+  const match = new MatchService(db, hub, nation, territory, economy);
+  // Toda região conquistada numa partida rápida pode decidir a partida.
+  territory.onRegion = (kingdomId) => match.check(kingdomId);
 
   app.use((_req, res, next) => {
     res.setHeader('X-Content-Type-Options', 'nosniff');
@@ -64,7 +65,7 @@ export async function createGameServer(
       .catch(() => res.status(503).json({ ok: false }));
   });
 
-  app.use('/api', express.json({ limit: '16kb' }), csrfGuard, authMiddleware(db), apiRouter(db, hub, { city, alliance, chat, world, nation, territory }));
+  app.use('/api', express.json({ limit: '16kb' }), csrfGuard, authMiddleware(db), apiRouter(db, hub, { alliance, chat, nation, territory, economy, match }));
   app.use('/api', errorMiddleware);
 
   if (opts.staticDir && fs.existsSync(opts.staticDir)) {
@@ -72,12 +73,18 @@ export async function createGameServer(
     app.get('*', (_req, res) => res.sendFile(path.join(opts.staticDir!, 'index.html')));
   }
 
-  // Worker de obras e ocupações: o estado vem do banco, então reiniciar o processo não perde nada.
+  // Worker: conclui ocupações e obras vencidas, conduz os bots e encerra partidas. O estado vem do
+  // banco, então reiniciar o processo não perde nada (o worker só antecipa o que a leitura faria).
   let running = false;
   const worker = setInterval(() => {
     if (running) return;
     running = true;
-    Promise.all([city.processDue(), territory.processDue()])
+    (async () => {
+      await territory.processDue();
+      await economy.processDue();
+      await match.check();
+      await match.tick();
+    })()
       .catch((err) => console.error(JSON.stringify({ level: 'error', msg: 'worker', err: String(err) })))
       .finally(() => (running = false));
   }, config.workerIntervalMs);
@@ -86,7 +93,7 @@ export async function createGameServer(
     app,
     server,
     hub,
-    services: { world, nation, territory },
+    services: { nation, territory, economy, match },
     async close() {
       clearInterval(worker);
       hub.close();

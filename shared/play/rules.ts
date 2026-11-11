@@ -8,7 +8,12 @@ export const GAME_MODES = ['campaign', 'quick', 'team'] as const;
 export type GameMode = (typeof GAME_MODES)[number];
 
 /** Modos que o servidor já sabe conduzir. Os demais aparecem bloqueados na seleção. */
-export const MODES_AVAILABLE: Record<GameMode, boolean> = { campaign: true, quick: false, team: false };
+export const MODES_AVAILABLE: Record<GameMode, boolean> = { campaign: true, quick: true, team: false };
+
+/** Ritmo de cada modo: divide os tempos de expansão e de construção. */
+export const MODE_SPEED: Record<GameMode, number> = { campaign: 1, quick: 3, team: 1.5 };
+/** Ritmo econômico: multiplica a produção. A partida rápida dura minutos, a campanha, dias. */
+export const ECONOMY_SPEED: Record<GameMode, number> = { campaign: 1, quick: 12, team: 4 };
 
 // ---------- identidade ----------
 
@@ -73,8 +78,6 @@ export const EXPANSION = {
   maxSeconds: 900,
   /** Operações de ocupação simultâneas por nação. */
   maxActive: 1,
-  /** Multiplicador de velocidade por modo de jogo. */
-  modeSpeed: { campaign: 1, quick: 3, team: 1.5 } as Record<GameMode, number>,
 };
 
 /**
@@ -87,15 +90,15 @@ export function expansionSeconds(areaKm2: number, ownedRegions: number, mode: Ga
   const size = Math.max(EXPANSION.sizeMin, Math.min(EXPANSION.sizeMax, Math.sqrt(Math.max(0, areaKm2) / EXPANSION.areaRefKm2)));
   const raw = EXPANSION.baseSeconds * size * (1 + EXPANSION.growthPerRegion * Math.max(0, ownedRegions - 1));
   const bounded = Math.max(EXPANSION.minSeconds, Math.min(EXPANSION.maxSeconds, raw));
-  return Math.max(1, Math.round(bounded / EXPANSION.modeSpeed[mode]));
+  return Math.max(1, Math.round(bounded / MODE_SPEED[mode]));
 }
 
 // ---------- progressão ----------
 
-export const XP = { perRegion: 100, perCountry: 400 };
+export const XP = { perRegion: 100, perCountry: 400, perStructureLevel: 40 };
 
-export function nationXp(regions: number, countries: number): number {
-  return regions * XP.perRegion + countries * XP.perCountry;
+export function nationXp(regions: number, countries: number, structureLevels = 0): number {
+  return regions * XP.perRegion + countries * XP.perCountry + structureLevels * XP.perStructureLevel;
 }
 
 /** Nível da nação: o nível n exige 120·(n−1)² de experiência. */
@@ -110,16 +113,19 @@ export function nationLevel(xp: number): { level: number; progress: number; floo
 export interface Milestone {
   id: string;
   title: string;
-  kind: 'regions' | 'countries';
+  kind: 'regions' | 'countries' | 'structures';
   target: number;
 }
 
 /** Metas de expansão, em ordem. Derivadas do estado real; não concedem nada além do registro. */
 export const MILESTONES: Milestone[] = [
   { id: 'r1', title: 'Fundar a nação', kind: 'regions', target: 1 },
+  { id: 's1', title: 'Erguer a primeira construção', kind: 'structures', target: 1 },
   { id: 'r3', title: 'Ocupar 3 regiões', kind: 'regions', target: 3 },
+  { id: 's4', title: 'Ter 4 construções', kind: 'structures', target: 4 },
   { id: 'r6', title: 'Ocupar 6 regiões', kind: 'regions', target: 6 },
   { id: 'c1', title: 'Dominar um país inteiro', kind: 'countries', target: 1 },
+  { id: 's10', title: 'Ter 10 construções', kind: 'structures', target: 10 },
   { id: 'r12', title: 'Ocupar 12 regiões', kind: 'regions', target: 12 },
   { id: 'r25', title: 'Ocupar 25 regiões', kind: 'regions', target: 25 },
   { id: 'c3', title: 'Dominar 3 países', kind: 'countries', target: 3 },
@@ -128,12 +134,19 @@ export const MILESTONES: Milestone[] = [
   { id: 'r100', title: 'Ocupar 100 regiões', kind: 'regions', target: 100 },
 ];
 
-export function milestoneProgress(m: Milestone, regions: number, countries: number): { value: number; done: boolean } {
-  const value = Math.min(m.target, m.kind === 'regions' ? regions : countries);
+export interface Progress {
+  regions: number;
+  countries: number;
+  /** Construções concluídas (nível ≥ 1). */
+  structures: number;
+}
+
+export function milestoneProgress(m: Milestone, p: Progress): { value: number; done: boolean } {
+  const value = Math.min(m.target, p[m.kind]);
   return { value, done: value >= m.target };
 }
 
 /** Primeira meta ainda não cumprida, ou null se todas foram. */
-export function nextMilestone(regions: number, countries: number): Milestone | null {
-  return MILESTONES.find((m) => !milestoneProgress(m, regions, countries).done) ?? null;
+export function nextMilestone(p: Progress): Milestone | null {
+  return MILESTONES.find((m) => !milestoneProgress(m, p).done) ?? null;
 }

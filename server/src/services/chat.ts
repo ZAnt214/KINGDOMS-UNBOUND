@@ -1,4 +1,4 @@
-import { CHAT_MAX_LENGTH, CHAT_RATE, extractCoordinates } from '../../../shared/rules.js';
+import { CHAT_MAX_LENGTH, CHAT_RATE, extractCoordinates } from '../../../shared/social.js';
 import type { GovernorCtx } from '../auth.js';
 import type { Db } from '../db.js';
 import { bad, forbidden, HttpError, notFound, RateLimiter } from '../http.js';
@@ -18,12 +18,12 @@ export interface ChatMessage {
   body: string;
   attachments: { kind: 'coords'; kingdomId: number; x: number; y: number }[];
   createdAt: number;
-  author: { governorId: number; name: string; kingdomId: number; allianceTag: string | null; civilization: string };
+  author: { governorId: number; name: string; kingdomId: number; allianceTag: string | null };
 }
 
 const MESSAGE_SQL = `
   SELECT msg.id, msg.channel_id, msg.body, msg.attachments, msg.created_at,
-         g.id AS governor_id, g.name, g.kingdom_id, g.civilization, a.tag
+         g.id AS governor_id, g.name, g.kingdom_id, a.tag
     FROM chat_messages msg
     JOIN governors g ON g.id = msg.governor_id
     LEFT JOIN alliance_members m ON m.governor_id = g.id
@@ -36,7 +36,7 @@ function toMessage(r: Record<string, any>): ChatMessage {
     body: r.body,
     attachments: r.attachments,
     createdAt: new Date(r.created_at).getTime(),
-    author: { governorId: r.governor_id, name: r.name, kingdomId: r.kingdom_id, allianceTag: r.tag ?? null, civilization: r.civilization },
+    author: { governorId: r.governor_id, name: r.name, kingdomId: r.kingdom_id, allianceTag: r.tag ?? null },
   };
 }
 

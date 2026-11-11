@@ -276,6 +276,76 @@ CREATE UNIQUE INDEX occupations_one_per_region ON occupations (kingdom_id, regio
 CREATE INDEX occupations_due ON occupations (ends_at) WHERE status = 'active';
 `,
   },
+  {
+    id: 4,
+    name: 'economy_quick_match',
+    sql: `
+-- Mundos: os da campanha (fixos) e as partidas rápidas, criadas sob demanda.
+-- As tabelas do jogo medieval (cities, building_queues, world_blocs…) ficam no banco sem uso:
+-- apagá-las é irreversível e fica para uma migração própria, depois que nenhum deploy antigo as ler.
+CREATE SEQUENCE kingdoms_id_seq START 1000 OWNED BY kingdoms.id;
+ALTER TABLE kingdoms ALTER COLUMN id SET DEFAULT nextval('kingdoms_id_seq');
+ALTER TABLE kingdoms
+  ADD COLUMN theater TEXT,
+  ADD COLUMN arena JSONB,
+  ADD COLUMN ends_at TIMESTAMPTZ,
+  ADD COLUMN finished_at TIMESTAMPTZ,
+  ADD COLUMN outcome TEXT,
+  ADD COLUMN winner_governor_id BIGINT REFERENCES governors(id) ON DELETE SET NULL,
+  ADD COLUMN owner_user_id BIGINT REFERENCES users(id) ON DELETE SET NULL;
+CREATE INDEX kingdoms_quick_active ON kingdoms (id) WHERE mode = 'quick' AND finished_at IS NULL;
+UPDATE kingdoms SET name = 'Campanha · Mundo ' || id WHERE mode = 'campaign';
+
+-- Um usuário pode estar em vários mundos (campanha e partidas rápidas). Bots não têm usuário.
+ALTER TABLE governors DROP CONSTRAINT governors_user_id_key;
+ALTER TABLE governors ALTER COLUMN user_id DROP NOT NULL;
+ALTER TABLE governors ALTER COLUMN civilization SET DEFAULT 'none';
+ALTER TABLE governors ADD COLUMN is_bot BOOLEAN NOT NULL DEFAULT false;
+ALTER TABLE governors ADD CONSTRAINT governors_owner CHECK (is_bot OR user_id IS NOT NULL);
+CREATE UNIQUE INDEX governors_user_world ON governors (user_id, kingdom_id) WHERE user_id IS NOT NULL;
+CREATE INDEX governors_user ON governors (user_id);
+
+-- Saldo de cada recurso da nação, válido no instante settled_at; entre acertos o valor é projetado
+-- pela produção (calculada das regiões e construções).
+CREATE TABLE nation_resources (
+  governor_id BIGINT NOT NULL REFERENCES nations(governor_id) ON DELETE CASCADE,
+  resource TEXT NOT NULL,
+  amount NUMERIC(20,4) NOT NULL CHECK (amount >= 0),
+  settled_at TIMESTAMPTZ NOT NULL,
+  PRIMARY KEY (governor_id, resource)
+);
+
+-- Construções no mapa. Uma de cada tipo por região; obra em andamento quando target_level não é nulo.
+CREATE TABLE structures (
+  id BIGSERIAL PRIMARY KEY,
+  kingdom_id INT NOT NULL REFERENCES kingdoms(id),
+  governor_id BIGINT NOT NULL REFERENCES nations(governor_id) ON DELETE CASCADE,
+  region_id TEXT NOT NULL,
+  type TEXT NOT NULL,
+  level INT NOT NULL DEFAULT 0 CHECK (level >= 0),
+  target_level INT,
+  started_at TIMESTAMPTZ,
+  ends_at TIMESTAMPTZ,
+  rules_version INT NOT NULL,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  UNIQUE (kingdom_id, region_id, type),
+  CHECK ((target_level IS NULL) = (ends_at IS NULL)),
+  CHECK (target_level IS NULL OR target_level = level + 1)
+);
+CREATE INDEX structures_owner ON structures (governor_id);
+CREATE INDEX structures_due ON structures (ends_at) WHERE target_level IS NOT NULL;
+
+-- Resultado final de cada nação numa partida encerrada.
+CREATE TABLE match_results (
+  kingdom_id INT NOT NULL REFERENCES kingdoms(id),
+  governor_id BIGINT NOT NULL REFERENCES governors(id) ON DELETE CASCADE,
+  rank INT NOT NULL,
+  regions INT NOT NULL,
+  area BIGINT NOT NULL,
+  PRIMARY KEY (kingdom_id, governor_id)
+);
+`,
+  },
 ];
 
 export async function migrate(db: Db, log: (msg: string) => void = () => {}) {
@@ -310,12 +380,12 @@ export async function migrate(db: Db, log: (msg: string) => void = () => {}) {
 export async function seedWorld(db: Db) {
   await db.query(`
     INSERT INTO kingdoms (id, name, seed, width, height) VALUES
-      (1, 'Reino 1 · Valdoria', 1013, 120, 120),
-      (2, 'Reino 2 · Ostmark', 2027, 120, 120)
+      (1, 'Campanha · Mundo 1', 1013, 120, 120),
+      (2, 'Campanha · Mundo 2', 2027, 120, 120)
     ON CONFLICT (id) DO NOTHING`);
   await db.query(`INSERT INTO chat_channels (type) VALUES ('global') ON CONFLICT DO NOTHING`);
   await db.query(`
     INSERT INTO chat_channels (type, kingdom_id)
-    SELECT 'kingdom', id FROM kingdoms
+    SELECT 'kingdom', id FROM kingdoms WHERE mode = 'campaign'
     ON CONFLICT DO NOTHING`);
 }

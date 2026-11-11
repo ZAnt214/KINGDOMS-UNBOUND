@@ -1,10 +1,13 @@
 import { NATION_COLORS } from '../../../shared/play/rules';
+import type { ReactNode } from 'react';
+import type { Cost, ResourceMap } from '../../../shared/play/economy';
 import type { NationView, OccupationView } from '../../../shared/play/types';
 import { COUNTRY_BY_CODE } from '../../../shared/world';
 import { landmassSize, REGION_BY_ID, type RegionDef, type StartPoint } from '../../../shared/world/regions';
 import { serverNow } from '../api';
 import { nationFlagSrc } from './identity';
 import { IcClock, IcClose } from './icons';
+import { CostLine } from './economyUi';
 import { fmtArea, fmtClock, fmtPeople, fmtSeconds } from './model';
 
 function CountryLine({ code }: { code: string }) {
@@ -112,10 +115,17 @@ interface RegionProps {
   seconds: number;
   /** Fração do país desta região já ocupada pelo jogador (por área). */
   countryShare: number;
+  /** Custo da ocupação e saldo atual. */
+  cost: Cost;
+  have: ResourceMap | null;
+  /** Fora da arena da partida rápida. */
+  outside: boolean;
   busy: boolean;
   error: string | null;
   onOccupy: () => void;
   onClose: () => void;
+  /** Conteúdo extra para região própria (construções). */
+  children?: ReactNode;
 }
 
 /** Região selecionada: de quem é, quanto do país já é seu e o que dá para fazer agora. */
@@ -134,7 +144,8 @@ export function RegionCard(p: RegionProps) {
   else status = 'Região neutra';
 
   let reason: string | null = null;
-  if (!mine && owner) reason = 'Ataques a outras nações ainda não existem no servidor.';
+  if (p.outside) reason = 'Fora da área desta partida.';
+  else if (!mine && owner) reason = 'Ataques a outras nações ainda não existem no servidor.';
   else if (!owner && !occupation && !p.adjacent) reason = 'Sem fronteira terrestre com o seu território.';
   else if (!owner && !occupation && p.slotBusy) reason = 'Aguarde a ocupação em andamento terminar.';
 
@@ -153,7 +164,7 @@ export function RegionCard(p: RegionProps) {
         {(owner || by) && <img src={nationFlagSrc((owner ?? by)!)} alt="" />}
         {status}
       </p>
-      {country && (
+      {country && !mine && (
         <div className="ku-meter" data-testid="country-share">
           <span>
             Sua ocupação de {country.name}: <b>{Math.floor(p.countryShare * 100)}%</b>
@@ -174,6 +185,13 @@ export function RegionCard(p: RegionProps) {
         </div>
       )}
       {reason && <p className="ku-note">{reason}</p>}
+      {p.children}
+      {p.canTarget && !occupation && (
+        <div className="ku-row-cost">
+          <span>Custo da ocupação</span>
+          <CostLine cost={p.cost} have={p.have} />
+        </div>
+      )}
       {p.error && (
         <p className="ku-alert" role="alert">
           {p.error}

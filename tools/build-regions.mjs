@@ -461,10 +461,14 @@ regions.forEach((reg, i) => {
   }
 });
 const adjacency = regions.map(() => new Set());
+const coastal = regions.map(() => false);
 let coastArcs = 0;
 for (const owners of regionArcOwners.values()) {
   const list = [...owners];
-  if (list.length === 1) coastArcs++;
+  if (list.length === 1) {
+    coastArcs++;
+    coastal[list[0]] = true;
+  }
   for (const a of list) for (const b of list) if (a !== b) adjacency[a].add(b);
 }
 
@@ -621,6 +625,8 @@ write(
     name: r.name,
     area: Math.round(r.area),
     at: r.at,
+    /** Tem litoral (algum trecho do contorno não é divisa com outra região). */
+    coast: coastal[order[n]],
     neighbors: [...adjacency[order[n]]].map((i) => sorted[pos.get(i)].id).sort(),
   })),
 );

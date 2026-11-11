@@ -88,10 +88,11 @@ describe('regras de expansão e progressão', () => {
     const l = nationLevel(300);
     expect(l.progress).toBeGreaterThan(0);
     expect(l.progress).toBeLessThan(1);
-    expect(nextMilestone(0, 0)?.id).toBe('r1');
-    expect(nextMilestone(1, 0)?.id).toBe('r3');
-    expect(nextMilestone(6, 0)?.id).toBe('c1');
-    expect(nextMilestone(1000, 1000)).toBeNull();
+    expect(nextMilestone({ regions: 0, countries: 0, structures: 0 })?.id).toBe('r1');
+    expect(nextMilestone({ regions: 1, countries: 0, structures: 0 })?.id).toBe('s1');
+    expect(nextMilestone({ regions: 1, countries: 0, structures: 1 })?.id).toBe('r3');
+    expect(nextMilestone({ regions: 6, countries: 0, structures: 4 })?.id).toBe('c1');
+    expect(nextMilestone({ regions: 1000, countries: 1000, structures: 1000 })).toBeNull();
     expect(new Set(MILESTONES.map((m) => m.id)).size).toBe(MILESTONES.length);
   });
 

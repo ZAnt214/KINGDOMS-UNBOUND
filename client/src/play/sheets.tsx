@@ -1,6 +1,11 @@
 import { type ReactNode, useEffect, useState, useSyncExternalStore } from 'react';
 import type { Milestone } from '../../../shared/play/rules';
-import type { NationView } from '../../../shared/play/types';
+import { ECONOMY, slotsFor, STRUCTURES } from '../../../shared/play/economy';
+import type { NationView, StructureView } from '../../../shared/play/types';
+import { REGION_BY_ID } from '../../../shared/world/regions';
+import { serverNow } from '../api';
+import { Glyph } from './economyUi';
+import { STRUCTURE_GLYPH } from './glyphs';
 import { COUNTRY_BY_CODE } from '../../../shared/world';
 import { audio } from './audio';
 import { nationFlagSrc } from './identity';
@@ -56,11 +61,15 @@ export function NationSheet({ stats, milestones, area, onClose }: { stats: Natio
           <dd>{area}</dd>
         </div>
         <div>
+          <dt>Construções</dt>
+          <dd>{stats.structures}</dd>
+        </div>
+        <div>
           <dt>Países dominados</dt>
           <dd>{stats.countries.length ? stats.countries.map((c) => COUNTRY_BY_CODE[c]?.name ?? c).join(', ') : 'Nenhum ainda'}</dd>
         </div>
       </dl>
-      <p className="ku-note">Cada região vale 100 pontos e cada país dominado, 400. Recursos e recompensas entram com a economia.</p>
+      <p className="ku-note">Cada região vale 100 pontos, cada país dominado 400 e cada nível de construção 40.</p>
       <h4>Metas de expansão</h4>
       <ul className="ku-milestones">
         {milestones.map(({ milestone, value, done }) => (
@@ -108,14 +117,24 @@ export function RankingSheet({ board, me, world, onPick, onClose }: { board: Nat
   );
 }
 
-export function SettingsSheet({ username, reduced, onReduced, onLogout, onClose }: { username: string; reduced: boolean; onReduced: (v: boolean) => void; onLogout: () => void; onClose: () => void }) {
+export function SettingsSheet(p: {
+  username: string;
+  reduced: boolean;
+  onReduced: (v: boolean) => void;
+  /** Partida rápida em andamento: oferece abandonar. */
+  quick: boolean;
+  onSwitchMode: () => void;
+  onLeave: () => Promise<void>;
+  onLogout: () => void;
+  onClose: () => void;
+}) {
   const settings = useSyncExternalStore(
     (fn) => audio.subscribe(fn),
     () => audio.settings,
   );
-  const [confirm, setConfirm] = useState(false);
+  const [confirm, setConfirm] = useState<'logout' | 'leave' | null>(null);
   return (
-    <Sheet title="Configurações" onClose={onClose} testId="settings-sheet">
+    <Sheet title="Configurações" onClose={p.onClose} testId="settings-sheet">
       <div className="ku-setting">
         <label htmlFor="ku-music">Música ambiente</label>
         <input id="ku-music" type="range" min={0} max={1} step={0.05} value={settings.music} onChange={(e) => audio.update({ music: Number(e.target.value) })} data-testid="vol-music" />
@@ -138,28 +157,93 @@ export function SettingsSheet({ username, reduced, onReduced, onLogout, onClose 
         {settings.muted ? <IcMute /> : <IcSound />}
         {settings.muted ? 'Som desligado' : 'Som ligado'}
       </button>
-      <button type="button" className="ku-toggle" aria-pressed={reduced} onClick={() => onReduced(!reduced)} data-testid="reduced-motion">
-        <span className={`ku-switch ${reduced ? 'on' : ''}`} />
+      <button type="button" className="ku-toggle" aria-pressed={p.reduced} onClick={() => p.onReduced(!p.reduced)} data-testid="reduced-motion">
+        <span className={`ku-switch ${p.reduced ? 'on' : ''}`} />
         Reduzir animações
       </button>
+      <h4>Partida</h4>
+      <button type="button" className="ku-btn" onClick={p.onSwitchMode} data-testid="switch-mode">
+        Trocar de modo
+      </button>
+      {p.quick &&
+        (confirm === 'leave' ? (
+          <div className="ku-row">
+            <button type="button" className="ku-btn danger" onClick={() => void p.onLeave()} data-testid="leave-confirm">
+              Abandonar e perder
+            </button>
+            <button type="button" className="ku-btn" onClick={() => setConfirm(null)}>
+              Continuar jogando
+            </button>
+          </div>
+        ) : (
+          <button type="button" className="ku-btn" onClick={() => setConfirm('leave')} data-testid="leave">
+            Abandonar partida
+          </button>
+        ))}
+      {p.quick && <p className="ku-note">Abandonar encerra a partida na hora e coloca sua nação em último lugar.</p>}
       <h4>Conta</h4>
       <p className="ku-note">
-        Você entrou como <b>{username}</b>. Contas criadas pelo botão de início ficam guardadas só neste navegador: se os dados do site forem apagados, a nação fica sem dono.
+        Você entrou como <b>{p.username}</b>. Contas criadas pelo botão de início ficam guardadas só neste navegador: se os dados do site forem apagados, a nação fica sem dono.
       </p>
-      {confirm ? (
+      {confirm === 'logout' ? (
         <div className="ku-row">
-          <button type="button" className="ku-btn danger" onClick={onLogout} data-testid="logout-confirm">
+          <button type="button" className="ku-btn danger" onClick={p.onLogout} data-testid="logout-confirm">
             Sair agora
           </button>
-          <button type="button" className="ku-btn" onClick={() => setConfirm(false)}>
+          <button type="button" className="ku-btn" onClick={() => setConfirm(null)}>
             Ficar
           </button>
         </div>
       ) : (
-        <button type="button" className="ku-btn" onClick={() => setConfirm(true)} data-testid="logout">
+        <button type="button" className="ku-btn" onClick={() => setConfirm('logout')} data-testid="logout">
           Sair da conta
         </button>
       )}
+    </Sheet>
+  );
+}
+
+/** Construções da nação por região: onde há espaço e o que já existe. */
+export function BuildSheet(p: {
+  regions: string[];
+  capitalRegion: string | null;
+  structures: StructureView[];
+  onRegion: (id: string) => void;
+  onStructure: (s: StructureView) => void;
+  onClose: () => void;
+}) {
+  const ordered = [...p.regions].sort((a, b) => Number(b === p.capitalRegion) - Number(a === p.capitalRegion) || (REGION_BY_ID[a]?.name ?? '').localeCompare(REGION_BY_ID[b]?.name ?? ''));
+  const now = serverNow();
+  return (
+    <Sheet title="Construções" onClose={p.onClose} testId="build-sheet">
+      <p className="ku-note">Toque numa região para construir ali, ou numa construção para melhorar. Até {ECONOMY.buildQueue} obras ao mesmo tempo.</p>
+      <ul className="ku-build-list">
+        {ordered.map((rid) => {
+          const items = p.structures.filter((s) => s.region === rid);
+          const slots = slotsFor(rid, p.capitalRegion);
+          return (
+            <li key={rid}>
+              <button type="button" className="ku-build-region" onClick={() => p.onRegion(rid)} data-testid={`build-region-${rid}`}>
+                <b>
+                  {REGION_BY_ID[rid]?.name}
+                  {rid === p.capitalRegion ? ' · capital' : ''}
+                </b>
+                <small>
+                  {items.length}/{slots} espaços
+                </small>
+              </button>
+              <div>
+                {items.map((s) => (
+                  <button type="button" key={s.id} className="ku-mini" onClick={() => p.onStructure(s)} title={STRUCTURES[s.type].name}>
+                    <Glyph d={STRUCTURE_GLYPH[s.type]} size={18} />
+                    <small>{s.building ? `${Math.floor(Math.max(0, Math.min(1, (now - s.building.startedAt) / Math.max(1, s.building.endsAt - s.building.startedAt))) * 100)}%` : `N${s.level}`}</small>
+                  </button>
+                ))}
+              </div>
+            </li>
+          );
+        })}
+      </ul>
     </Sheet>
   );
 }

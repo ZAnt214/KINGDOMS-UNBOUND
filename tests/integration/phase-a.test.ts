@@ -1,5 +1,4 @@
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-import { upgradeCost } from '../../shared/rules.js';
 import type { Db } from '../../server/src/db.js';
 import { Player, resetDb, startServer, type TestPlayer } from './helpers.js';
 
@@ -10,34 +9,13 @@ let B: TestPlayer;
 let C: TestPlayer; // reino 2
 let D: TestPlayer; // reino 1, fora da aliança
 
-const key = () => `k-${Math.random().toString(36).slice(2)}${Date.now()}`;
-
-async function forceQueueDue(cityId: number) {
-  // Simula a passagem do tempo movendo o relógio da obra para o passado.
-  await db.query(
-    `UPDATE building_queues SET started_at = started_at - interval '1 hour', ends_at = now() - interval '1 second'
-      WHERE city_id = $1 AND status = 'active'`,
-    [cityId],
-  );
-}
-
-async function ledgerMatchesBalance(cityId: number) {
-  const { rows } = await db.query(
-    `SELECT b.resource, b.amount::float8 AS amount, COALESCE(SUM(l.delta), 0)::float8 AS ledger
-       FROM resource_balances b LEFT JOIN resource_ledger l ON l.city_id = b.city_id AND l.resource = b.resource
-      WHERE b.city_id = $1 GROUP BY b.resource, b.amount`,
-    [cityId],
-  );
-  for (const r of rows) expect(Math.abs(r.amount - r.ledger)).toBeLessThan(0.01);
-}
-
 beforeAll(async () => {
   db = await resetDb();
   srv = await startServer(db);
-  A = (await Player.create(srv.base, 'Alfa', 1, 'auren')) as TestPlayer;
-  B = (await Player.create(srv.base, 'Beta', 1, 'kharuun')) as TestPlayer;
-  C = (await Player.create(srv.base, 'Gama', 2, 'veyra')) as TestPlayer;
-  D = (await Player.create(srv.base, 'Delta', 1, 'veyra')) as TestPlayer;
+  A = (await Player.create(srv.base, 'Alfa', 1)) as TestPlayer;
+  B = (await Player.create(srv.base, 'Beta', 1)) as TestPlayer;
+  C = (await Player.create(srv.base, 'Gama', 2)) as TestPlayer;
+  D = (await Player.create(srv.base, 'Delta', 1)) as TestPlayer;
   await Promise.all([A, B, C, D].map((p) => p.connect()));
 });
 
@@ -47,28 +25,27 @@ afterAll(async () => {
   await db?.end();
 });
 
-describe('A1 identidade e mundo', () => {
-  it('A-01/A-02: contas independentes no mesmo reino', async () => {
+describe('identidade e mundos da campanha', () => {
+  it('A-01/A-02: contas independentes no mesmo mundo', async () => {
     expect(A.governor.id).not.toBe(B.governor.id);
-    expect(A.governor.cityId).not.toBe(B.governor.cityId);
     expect(A.governor.kingdomId).toBe(1);
     expect(B.governor.kingdomId).toBe(1);
     expect(C.governor.kingdomId).toBe(2);
   });
 
-  it('rejeita nome de governador duplicado e segundo governador', async () => {
+  it('rejeita nome de comandante duplicado e segundo lugar na campanha', async () => {
     const p = new Player(srv.base);
     await p.post('/auth/register', { username: `dup${Date.now()}`, password: 'senha-segura-1' });
-    const dup = await p.post('/governor', { name: A.governor.name.toUpperCase(), civilization: 'auren', kingdomId: 1 });
+    const dup = await p.post('/governor', { name: A.governor.name.toUpperCase(), kingdomId: 1 });
     expect(dup.status).toBe(409);
-    const again = await A.post('/governor', { name: 'Outro', civilization: 'auren', kingdomId: 1 });
+    const again = await A.post('/governor', { name: 'Outro', kingdomId: 1 });
     expect(again.status).toBe(409);
   });
 
   it('sessão: sem cookie → 401; sem cabeçalho anti-CSRF → 403; login funciona', async () => {
     const anon = new Player(srv.base);
-    expect((await anon.get('/city')).status).toBe(401);
-    const noCsrf = await A.req('POST', '/city/upgrade', { building: 'farm', idempotencyKey: key() }, { 'X-KU': '0' });
+    expect((await anon.get('/play/state')).status).toBe(401);
+    const noCsrf = await A.req('POST', '/play/expand', { region: 'BRA-1294' }, { 'X-KU': '0' });
     expect(noCsrf.status).toBe(403);
     const fresh = new Player(srv.base);
     const bad = await fresh.post('/auth/login', { username: A.username, password: 'errada-123' });
@@ -76,121 +53,6 @@ describe('A1 identidade e mundo', () => {
     const ok = await fresh.post('/auth/login', { username: A.username, password: 'senha-segura-1' });
     expect(ok.status).toBe(200);
     expect((await fresh.get('/me')).data.governor.id).toBe(A.governor.id);
-  });
-});
-
-describe('A2 cidade e economia', () => {
-  it('A-03: recursos isolados por governador', async () => {
-    const a = (await A.get('/city')).data;
-    const b = (await B.get('/city')).data;
-    expect(a.cityId).not.toBe(b.cityId);
-    expect(a.resources.food).toBeGreaterThanOrEqual(3000);
-    // B não consegue ver/alterar a cidade de A: a API só expõe a própria cidade.
-    expect(b.cityId).toBe(B.governor.cityId);
-  });
-
-  it('A-04/A-20: custo debitado uma vez, chave repetida não cobra de novo', async () => {
-    const before = (await A.get('/city')).data;
-    const k = key();
-    // Mesmo comando enviado 5 vezes em paralelo (duplo toque/reenvio de rede).
-    const results = await Promise.all(Array.from({ length: 5 }, () => A.post('/city/upgrade', { building: 'town_hall', idempotencyKey: k })));
-    expect(results.every((r) => r.status === 200)).toBe(true);
-    expect(results.filter((r) => r.data.replayed === false)).toHaveLength(1);
-    const queueIds = new Set(results.map((r) => r.data.queueId));
-    expect(queueIds.size).toBe(1);
-    const after = (await A.get('/city')).data;
-    const cost = upgradeCost('town_hall', 1);
-    expect(before.resources.food - after.resources.food).toBeGreaterThan(cost.food! - 5);
-    expect(before.resources.food - after.resources.food).toBeLessThan(cost.food! + 1);
-    const { rows } = await db.query(`SELECT COUNT(*)::int AS n FROM resource_ledger WHERE city_id = $1 AND reason = 'build_cost'`, [
-      A.governor.cityId,
-    ]);
-    expect(rows[0].n).toBe(3); // alimento, madeira e pedra: uma linha cada
-    await ledgerMatchesBalance(A.governor.cityId);
-  });
-
-  it('fila única: segunda obra concorrente é rejeitada', async () => {
-    const r = await A.post('/city/upgrade', { building: 'farm', idempotencyKey: key() });
-    expect(r.status).toBe(409);
-    expect(r.data.error).toBe('queue_busy');
-  });
-
-  it('servidor ignora custo/duração enviados pelo cliente e valida requisitos', async () => {
-    const r = await B.post('/city/upgrade', { building: 'farm', idempotencyKey: key(), cost: { food: 0 }, duration: 0 });
-    expect(r.status).toBe(400);
-    expect(r.data.error).toBe('requirement'); // fazenda não pode passar a prefeitura
-    const bogus = await B.post('/city/upgrade', { building: 'castelo_dourado', idempotencyKey: key() });
-    expect(bogus.status).toBe(400);
-  });
-
-  it('rejeita obra sem recursos e não debita nada', async () => {
-    await db.query(`UPDATE resource_balances SET amount = 10, settled_at = now() WHERE city_id = $1`, [D.governor.cityId]);
-    const r = await D.post('/city/upgrade', { building: 'town_hall', idempotencyKey: key() });
-    expect(r.status).toBe(400);
-    expect(r.data.error).toBe('insufficient_resources');
-    const q = await db.query(`SELECT COUNT(*)::int AS n FROM building_queues WHERE city_id = $1`, [D.governor.cityId]);
-    expect(q.rows[0].n).toBe(0);
-  });
-
-  it('A-06/A-05: obra conclui pelo relógio do servidor (worker) e notifica em tempo real', async () => {
-    A.events.length = 0;
-    B.events.length = 0;
-    await forceQueueDue(A.governor.cityId);
-    const ev = await A.waitFor((e) => e.type === 'city.updated' && e.state.levels.town_hall === 2, 4000);
-    expect(ev.state.queue).toBeNull();
-    // B (mesmo reino) recebe atualização do mapa sem recarregar (A-08)
-    const m = await B.waitFor((e) => e.type === 'map.city' && e.city.cityId === A.governor.cityId && e.city.hallLevel === 2);
-    expect(m.city.power).toBeGreaterThan(0);
-    // C (outro reino) não recebe
-    await C.expectNone((e) => e.type === 'map.city' && e.city.cityId === A.governor.cityId, 200);
-    // Persistência: nova sessão vê o mesmo estado
-    const s = (await A.get('/city')).data;
-    expect(s.levels.town_hall).toBe(2);
-    const done = await db.query(`SELECT COUNT(*)::int AS n FROM building_queues WHERE city_id = $1 AND status = 'done'`, [A.governor.cityId]);
-    expect(done.rows[0].n).toBe(1);
-    await ledgerMatchesBalance(A.governor.cityId);
-  });
-
-  it('obra vencida com servidor parado conclui após reinício sem duplicar nível', async () => {
-    const r = await B.post('/city/upgrade', { building: 'town_hall', idempotencyKey: key() });
-    expect(r.status).toBe(200);
-    await srv.close();
-    await forceQueueDue(B.governor.cityId);
-    srv = await startServer(db);
-    for (const p of [A, B, C, D]) {
-      p.base = srv.base;
-      p.close();
-    }
-    await Promise.all([A, B, C, D].map((p) => p.connect()));
-    const s = (await B.get('/city')).data;
-    expect(s.levels.town_hall).toBe(2);
-    const s2 = (await B.get('/city')).data;
-    expect(s2.levels.town_hall).toBe(2);
-    await ledgerMatchesBalance(B.governor.cityId);
-  });
-
-  it('produção offline acumula até a capacidade, com ledger', async () => {
-    await db.query(`UPDATE resource_balances SET settled_at = now() - interval '100 hours' WHERE city_id = $1`, [D.governor.cityId]);
-    const s = (await D.get('/city')).data;
-    expect(s.resources.food).toBe(s.capacity);
-    expect(s.resources.gold).toBe(10); // sem mina de ouro, não produz ouro
-  });
-});
-
-describe('A3 mapa compartilhado', () => {
-  it('A-07: cidades do mesmo reino aparecem; outro reino não', async () => {
-    const r = await B.get('/map/cities?x0=0&y0=0&x1=119&y1=119');
-    const ids = r.data.cities.map((c: any) => c.cityId);
-    expect(ids).toContain(A.governor.cityId);
-    expect(ids).toContain(B.governor.cityId);
-    expect(ids).not.toContain(C.governor.cityId);
-    expect((await B.get(`/map/city/${C.governor.cityId}`)).status).toBe(404);
-  });
-
-  it('cidades em posições únicas e terreno válido', async () => {
-    const { rows } = await db.query('SELECT kingdom_id, x, y FROM cities');
-    const keys = rows.map((r) => `${r.kingdom_id}:${r.x}:${r.y}`);
-    expect(new Set(keys).size).toBe(keys.length);
   });
 });
 

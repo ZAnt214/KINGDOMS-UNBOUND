@@ -1,17 +1,20 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import type { FoundInput, NationView, OccupationView, PlayEvent, PlaySnapshot } from '../../../shared/play/types';
+import type { StructureType } from '../../../shared/play/economy';
+import type { EconomyView, FoundInput, NationView, OccupationView, PlayEvent, PlaySnapshot, StructureView, WorldView } from '../../../shared/play/types';
 import { dominatedCountries } from '../../../shared/world/regions';
 import { api, ApiError, serverNow } from '../api';
 import { Realtime, type RealtimeStatus } from '../realtime';
 
 /** Estado do mundo no cliente: cópia do que o servidor informou, nunca uma fonte própria. */
 export interface WorldState {
-  world: PlaySnapshot['world'];
+  world: WorldView;
   me: number | null;
   nations: Map<number, NationView>;
   /** região → nação */
   control: Map<string, number>;
   occupations: OccupationView[];
+  structures: Map<number, StructureView>;
+  economy: EconomyView | null;
 }
 
 /** Acontecimentos que a interface anima (derivados de eventos do servidor ou da diferença entre estados). */
@@ -19,7 +22,9 @@ export type WorldMoment =
   | { kind: 'nation'; nation: NationView; region: string }
   | { kind: 'occupation'; occupation: OccupationView }
   | { kind: 'region'; region: string; nationId: number }
-  | { kind: 'country'; country: string; nationId: number };
+  | { kind: 'country'; country: string; nationId: number }
+  | { kind: 'structure'; structure: StructureView; completed: boolean }
+  | { kind: 'match'; world: WorldView };
 
 function fromSnapshot(s: PlaySnapshot): WorldState {
   return {
@@ -28,6 +33,8 @@ function fromSnapshot(s: PlaySnapshot): WorldState {
     nations: new Map(s.nations.map((n) => [n.id, n])),
     control: new Map(s.control),
     occupations: s.occupations,
+    structures: new Map(s.structures.map((x) => [x.id, x])),
+    economy: s.economy,
   };
 }
 
@@ -37,24 +44,28 @@ export function regionsOf(state: WorldState, nationId: number): string[] {
   return out;
 }
 
+export function structuresOf(state: WorldState, nationId: number): StructureView[] {
+  return [...state.structures.values()].filter((s) => s.nationId === nationId);
+}
+
 /**
- * Liga a tela ao mundo: lê o estado, aplica os eventos em tempo real e relê quando reconecta ou
- * quando uma ocupação vence. `onMoment` recebe o que merece animação.
+ * Liga a tela ao mundo `worldId` (null = campanha): lê o estado, aplica os eventos em tempo real e
+ * relê quando reconecta ou quando algo vence. `onMoment` recebe o que merece animação.
  */
-export function usePlayWorld(governorId: number | null, onMoment: (m: WorldMoment, state: WorldState) => void) {
-  const enabled = governorId !== null;
+export function usePlayWorld(worldId: number | null, governorId: number | null, onMoment: (m: WorldMoment, state: WorldState) => void) {
   const [state, setState] = useState<WorldState | null>(null);
   const [status, setStatus] = useState<RealtimeStatus>('connecting');
   const [error, setError] = useState<string | null>(null);
   const current = useRef<WorldState | null>(null);
   const moment = useRef(onMoment);
   moment.current = onMoment;
+  const enabled = governorId !== null;
 
   const commit = useCallback((next: WorldState, announce: boolean) => {
     const prev = current.current;
     current.current = next;
     setState(next);
-    if (!prev || !announce) return;
+    if (!prev || !announce || prev.world.id !== next.world.id) return;
     // Diferença entre estados: cobre eventos perdidos (reconexão) e respostas diretas do servidor.
     for (const n of next.nations.values()) {
       if (!prev.nations.has(n.id)) {
@@ -78,6 +89,13 @@ export function usePlayWorld(governorId: number | null, onMoment: (m: WorldMomen
     for (const o of next.occupations) {
       if (!prev.occupations.some((p) => p.id === o.id)) moment.current({ kind: 'occupation', occupation: o }, next);
     }
+    for (const s of next.structures.values()) {
+      const old = prev.structures.get(s.id);
+      if (!old) moment.current({ kind: 'structure', structure: s, completed: false }, next);
+      else if (s.level > old.level) moment.current({ kind: 'structure', structure: s, completed: true }, next);
+      else if (s.building && !old.building) moment.current({ kind: 'structure', structure: s, completed: false }, next);
+    }
+    if (next.world.finishedAt && !prev.world.finishedAt) moment.current({ kind: 'match', world: next.world }, next);
   }, []);
 
   const refresh = useCallback(async () => {
@@ -89,6 +107,12 @@ export function usePlayWorld(governorId: number | null, onMoment: (m: WorldMomen
     }
   }, [commit]);
 
+  // Troca de mundo: começa do zero.
+  useEffect(() => {
+    current.current = null;
+    setState(null);
+  }, [worldId]);
+
   useEffect(() => {
     if (!enabled) return;
     const apply = (event: PlayEvent | { type: string }) => {
@@ -97,7 +121,7 @@ export function usePlayWorld(governorId: number | null, onMoment: (m: WorldMomen
       if (event.type === 'resync') return void refresh();
       if (!event.type.startsWith('play.')) return;
       const e = event as PlayEvent;
-      const next: WorldState = { ...prev, nations: new Map(prev.nations), control: new Map(prev.control), occupations: prev.occupations };
+      const next: WorldState = { ...prev, nations: new Map(prev.nations), control: new Map(prev.control), structures: new Map(prev.structures) };
       if (e.type === 'play.nation') {
         next.nations.set(e.nation.id, e.nation);
         next.control.set(e.region, e.nation.id);
@@ -110,16 +134,28 @@ export function usePlayWorld(governorId: number | null, onMoment: (m: WorldMomen
         next.occupations = prev.occupations.filter((o) => o.id !== e.occupationId);
       } else if (e.type === 'play.occupation.failed') {
         next.occupations = prev.occupations.filter((o) => o.id !== e.occupationId);
+      } else if (e.type === 'play.structure') {
+        next.structures.set(e.structure.id, e.structure);
+      } else if (e.type === 'play.economy') {
+        next.economy = e.economy;
+      } else if (e.type === 'play.match') {
+        next.world = e.world;
+        if (e.world.finishedAt) next.occupations = [];
       }
       commit(next, true);
     };
     const rt = new Realtime(apply, setStatus, () => void refresh());
     rt.connect();
     return () => rt.stop();
-  }, [enabled, governorId, refresh, commit]);
+  }, [enabled, governorId, worldId, refresh, commit]);
 
-  // Quando a próxima ocupação vence, relê o estado: a leitura faz o servidor concluir e avisar a todos.
-  const nextEnd = useMemo(() => (state?.occupations.length ? Math.min(...state.occupations.map((o) => o.endsAt)) : null), [state]);
+  // Quando a próxima ocupação ou obra vence, relê o estado: a leitura faz o servidor concluir e avisar.
+  const nextEnd = useMemo(() => {
+    if (!state || state.world.finishedAt) return null;
+    const ends = [...state.occupations.map((o) => o.endsAt), ...[...state.structures.values()].flatMap((s) => (s.building ? [s.building.endsAt] : []))];
+    if (state.world.endsAt) ends.push(state.world.endsAt);
+    return ends.length ? Math.min(...ends) : null;
+  }, [state]);
   useEffect(() => {
     if (nextEnd === null) return;
     const wait = Math.max(150, nextEnd - serverNow() + 250);
@@ -134,8 +170,7 @@ export function usePlayWorld(governorId: number | null, onMoment: (m: WorldMomen
 
   const found = useCallback(
     async (input: FoundInput) => {
-      const snapshot = await api.post<PlaySnapshot>('/play/found', input);
-      commit(fromSnapshot(snapshot), true);
+      commit(fromSnapshot(await api.post<PlaySnapshot>('/play/found', input)), true);
     },
     [commit],
   );
@@ -149,5 +184,25 @@ export function usePlayWorld(governorId: number | null, onMoment: (m: WorldMomen
     [commit],
   );
 
-  return { state, status, error, refresh, found, expand };
+  const upsertStructure = useCallback(
+    (structure: StructureView) => {
+      const prev = current.current;
+      if (!prev) return;
+      const structures = new Map(prev.structures);
+      structures.set(structure.id, structure);
+      commit({ ...prev, structures }, true);
+    },
+    [commit],
+  );
+
+  const build = useCallback(
+    async (region: string, type: StructureType) => upsertStructure((await api.post<{ structure: StructureView }>('/play/build', { region, type })).structure),
+    [upsertStructure],
+  );
+  const upgrade = useCallback(
+    async (structureId: number) => upsertStructure((await api.post<{ structure: StructureView }>('/play/upgrade', { structureId })).structure),
+    [upsertStructure],
+  );
+
+  return { state, status, error, refresh, found, expand, build, upgrade };
 }

@@ -1,7 +1,7 @@
 import type { IncomingMessage, Server } from 'node:http';
 import pg from 'pg';
 import { WebSocket, WebSocketServer } from 'ws';
-import { authFromToken, loadGovernor, parseCookies, SESSION_COOKIE } from './auth.js';
+import { authFromToken, loadSeats, parseCookies, pickSeat, SESSION_COOKIE, worldParam } from './auth.js';
 import { clientConfig, type Db } from './db.js';
 
 interface Conn {
@@ -10,6 +10,8 @@ interface Conn {
   governorId: number | null;
   kingdomId: number | null;
   allianceId: number | null;
+  /** Mundo pedido na conexão (`/ws?world=ID`). */
+  world: number | null;
   alive: boolean;
 }
 
@@ -18,7 +20,7 @@ export type ServerEvent = { type: string; [k: string]: unknown };
 type Envelope =
   | { k: 'user' | 'governor' | 'kingdom' | 'alliance'; id: number; e: ServerEvent }
   | { k: 'all'; e: ServerEvent }
-  | { k: 'refresh'; id: number; gov: { id: number; kingdomId: number; allianceId: number | null } | null };
+  | { k: 'refresh'; id: number; seats: { id: number; kingdomId: number; mode: string; allianceId: number | null }[] };
 
 const CHANNEL = 'ku_events';
 // Limite do payload de NOTIFY é 8000 bytes; eventos maiores viram pedido de ressincronização.
@@ -89,9 +91,11 @@ export class Hub {
       case 'refresh':
         for (const c of this.conns) {
           if (c.userId !== env.id) continue;
-          c.governorId = env.gov?.id ?? null;
-          c.kingdomId = env.gov?.kingdomId ?? null;
-          c.allianceId = env.gov?.allianceId ?? null;
+          // Cada conexão continua no mundo em que entrou (ou passa à campanha, se ainda não tinha lugar).
+          const seat = pickSeat(env.seats as { id: number; kingdomId: number; mode: 'campaign'; allianceId: number | null }[], c.world);
+          c.governorId = seat?.id ?? null;
+          c.kingdomId = seat?.kingdomId ?? null;
+          c.allianceId = seat?.allianceId ?? null;
         }
         return;
       case 'all':
@@ -119,7 +123,8 @@ export class Hub {
         return;
       }
       const token = parseCookies(req.headers.cookie)[SESSION_COOKIE];
-      authFromToken(this.db, token)
+      const world = worldParam(new URL(req.url, 'http://x').searchParams.get('world'));
+      authFromToken(this.db, token, world)
         .then((auth) => {
           if (!auth) {
             socket.write('HTTP/1.1 401 Unauthorized\r\n\r\n');
@@ -133,6 +138,7 @@ export class Hub {
               governorId: auth.governor?.id ?? null,
               kingdomId: auth.governor?.kingdomId ?? null,
               allianceId: auth.governor?.allianceId ?? null,
+              world,
               alive: true,
             };
             this.conns.add(conn);
@@ -209,13 +215,13 @@ export class Hub {
 
   /** Propaga a todas as instâncias o reino/aliança atual de um usuário após mudança persistida. */
   async refreshUser(userId: number) {
-    const gov = await loadGovernor(this.db, userId);
-    this.publish({ k: 'refresh', id: userId, gov: gov && { id: gov.id, kingdomId: gov.kingdomId, allianceId: gov.allianceId } });
+    const seats = await loadSeats(this.db, userId);
+    this.publish({ k: 'refresh', id: userId, seats: seats.map((s) => ({ id: s.id, kingdomId: s.kingdomId, mode: s.mode, allianceId: s.allianceId })) });
   }
 
   async refreshGovernor(governorId: number) {
     const { rows } = await this.db.query('SELECT user_id FROM governors WHERE id = $1', [governorId]);
-    if (rows[0]) await this.refreshUser(rows[0].user_id);
+    if (rows[0]?.user_id) await this.refreshUser(Number(rows[0].user_id));
   }
 
   onlineCount() {

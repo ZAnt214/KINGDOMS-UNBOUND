@@ -1,10 +1,18 @@
-import type { BuildingLevels, BuildingType, CivilizationDef, BuildingDef, ResourceMap } from '../../shared/rules';
+import type { WorldSeat } from '../../shared/play/types';
+import type { GameMode } from '../../shared/play/rules';
 
 let serverOffset = 0;
 export const serverNow = () => Date.now() + serverOffset;
 export function syncClock(serverTime: number | undefined) {
   if (typeof serverTime === 'number') serverOffset = serverTime - Date.now();
 }
+
+/** Mundo das próximas requisições (cabeçalho X-KU-World). null = campanha. */
+let currentWorld: number | null = null;
+export const setWorld = (id: number | null) => {
+  currentWorld = id;
+};
+export const getWorld = () => currentWorld;
 
 export class ApiError extends Error {
   constructor(
@@ -22,7 +30,7 @@ async function request<T>(method: string, path: string, body?: unknown): Promise
     res = await fetch(`/api${path}`, {
       method,
       credentials: 'same-origin',
-      headers: { 'Content-Type': 'application/json', 'X-KU': '1' },
+      headers: { 'Content-Type': 'application/json', 'X-KU': '1', ...(currentWorld ? { 'X-KU-World': String(currentWorld) } : {}) },
       body: body === undefined ? undefined : JSON.stringify(body),
     });
   } catch {
@@ -30,7 +38,7 @@ async function request<T>(method: string, path: string, body?: unknown): Promise
   }
   const data = await res.json().catch(() => ({}));
   if (!res.ok) throw new ApiError(res.status, data.error ?? 'error', data.message ?? 'Erro inesperado.');
-  syncClock(data.serverTime ?? data.state?.serverTime);
+  syncClock(data.serverTime);
   return data as T;
 }
 
@@ -43,8 +51,7 @@ export interface Governor {
   id: number;
   name: string;
   kingdomId: number;
-  civilization: string;
-  cityId: number;
+  mode: GameMode;
   allianceId: number | null;
   allianceRank: number | null;
 }
@@ -53,99 +60,11 @@ export interface Me {
   userId: number;
   username: string;
   governor: Governor | null;
+  worlds: WorldSeat[];
   serverTime: number;
-}
-
-export interface Kingdom {
-  id: number;
-  name: string;
-  width: number;
-  height: number;
-  seed: number;
-  status: string;
-  population: number;
-  capacity: number;
 }
 
 export interface Meta {
-  rulesVersion: number;
-  civilizations: CivilizationDef[];
-  buildings: BuildingDef[];
-  kingdoms: Kingdom[];
-}
-
-export interface CityState {
-  cityId: number;
-  x: number;
-  y: number;
-  civilization: string;
-  power: number;
-  serverTime: number;
-  levels: BuildingLevels;
-  resources: ResourceMap;
-  resourcesAt: number;
-  ratesPerHour: ResourceMap;
-  capacity: number;
-  queue: null | { id: number; building: BuildingType; toLevel: number; startedAt: number; endsAt: number };
-}
-
-export interface MapCity {
-  cityId: number;
-  governorId: number;
-  name: string;
-  civilization: string;
-  power: number;
-  x: number;
-  y: number;
-  hallLevel: number;
-  allianceTag: string | null;
-  allianceId: number | null;
-}
-
-export interface ChatChannel {
-  id: number;
-  type: 'global' | 'kingdom' | 'alliance';
-  name: string;
-  unread: number;
-  lastRead: number;
-}
-
-export interface ChatMessage {
-  id: number;
-  channelId: number;
-  body: string;
-  attachments: { kind: 'coords'; kingdomId: number; x: number; y: number }[];
-  createdAt: number;
-  author: { governorId: number; name: string; kingdomId: number; allianceTag: string | null; civilization: string };
-}
-
-export const newIdempotencyKey = () =>
-  (crypto.randomUUID?.() ?? `${Date.now()}-${Math.random().toString(36).slice(2)}`).replace(/[^a-zA-Z0-9-]/g, '');
-
-/** Estado geopolítico do reino (GET /api/world). O servidor é a fonte da verdade. */
-export interface WorldBloc {
-  id: number;
-  key: string;
-  name: string;
-  color: string;
-  territories: number;
-  members: number;
-}
-
-export interface WorldWar {
-  id: number;
-  attackerBlocId: number;
-  defenderBlocId: number;
-  theater: string;
-  countryCode: string | null;
-  startedAt: number;
-}
-
-export interface WorldSnapshot {
-  serverTime: number;
-  myBlocId: number | null;
-  blocs: WorldBloc[];
-  territories: { code: string; blocId: number | null; version: number }[];
-  wars: WorldWar[];
-  systems: { armies: boolean; wars: boolean; diplomacy: boolean; espionage: boolean };
+  modes: Record<GameMode, boolean>;
+  worlds: { id: number; name: string; status: string; mode: GameMode; population: number; capacity: number }[];
 }

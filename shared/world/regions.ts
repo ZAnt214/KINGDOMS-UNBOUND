@@ -13,6 +13,8 @@ export interface RegionDef {
   area: number;
   /** Ponto de rótulo [longitude, latitude]. */
   at: [number, number];
+  /** Tem litoral. */
+  coast: boolean;
   /** Regiões com fronteira terrestre. */
   neighbors: string[];
 }

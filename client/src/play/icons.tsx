@@ -21,6 +21,12 @@ export const IcCapital = (p: SVGProps<SVGSVGElement>) => (
     <path d="M3.5 21h5" />
   </Icon>
 );
+export const IcBuild = (p: SVGProps<SVGSVGElement>) => (
+  <Icon {...p}>
+    <path d="M3 21h18M5 21V10l4-3v14M9 21V4l6 4v13M15 21v-9l4 2v7" />
+    <path d="M11.5 11h1M11.5 14h1M11.5 17h1" />
+  </Icon>
+);
 export const IcRanking = (p: SVGProps<SVGSVGElement>) => (
   <Icon {...p}>
     <path d="M4 20V11h4v9M10 20V5h4v15M16 20v-6h4v6" />

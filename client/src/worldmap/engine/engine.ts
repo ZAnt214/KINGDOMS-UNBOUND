@@ -16,6 +16,7 @@ import type {
   MapPick,
   MapPoint,
   MapRoute,
+  MapStructure,
   MapTerritory,
   MapView,
   RegionInfo,
@@ -119,6 +120,9 @@ export class WorldMapEngine {
   private flags: MapFlag[] = [];
   private selectedRegion: string | null = null;
   private hoveredRegion: string | null = null;
+  private structures: MapStructure[] = [];
+  private glyphs = new Map<string, Path2D>();
+  private arena: TerritoryShape | null = null;
 
   constructor(
     private host: HTMLElement,
@@ -223,6 +227,15 @@ export class WorldMapEngine {
   setPoints(points: MapPoint[], live = false) {
     this.points = points;
     this.pointsLive = live;
+    this.invalidate();
+  }
+  setStructures(list: MapStructure[]) {
+    this.structures = list;
+    this.invalidate();
+  }
+  /** Área jogável (partida rápida): o resto do mundo escurece. null = mundo inteiro. */
+  setArena(regionIds: string[] | null) {
+    this.arena = this.geo && regionIds?.length ? this.geo.territory('arena', '#ffffff', regionIds) : null;
     this.invalidate();
   }
   setFlags(flags: MapFlag[]) {
@@ -593,7 +606,9 @@ export class WorldMapEngine {
     this.effects = this.effects.filter((e) => t - e.start < (e.fx.ms ?? 1400));
     this.draw(t);
     const now = this.opts.now();
-    const planting = this.flags.some((f) => f.plantedAt !== undefined && t - f.plantedAt < 700 && t - f.plantedAt > -3000);
+    const planting =
+      this.flags.some((f) => f.plantedAt !== undefined && t - f.plantedAt < 700 && t - f.plantedAt > -3000) ||
+      this.structures.some((x) => (x.completedAt !== undefined && t - x.completedAt < 900) || (x.building && now < x.building.endAt + 300));
     const filling = this.fills.some((f) => now < f.endAt + 400);
     const live = this.routes.length > 0 || this.pointsLive || this.preview !== null || Object.values(this.styles).some((s) => s.contested);
     if (this.anim || this.effects.length || planting || ((live || filling) && !this.opts.reducedMotion)) this.invalidate();
@@ -736,6 +751,7 @@ export class WorldMapEngine {
       this.drawEffects(t);
       if (!this.hidden.has('points')) this.drawPoints(t, placed);
       if (!this.hidden.has('flags')) this.drawFlags(t, placed);
+      if (!this.hidden.has('structures')) this.drawStructures(t);
     }
     if (!this.hidden.has('labels')) this.drawLabels(placed);
     for (const layer of this.layers) {
@@ -763,6 +779,13 @@ export class WorldMapEngine {
 
     ctx.fillStyle = this.opts.neutralFill;
     ctx.fill(this.land, 'evenodd');
+    if (this.arena) {
+      // Fora da arena o mundo apaga: só a área da partida fica com a cor do terreno.
+      ctx.fillStyle = '#1f2a44';
+      ctx.fill(this.land, 'evenodd');
+      ctx.fillStyle = this.opts.neutralFill;
+      ctx.fill(this.arena.fill, 'evenodd');
+    }
 
     const territories = this.territories.filter((x) => this.visible(x));
     for (const terr of territories) {
@@ -868,6 +891,17 @@ export class WorldMapEngine {
       ctx.strokeStyle = mix(terr.color, 255, terr.own ? 0.5 : 0.25);
       ctx.lineWidth = (terr.own ? 1.7 : 1.2) * px;
       ctx.stroke(terr.frontier);
+    }
+
+    if (this.arena) {
+      ctx.save();
+      ctx.shadowColor = 'rgba(255, 214, 102, 0.8)';
+      ctx.shadowBlur = 8 * this.dpr;
+      ctx.strokeStyle = 'rgba(255, 214, 102, 0.85)';
+      ctx.lineWidth = 2 * px;
+      ctx.setLineDash([9 * px, 5 * px]);
+      ctx.stroke(this.arena.frontier);
+      ctx.restore();
     }
 
     if (this.hints && this.visible(this.hints)) {
@@ -1019,6 +1053,99 @@ export class WorldMapEngine {
       ctx.fillStyle = selected ? '#ffffff' : 'rgba(226, 240, 255, 0.92)';
       ctx.strokeText(p.label, x, y + r + 5);
       ctx.fillText(p.label, x, y + r + 5);
+    }
+  }
+
+  private glyph(d: string): Path2D {
+    let p = this.glyphs.get(d);
+    if (!p) {
+      p = new Path2D(d);
+      this.glyphs.set(d, p);
+    }
+    return p;
+  }
+
+  /** Construções: selos com ícone abaixo do ponto da região; obra mostra progresso, conclusão dá um salto. */
+  private drawStructures(t: number) {
+    const { ctx } = this;
+    const z = this.zoom;
+    const now = this.opts.now();
+    const R = Math.max(9, Math.min(13, 7 + z * 0.9));
+    const gap = R * 2 + 4;
+    for (const s of this.structures) {
+      if (s.minZoom !== undefined && z < s.minZoom && !s.building && !(s.completedAt !== undefined && t - s.completedAt < 3000)) continue;
+      const [ax, ay] = this.toScreen(s.anchor[0], s.anchor[1]);
+      const x = ax + (s.slot - (s.slots - 1) / 2) * gap;
+      const y = ay + R + 8;
+      if (x < -30 || x > this.w + 30 || y < -30 || y > this.h + 30) continue;
+      const pop = s.completedAt === undefined ? 1 : this.opts.reducedMotion ? 1 : easeBack(clamp01((t - s.completedAt) / 520));
+      const r = R * (s.completedAt !== undefined && t - s.completedAt < 520 ? 0.4 + 0.6 * pop : 1);
+      const building = s.building && now < s.building.endAt ? s.building : null;
+      ctx.save();
+      ctx.globalAlpha = building && s.level === 0 ? 0.82 : 1;
+      ctx.beginPath();
+      ctx.arc(x, y + 1.5, r + 1, 0, TAU);
+      ctx.fillStyle = 'rgba(0, 6, 20, 0.45)';
+      ctx.fill();
+      ctx.beginPath();
+      ctx.arc(x, y, r, 0, TAU);
+      const face = ctx.createLinearGradient(x, y - r, x, y + r);
+      face.addColorStop(0, '#1b2f57');
+      face.addColorStop(1, '#0a1530');
+      ctx.fillStyle = face;
+      ctx.fill();
+      ctx.lineWidth = s.own ? 2.2 : 1.6;
+      ctx.strokeStyle = s.color;
+      ctx.stroke();
+      // Ícone em traço branco.
+      const k = (r * 1.25) / 24;
+      ctx.translate(x - 12 * k, y - 12 * k);
+      ctx.scale(k, k);
+      ctx.lineWidth = 2 / Math.max(0.4, k);
+      ctx.lineCap = 'round';
+      ctx.lineJoin = 'round';
+      ctx.strokeStyle = '#f2f7ff';
+      ctx.stroke(this.glyph(s.glyph));
+      ctx.restore();
+      if (building) {
+        const p = clamp01((now - building.startAt) / Math.max(1, building.endAt - building.startAt));
+        ctx.beginPath();
+        ctx.arc(x, y, r + 3.5, 0, TAU);
+        ctx.strokeStyle = 'rgba(255, 255, 255, 0.2)';
+        ctx.lineWidth = 2.5;
+        ctx.stroke();
+        ctx.beginPath();
+        ctx.arc(x, y, r + 3.5, -Math.PI / 2, -Math.PI / 2 + TAU * p);
+        ctx.strokeStyle = '#ffd666';
+        ctx.lineWidth = 2.5;
+        ctx.lineCap = 'round';
+        ctx.stroke();
+      }
+      if (s.level >= 2) {
+        const bx = x + r * 0.72;
+        const by = y + r * 0.72;
+        ctx.beginPath();
+        ctx.arc(bx, by, 6.5, 0, TAU);
+        ctx.fillStyle = s.color;
+        ctx.fill();
+        ctx.strokeStyle = '#06122a';
+        ctx.lineWidth = 1.2;
+        ctx.stroke();
+        ctx.fillStyle = '#06122a';
+        ctx.font = '800 9px system-ui, -apple-system, "Segoe UI", Roboto, sans-serif';
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'middle';
+        ctx.fillText(String(s.level), bx, by + 0.5);
+      }
+      if (s.completedAt !== undefined && t - s.completedAt < 900 && !this.opts.reducedMotion) {
+        const q = clamp01((t - s.completedAt) / 900);
+        ctx.beginPath();
+        ctx.arc(x, y, r + 4 + 20 * easeOut(q), 0, TAU);
+        ctx.strokeStyle = rgba(s.color, 0.9 * (1 - q));
+        ctx.lineWidth = 2.5 * (1 - q) + 0.5;
+        ctx.stroke();
+      }
+      this.pickables.push({ x, y, r: Math.max(16, r + 4), pick: { kind: 'structure', id: s.id } });
     }
   }
 
