@@ -152,10 +152,12 @@ export class MilitaryService {
       // Saldo e recrutas acertados agora (a mesma chamada acerta os dois).
       await this.economy.spend(client, g.id, cost, 'este treinamento');
       const mil = await client.query('SELECT recruits::float8 AS recruits FROM military WHERE governor_id = $1 FOR UPDATE', [g.id]);
-      if ((mil.rows[0]?.recruits ?? 0) + 1e-6 < recruits) {
-        throw new HttpError(409, 'insufficient', `Recrutas insuficientes: este lote precisa de ${recruits} e há ${Math.floor(mil.rows[0]?.recruits ?? 0)}.`);
+      if (!(await this.economy.unlimited(client, g.id))) {
+        if ((mil.rows[0]?.recruits ?? 0) + 1e-6 < recruits) {
+          throw new HttpError(409, 'insufficient', `Recrutas insuficientes: este lote precisa de ${recruits} e há ${Math.floor(mil.rows[0]?.recruits ?? 0)}.`);
+        }
+        await client.query('UPDATE military SET recruits = recruits - $2 WHERE governor_id = $1', [g.id, recruits]);
       }
-      await client.query('UPDATE military SET recruits = recruits - $2 WHERE governor_id = $1', [g.id, recruits]);
       const mode = await this.economy.modeOf(client, g.id);
       const seconds = trainSeconds(unit, amount, structures, research.levels, mode);
       await client.query(

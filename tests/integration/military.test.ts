@@ -131,3 +131,18 @@ describe('instalações e pesquisa', () => {
     expect((await A.post('/play/train', { unit: 'mechanized', amount: 5 })).status).toBe(200);
   });
 });
+
+describe('conta com recursos infinitos (users.unlimited)', () => {
+  it('gastos e recrutas não descontam; o estado avisa a tela', async () => {
+    await db.query(`UPDATE nation_resources SET amount = 0 WHERE governor_id = $1`, [aId]);
+    await db.query(`UPDATE military SET recruits = 0 WHERE governor_id = $1`, [aId]);
+    expect((await A.post('/play/train', { unit: 'infantry', amount: 10 })).status).toBe(409);
+    await db.query(`UPDATE users SET unlimited = true WHERE id = (SELECT user_id FROM governors WHERE id = $1)`, [aId]);
+    expect((await A.post('/play/train', { unit: 'infantry', amount: 10 })).status).toBe(200);
+    const s = await state(A);
+    expect(s.economy.unlimited).toBe(true);
+    expect(s.economy.amounts.money).toBeLessThan(1);
+    expect(s.military.recruits.amount).toBeLessThan(1);
+    expect((await state(B)).economy.unlimited).toBe(false);
+  });
+});

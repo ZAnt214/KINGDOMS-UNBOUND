@@ -63,6 +63,8 @@ export interface EconomyView {
   logistics: { links: number; allyLinks: number; connected: number; averageBonus: number };
   /** Manutenção do exército por hora (Fase D), já descontada de `rates`. */
   upkeep: ResourceMap;
+  /** Conta de teste com recursos infinitos: gastos e recrutas não descontam. */
+  unlimited?: boolean;
 }
 
 /** Exército da própria nação (Fase D). Outras nações só veem o poder total (`NationView.power`). */

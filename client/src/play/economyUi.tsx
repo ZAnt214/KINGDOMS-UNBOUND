@@ -41,8 +41,11 @@ export function Glyph({ d, size = 18, color = 'currentColor', width = 1.9 }: { d
   );
 }
 
+const INFINITE: ResourceMap = { money: Infinity, materials: Infinity, metal: Infinity, oil: Infinity, tech: Infinity, special: Infinity };
+
+/** Saldo agora; conta com recursos infinitos vê ∞ e nunca fica sem. */
 export const amountsNow = (economy: EconomyView | null): ResourceMap | null =>
-  economy ? project(economy.amounts, economy.settledAt, economy.rates, economy.capacity, serverNow()) : null;
+  economy ? (economy.unlimited ? INFINITE : project(economy.amounts, economy.settledAt, economy.rates, economy.capacity, serverNow())) : null;
 
 /**
  * Saldo projetado agora (o servidor manda o valor num instante e a produção; o cliente só

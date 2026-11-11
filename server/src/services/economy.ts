@@ -175,8 +175,15 @@ export class EconomyService {
   }
 
   /** Acerta o saldo agora e desconta o custo, ou recusa sem mudar nada. */
+  /** Conta com recursos infinitos (users.unlimited, ligada só no banco)? */
+  async unlimited(q: Queryable, governorId: number): Promise<boolean> {
+    const { rows } = await q.query('SELECT u.unlimited FROM governors g JOIN users u ON u.id = g.user_id WHERE g.id = $1', [governorId]);
+    return rows[0]?.unlimited === true;
+  }
+
   async spend(client: Tx, governorId: number, cost: Cost, what: string) {
     const have = await this.settle(client, governorId, new Date());
+    if (await this.unlimited(client, governorId)) return;
     const short = missing(have, cost);
     if (Object.keys(short).length) throw new HttpError(409, 'insufficient', `Recursos insuficientes para ${what}. Faltam ${describeCost(short)}.`);
     for (const [r, v] of Object.entries(cost) as [keyof ResourceMap, number][]) {
@@ -204,6 +211,7 @@ export class EconomyService {
       efficiency: econ.efficiency,
       logistics: econ.logistics,
       upkeep: econ.upkeep,
+      unlimited: await this.unlimited(q, governorId),
     };
   }
 

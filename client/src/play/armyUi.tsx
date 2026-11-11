@@ -87,7 +87,7 @@ export function ArmySheet(p: {
   const [amount, setAmount] = useState(10);
   const m = p.military;
   const have = amountsNow(p.economy);
-  const recruits = Math.floor(recruitsNow(m));
+  const recruits = p.economy.unlimited ? Infinity : Math.floor(recruitsNow(m));
   const now = serverNow();
   const pw = m.power;
   const groups = (Object.keys(pw.groups) as (PowerGroup | 'infrastructure')[]).filter((g) => pw.groups[g] > 0);
@@ -158,7 +158,7 @@ export function ArmySheet(p: {
         <span>
           <b>{recruits.toLocaleString('pt-BR')}</b> recrutas <small>de {m.recruits.cap.toLocaleString('pt-BR')}</small>
         </span>
-        <small>{recruits >= m.recruits.cap ? 'Teto atingido: construa cidades ou bases militares para receber mais.' : `${fmtRate(m.recruits.rate)} ${noBase ? '· devagar sem base militar' : ''}`}</small>
+        <small>{recruits === Infinity ? 'Conta de teste com recursos infinitos.' : recruits >= m.recruits.cap ? 'Teto atingido: construa cidades ou bases militares para receber mais.' : `${fmtRate(m.recruits.rate)} ${noBase ? '· devagar sem base militar' : ''}`}</small>
         <i>
           <u style={{ transform: `scaleX(${Math.min(1, recruits / m.recruits.cap)})` }} />
         </i>

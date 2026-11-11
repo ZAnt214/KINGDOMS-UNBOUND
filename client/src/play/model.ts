@@ -89,6 +89,7 @@ export const progressOf = (s: NationStats) => ({ regions: s.regions.length, coun
 
 /** Número compacto para o HUD: 950, 12,4 mil, 1,2 mi. */
 export function fmtAmount(n: number): string {
+  if (n === Infinity) return '∞';
   const v = Math.floor(n);
   if (v >= 1_000_000) return `${(v / 1_000_000).toLocaleString('pt-BR', { maximumFractionDigits: 1 })} mi`;
   if (v >= 10_000) return `${(v / 1000).toLocaleString('pt-BR', { maximumFractionDigits: 1 })} mil`;

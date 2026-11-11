@@ -471,6 +471,15 @@ CREATE INDEX strikes_due ON strikes (impact_at) WHERE status = 'flying';
 ALTER TABLE military ADD COLUMN troops INT NOT NULL DEFAULT 0;
 `,
   },
+  {
+    id: 8,
+    name: 'unlimited_accounts',
+    sql: `
+-- Conta de teste com recursos infinitos (gastos, recrutas). Só se liga direto no banco, pelo dono
+-- do jogo: não há rota da API que mude esta coluna.
+ALTER TABLE users ADD COLUMN unlimited BOOLEAN NOT NULL DEFAULT false;
+`,
+  },
 ];
 
 export async function migrate(db: Db, log: (msg: string) => void = () => {}) {
