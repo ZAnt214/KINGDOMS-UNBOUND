@@ -149,13 +149,24 @@ describe('partida rápida', () => {
     expect(after.world.winner).not.toBe(qg);
   });
 
-  it('fim do tempo decide pela maior quantidade de regiões; sem fundação, a partida expira', async () => {
+  it('jogador sem nenhuma região perde; sem fundação, a partida expira; não há fim por tempo', async () => {
     const m = await newMatch(Q);
-    await db.query(`UPDATE kingdoms SET ends_at = now() - interval '1 second' WHERE id = $1`, [m.worldId]);
+    const s0 = await state(Q);
+    const pick = await freePoint(s0);
+    const used = new Set(s0.nations.map((n: any) => n.color));
+    await Q.post('/play/found', { pointId: pick.id, name: 'Sitiado', color: NATION_COLORS.find((c) => !used.has(c.hex))!.hex, flag: DEFAULT_FLAG });
+    // Uma hora depois da fundação, a partida continua.
+    await db.query(`UPDATE kingdoms SET started_at = now() - interval '1 hour' WHERE id = $1`, [m.worldId]);
+    await srv.services.match.check(m.worldId);
+    expect((await state(Q)).world.finishedAt).toBeNull();
+    // Perdeu a última região: derrota, em último.
+    const bot = s0.nations.find((n: any) => n.bot).id;
+    await db.query('UPDATE region_control SET governor_id = $2 WHERE kingdom_id = $1 AND governor_id = $3', [m.worldId, bot, qg]);
     await srv.services.match.check(m.worldId);
     const s = await state(Q);
-    expect(s.world.outcome).toBe('time');
-    expect(s.world.winner).toBe(s.world.results[0].nationId);
+    expect(s.world.outcome).toBe('eliminated');
+    expect(s.world.results.at(-1).nationId).toBe(qg);
+    expect(s.world.winner).not.toBe(qg);
 
     const n = await newMatch(Q);
     await db.query(`UPDATE kingdoms SET created_at = now() - interval '1 hour' WHERE id = $1`, [n.worldId]);
