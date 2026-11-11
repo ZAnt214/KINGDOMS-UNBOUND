@@ -94,10 +94,11 @@ export async function createGameServer(
 
   // Worker: conclui ocupações e obras vencidas, conduz os bots e encerra partidas. O estado vem do
   // banco, então reiniciar o processo não perde nada (o worker só antecipa o que a leitura faria).
-  let running = false;
+  // A trava vence em 30 s: em serverless um ciclo pode ficar congelado e nunca terminar.
+  let running = 0;
   const worker = setInterval(() => {
-    if (running) return;
-    running = true;
+    if (running && Date.now() - running < 30_000) return;
+    running = Date.now();
     (async () => {
       await territory.processDue();
       await economy.processDue();
@@ -107,7 +108,7 @@ export async function createGameServer(
       await match.tick();
     })()
       .catch((err) => console.error(JSON.stringify({ level: 'error', msg: 'worker', err: String(err) })))
-      .finally(() => (running = false));
+      .finally(() => (running = 0));
   }, config.workerIntervalMs);
 
   return {

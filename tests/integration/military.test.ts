@@ -1,6 +1,6 @@
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { DEFAULT_FLAG } from '../../shared/play/flags.js';
-import { MILITARY, militaryPower, trainSeconds, UNITS } from '../../shared/play/military.js';
+import { MILITARY, militaryPower, UNITS } from '../../shared/play/military.js';
 import { NATION_COLORS } from '../../shared/play/rules.js';
 import { START_POINTS } from '../../shared/world/regions.js';
 import type { Db } from '../../server/src/db.js';
@@ -52,63 +52,50 @@ describe('exército progressivo', () => {
     expect(s.nations.find((n: any) => n.id === aId).power).toBe(0);
   });
 
-  it('sem base militar só treina infantaria, devagar, gastando dinheiro e recrutas', async () => {
-    const before = await state(A);
+  it('unidades saem na hora: o exército cresce no mesmo pedido, gastando só recursos', async () => {
     const res = await A.post('/play/train', { unit: 'infantry', amount: 20 });
     expect(res.status).toBe(200);
-    const t = res.data.military.training[0];
-    expect(t).toMatchObject({ unit: 'infantry', amount: 20 });
-    expect(Math.round((t.endsAt - t.startedAt) / 1000)).toBe(trainSeconds('infantry', 20, [], {}));
-    expect(res.data.military.recruits.amount).toBeLessThan(before.military.recruits.amount - 19);
+    expect(res.data.military.army.infantry).toBe(20);
+    expect(res.data.military.training).toHaveLength(0);
     const money = (await state(A)).economy.amounts.money;
     expect(money).toBeLessThan(50000 - 20 * UNITS.infantry.cost.money! + 1);
+    await A.waitFor((e) => e.type === 'play.military' && e.done?.kind === 'training' && e.done.amount === 20);
     const mech = await A.post('/play/train', { unit: 'mechanized', amount: 5 });
     expect(mech.status).toBe(409);
     expect(mech.data.message).toMatch(/base militar/i);
-  });
-
-  it('o segundo lote começa quando o primeiro termina; falta de recrutas é recusada', async () => {
-    const second = await A.post('/play/train', { unit: 'infantry', amount: 10 });
-    expect(second.status).toBe(200);
-    const [first, next] = second.data.military.training;
-    expect(next.startedAt).toBe(first.endsAt);
-    const tooMany = await A.post('/play/train', { unit: 'infantry', amount: 400 });
-    expect(tooMany.status).toBe(409);
-    expect(tooMany.data.message).toMatch(/Recrutas insuficientes/);
     expect((await A.post('/play/train', { unit: 'infantry', amount: 0 })).status).toBe(400);
     expect((await A.post('/play/train', { unit: 'tank', amount: 1 })).status).toBe(400);
   });
 
-  it('lotes concluídos entram no exército, cobram manutenção e o poder é avisado a todos', async () => {
-    const t0 = Date.now();
-    await finishTraining();
+  it('sem recursos, recusa; com recursos, cobra manutenção e o poder é avisado a todos', async () => {
+    await db.query(`UPDATE nation_resources SET amount = 10 WHERE governor_id = $1 AND resource = 'money'`, [aId]);
+    const poor = await A.post('/play/train', { unit: 'infantry', amount: 10 });
+    expect(poor.status).toBe(409);
+    expect(poor.data.message).toMatch(/Recursos insuficientes/);
+    await db.query('UPDATE nation_resources SET amount = 50000 WHERE governor_id = $1', [aId]);
+    expect((await A.post('/play/train', { unit: 'infantry', amount: 10 })).status).toBe(200);
     const s = await state(A);
     expect(s.military.army.infantry).toBe(30);
-    expect(s.military.training).toHaveLength(0);
     expect(s.economy.upkeep.money).toBe(30 * UNITS.infantry.upkeep.money!);
     const expected = militaryPower({ infantry: 30 }, {}, []).power;
     expect(s.military.power.power).toBe(expected);
     await B.waitFor((e) => e.type === 'play.power' && e.nationId === aId && e.power === expected);
     expect((await state(B)).nations.find((n: any) => n.id === aId).power).toBe(expected);
-    // Saldo acertado até o fim do lote antes da manutenção começar.
-    const { rows } = await db.query('SELECT max(settled_at) AS at FROM nation_resources WHERE governor_id = $1', [aId]);
-    expect(new Date(rows[0].at).getTime()).toBeGreaterThan(t0 - 5000);
   });
 });
 
 describe('instalações e pesquisa', () => {
-  it('base militar concluída acelera recrutas, libera unidades e soma ao poder', async () => {
+  it('base militar concluída libera as unidades dela na hora e soma ao poder', async () => {
     const at = freePointIn(brasilia.region, (await state(A)).structures.map((x: any) => x.at), 40)!;
     expect((await A.post('/play/build', { at, type: 'military_base' })).status).toBe(200);
     await finishStructures();
     const s = await state(A);
-    expect(s.military.recruits.rate).toBe(MILITARY.recruitBase + MILITARY.recruitPerBase);
     expect(s.military.power.groups.infrastructure).toBe(MILITARY.infrastructurePerLevel);
     expect(s.nations.find((n: any) => n.id === aId).power).toBe(s.military.power.power);
-    expect((await A.post('/play/train', { unit: 'mechanized', amount: 5 })).data.message).toMatch(/Motorização/);
+    expect((await A.post('/play/train', { unit: 'mechanized', amount: 5 })).status).toBe(200);
   });
 
-  it('pesquisa exige centro tecnológico; concluída, libera a unidade e reforça o poder', async () => {
+  it('pesquisa (opcional, só bônus) exige centro tecnológico; concluída, reforça o poder', async () => {
     expect((await A.post('/play/research', { tech: 'motorization' })).status).toBe(409);
     const at = freePointIn(brasilia.region, (await state(A)).structures.map((x: any) => x.at), 40)!;
     expect((await A.post('/play/build', { at, type: 'tech' })).status).toBe(200);
@@ -118,22 +105,20 @@ describe('instalações e pesquisa', () => {
     expect(r.data.military.researching).toMatchObject({ tech: 'doctrine', to: 1 });
     expect((await A.post('/play/research', { tech: 'motorization' })).data.message).toMatch(/em andamento/);
     const before = (await state(A)).military.power.groups.troops;
+    const mech = (await state(A)).military.army.mechanized ?? 0;
     await finishResearch();
     const s = await state(A);
     expect(s.military.research.doctrine).toBe(1);
     expect(s.military.researching).toBeNull();
-    expect(s.military.power.groups.troops).toBe(Math.round(before * 1.1));
+    // Doutrina reforça infantaria e especiais em 10% (mecanizados não mudam).
+    const mechPart = mech * (UNITS.mechanized.attack + UNITS.mechanized.defense) / 2;
+    expect(s.military.power.groups.troops).toBe(Math.round((before - mechPart) * 1.1 + mechPart));
     await A.waitFor((e) => e.type === 'play.military' && e.done?.kind === 'research' && e.done.tech === 'doctrine');
-    // Motorização liberada pela pesquisa: mecanizados passam a treinar.
-    expect((await A.post('/play/research', { tech: 'motorization' })).status).toBe(200);
-    await finishResearch();
-    await state(A);
-    expect((await A.post('/play/train', { unit: 'mechanized', amount: 5 })).status).toBe(200);
   });
 });
 
 describe('conta com recursos infinitos (users.unlimited)', () => {
-  it('gastos e recrutas não descontam; o estado avisa a tela', async () => {
+  it('gastos não descontam; o estado avisa a tela', async () => {
     await db.query(`UPDATE nation_resources SET amount = 0 WHERE governor_id = $1`, [aId]);
     await db.query(`UPDATE military SET recruits = 0 WHERE governor_id = $1`, [aId]);
     expect((await A.post('/play/train', { unit: 'infantry', amount: 10 })).status).toBe(409);

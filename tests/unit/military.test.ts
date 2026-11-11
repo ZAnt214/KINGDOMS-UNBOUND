@@ -12,7 +12,6 @@ import {
   techCost,
   techSeconds,
   trainCost,
-  trainSeconds,
   UNIT_TYPES,
   unitProblem,
   UNITS,
@@ -47,34 +46,23 @@ describe('unidades e treinamento', () => {
       expect(d.seconds > 0 && d.attack > 0 && d.defense > 0 && d.recruits >= 1).toBe(true);
       expect(Object.keys(d.cost).length > 0 && Object.keys(d.upkeep).length > 0).toBe(true);
       if (d.structure) expect(STRUCTURE_TYPES.includes(d.structure)).toBe(true);
-      if (d.research) expect(TECHS[d.research].unlocks === u || u === 'mechanized' || u === 'armor').toBe(true);
     }
   });
 
-  it('cada unidade exige sua instalação e pesquisa; infantaria não exige nada', () => {
+  it('cada unidade exige só a sua instalação (sem pesquisa); infantaria não exige nada', () => {
     expect(unitProblem('infantry', [], {})).toBeNull();
     expect(unitProblem('mechanized', [], {})).toMatch(/base militar/i);
-    expect(unitProblem('mechanized', [base], {})).toMatch(/Motorização/);
-    expect(unitProblem('mechanized', [base], { motorization: 1 })).toBeNull();
-    expect(unitProblem('navy', [{ type: 'naval_base', level: 1 }], {})).toMatch(/Engenharia naval/);
+    expect(unitProblem('mechanized', [base], {})).toBeNull();
+    expect(unitProblem('navy', [{ type: 'naval_base', level: 1 }], {})).toBeNull();
+    expect(unitProblem('aviation', [{ type: 'air_base', level: 1 }], {})).toBeNull();
     expect(unitProblem('artillery', [{ type: 'arms_factory', level: 1 }], {})).toBeNull();
+    for (const u of UNIT_TYPES) expect(UNITS[u].research).toBeNull();
     // Obra ainda no nível 0 não libera nada.
     expect(unitProblem('defense', [{ type: 'defense_center', level: 0 }], {})).toMatch(/centro de defesa/i);
   });
 
-  it('sem base militar a infantaria treina 3× mais devagar; centro de treinamento e pesquisa aceleram, com teto', () => {
-    const slow = trainSeconds('infantry', 100, [], {});
-    const normal = trainSeconds('infantry', 100, [base], {});
-    expect(slow).toBe(normal * MILITARY.untrainedSlowdown);
-    const fast = trainSeconds('infantry', 100, [base, { type: 'training_center', level: 2 }], { training_methods: 2 });
-    expect(fast).toBe(Math.round(normal * (1 - 2 * MILITARY.trainingCenterPerLevel - 2 * 0.1)));
-    const capped = trainSeconds('infantry', 100, [base, { type: 'training_center', level: 5 }], { training_methods: 3 });
-    expect(capped).toBe(Math.round(normal * (1 - MILITARY.maxTrainingCut)));
-    expect(trainSeconds('infantry', 100, [base], {}, 'quick') < normal).toBe(true);
-  });
-
-  it('custo do lote é proporcional e consome recrutas pela tripulação', () => {
-    expect(trainCost('armor', 10)).toEqual({ cost: { money: 2600, metal: 1100, oil: 300 }, recruits: 30 });
+  it('custo do lote é proporcional à quantidade', () => {
+    expect(trainCost('armor', 10).cost).toEqual({ money: 2600, metal: 1100, oil: 300 });
   });
 });
 

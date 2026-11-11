@@ -193,21 +193,19 @@ async function enter(page, name, color, flag) {
   await A.waitForSelector('[data-testid=army-sheet]');
   await A.waitForTimeout(300);
   await A.screenshot({ path: `${OUT}/22-exercito.png` });
-  check('exército começa com poder 0 e recrutas', /^0$/.test((await A.locator('[data-testid=army-power] b').innerText()).trim()) && /recrutas/.test(await A.locator('[data-testid=army-recruits]').innerText()));
+  check('exército começa com poder 0', /^0$/.test((await A.locator('[data-testid=army-power] b').innerText()).trim()));
   await A.click('[data-testid=unit-mechanized]');
   check('unidade bloqueada explica o que falta e oferece construir a base', /base militar/i.test(await A.locator('[data-testid=army-train]').innerText()) && (await A.locator('[data-testid=army-build-required]').count()) === 1);
   await A.click('[data-testid=unit-infantry]');
   await A.click('[data-testid=amount-10]');
   await A.click('[data-testid=army-train-go]');
-  await A.waitForSelector('[data-testid=army-queue]');
-  await A.screenshot({ path: `${OUT}/23-treinando.png` });
-  check('lote de treinamento entra na fila com contagem regressiva', /10 × Infantaria/.test(await A.locator('[data-testid=army-queue]').innerText()));
-  await A.waitForFunction(() => /prontas\. Poder militar/.test(document.body.textContent ?? ''), null, { timeout: 60000 }).then(
-    () => check('treinamento termina sozinho, avisa e o poder militar sobe', true),
-    () => check('treinamento termina sozinho, avisa e o poder militar sobe', false),
+  await A.waitForFunction(() => /prontas\. Poder militar/.test(document.body.textContent ?? ''), null, { timeout: 8000 }).then(
+    () => check('tropas criadas na hora, sem fila nem tempo de treinamento', true),
+    () => check('tropas criadas na hora, sem fila nem tempo de treinamento', false),
   );
   await A.waitForTimeout(500);
-  check('poder militar mostrado bate com as tropas treinadas', Number((await A.locator('[data-testid=army-power] b').innerText()).replace(/\D/g, '')) === 11);
+  check('poder militar mostrado bate com as tropas criadas', Number((await A.locator('[data-testid=army-power] b').innerText()).replace(/\D/g, '')) === 11);
+  check('sem fila de treinamento', (await A.locator('[data-testid=army-queue]').count()) === 0);
   await A.screenshot({ path: `${OUT}/24-tropas-prontas.png` });
   await A.click('[data-testid=army-tab-research]');
   await A.waitForSelector('[data-testid=army-research]');

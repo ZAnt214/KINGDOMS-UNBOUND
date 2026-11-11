@@ -137,7 +137,7 @@ Regras em `shared/play/military.ts` (servidor aplica, cliente mostra). Combate �
 | Aviação | $700, 240 metal, 150 petróleo, 20 componentes | 2 | 30 s | 34 | 16 | $28 + 12 petróleo | Base aérea + Caças a jato |
 | Marinha | $1.000, 450 metal, 180 petróleo, 12 componentes | 12 | 40 s | 32 | 34 | $34 + 14 petróleo | Base naval + Engenharia naval |
 
-- Treinamento em lotes de 1 a 500; até 3 lotes na fila, em sequência (cada um começa quando o anterior termina). Tempo do lote = tempo da unidade × quantidade × (1 − cortes) ÷ ritmo do modo; cortes = 12%/nível de centro de treinamento + 10%/nível de Métodos de treinamento, até 60%.
+- **Criação na hora** (pedido do dono do jogo): com a instalação exigida e os recursos, as unidades entram no exército no mesmo pedido, de 1 a 500 por vez. Sem fila, sem tempo de treinamento, sem recrutas e sem pesquisa obrigatória; a pesquisa só dá bônus. As colunas de tempo e recrutas da tabela abaixo ficaram sem uso.
 - **Manutenção** sai da produção por hora. Se passar da produção, o estoque cai até zero (nunca negativo) e o painel avisa.
 - Antes de um lote ou pesquisa terminar, o saldo é acertado até o fim com a manutenção antiga.
 

@@ -4,9 +4,9 @@ import { expansionTargets, REGION_BY_ID, START_POINT_BY_ID } from '../../../shar
 import { freePointIn } from '../geo.js';
 import type { GovernorCtx } from '../auth.js';
 import { type Db, tx } from '../db.js';
-import { conflict } from '../http.js';
+import { conflict, HttpError } from '../http.js';
 import type { Hub } from '../hub.js';
-import { MILITARY, projectRecruits, UNITS, unitProblem, type UnitType } from '../../../shared/play/military.js';
+import { MILITARY, UNITS, unitProblem, type UnitType } from '../../../shared/play/military.js';
 import type { MilitaryService } from './military.js';
 import type { WarService } from './war.js';
 import { attackPower, estimatedDefense, share, WAR } from '../../../shared/play/war.js';
@@ -20,9 +20,20 @@ const rand = (a: number, b: number) => a + Math.random() * (b - a);
  * Partida rápida: cria o mundo com arena e bots, conduz os bots e encerra a partida.
  * Os bots são nações comuns sem usuário: passam pelas mesmas regras e serviços que um jogador.
  */
+/** Recusas de regra (falta de recurso, região ocupada) são normais para um bot; o resto vai para o log. */
+const botFailed = (bot: number, step: string) => (err: unknown) => {
+  if (err instanceof HttpError && err.status < 500) return;
+  console.error(JSON.stringify({ level: 'error', msg: 'bot', bot, step, err: String(err) }));
+};
+
 export class MatchService {
   private nextThink = new Map<number, number>();
-  private ticking = false;
+  /**
+   * Passo dos bots em andamento, por mundo (null = todos), com o instante em que começou. Numa
+   * função serverless, um passo pode ficar congelado no meio quando a resposta termina e nunca
+   * concluir; por isso a trava vence sozinha depois de 20 s em vez de bloquear os bots para sempre.
+   */
+  private ticking = new Map<number | null, number>();
 
   constructor(
     private db: Db,
@@ -144,8 +155,10 @@ export class MatchService {
 
   /** Um passo dos bots de todas as partidas em andamento (chamado pelo worker). */
   async tick(kingdomId: number | null = null) {
-    if (this.ticking) return;
-    this.ticking = true;
+    // Só o próprio passo bloqueia: o worker (null) congelado não pode travar o passo pedido pela leitura.
+    const since = this.ticking.get(kingdomId);
+    if (since !== undefined && Date.now() - since < 20_000) return;
+    this.ticking.set(kingdomId, Date.now());
     try {
       const { rows } = await this.db.query(
         `SELECT g.id, g.name, g.kingdom_id, k.arena, k.started_at FROM governors g
@@ -160,13 +173,13 @@ export class MatchService {
         if ((this.nextThink.get(id) ?? 0) > now) continue;
         this.nextThink.set(id, now + rand(QUICK.botThink[0], QUICK.botThink[1]) * 1000);
         const ctx: GovernorCtx = { id, name: b.name, kingdomId: b.kingdom_id, mode: 'quick', allianceId: null, allianceRank: null };
-        await this.botBuild(ctx).catch(() => {});
-        await this.botArmy(ctx).catch(() => {});
-        await this.botWar(ctx, b.started_at ? new Date(b.started_at).getTime() : null).catch(() => {});
-        await this.botExpand(ctx, b.arena as string[]).catch(() => {});
+        await this.botBuild(ctx).catch(botFailed(id, 'build'));
+        await this.botArmy(ctx).catch(botFailed(id, 'army'));
+        await this.botWar(ctx, b.started_at ? new Date(b.started_at).getTime() : null).catch(botFailed(id, 'war'));
+        await this.botExpand(ctx, b.arena as string[]).catch(botFailed(id, 'expand'));
       }
     } finally {
-      this.ticking = false;
+      this.ticking.delete(kingdomId);
     }
   }
 
@@ -271,18 +284,18 @@ export class MatchService {
     if (best && sent >= 2.5 * best.def) await this.war.attack(g, best.region, 50);
   }
 
-  /** Bots treinam com os recrutas que têm, gastando no máximo 40% do dinheiro por vez. */
+  /** Bots criam tropas com até 25% do dinheiro por vez (defesa quando há centro de defesa). */
   private async botArmy(g: GovernorCtx) {
     if (!this.military) return;
     const [mil, view] = await Promise.all([this.military.view(this.db, g.id), this.economy.view(this.db, g.id)]);
-    if (!mil || !view || mil.training.length) return;
+    if (!mil || !view) return;
     const now = Date.now();
-    const recruits = Math.floor(projectRecruits(mil.recruits.amount, mil.recruits.settledAt, mil.recruits.rate, mil.recruits.cap, now));
     const money = project(view.amounts, view.settledAt, view.rates, view.capacity, now).money;
     const structures = (await this.economy.inputs(this.db, g.id)).structures;
     const unit: UnitType = !unitProblem('defense', structures, mil.research) && (mil.army.defense ?? 0) < (mil.army.infantry ?? 0) / 4 ? 'defense' : 'infantry';
     const per = UNITS[unit];
-    const amount = Math.min(MILITARY.maxBatch, Math.floor(recruits / per.recruits), Math.floor((money * 0.4) / (per.cost.money ?? 1)));
+    // Unidades saem na hora: o bot gasta só 25% do dinheiro por vez, para seguir construindo e expandindo.
+    const amount = Math.min(MILITARY.maxBatch, Math.floor((money * 0.25) / (per.cost.money ?? 1)));
     if (amount >= 10) await this.military.train(g, unit, amount);
   }
 }

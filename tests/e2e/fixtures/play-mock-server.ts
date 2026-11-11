@@ -36,7 +36,6 @@ import {
   techCost,
   techSeconds,
   trainCost,
-  trainSeconds,
   UNIT_TYPES,
   unitProblem,
   type UnitType,
@@ -378,15 +377,12 @@ function train(w: World, gid: number, unit: UnitType, amount: number) {
   const a = w.army.get(gid)!;
   const problem = unitProblem(unit, builtOf(w, gid), a.research);
   if (problem) throw new Fail(409, 'cannot_train', problem);
-  if (a.training.length >= MILITARY.queue) throw new Fail(409, 'cannot_train', `A fila já tem ${MILITARY.queue} lotes. Aguarde um terminar.`);
-  const { cost, recruits } = trainCost(unit, amount);
-  settle(w, gid);
-  if (a.recruits + 1e-6 < recruits) throw new Fail(409, 'insufficient', `Recrutas insuficientes: este lote precisa de ${recruits} e há ${Math.floor(a.recruits)}.`);
-  spend(w, gid, cost, 'este treinamento');
-  a.recruits -= recruits;
-  const start = Math.max(Date.now(), a.training.at(-1)?.endsAt ?? 0);
-  a.training.push({ id: id(), unit, amount, startedAt: start, endsAt: start + (trainSeconds(unit, amount, builtOf(w, gid), a.research, w.view.mode) * 1000) / SPEED });
+  // Na hora: com a instalação e os recursos, as unidades entram no exército no mesmo pedido.
+  spend(w, gid, trainCost(unit, amount).cost, 'estas unidades');
+  a.units[unit] = (a.units[unit] ?? 0) + amount;
+  refreshPower(w, gid);
   announceEconomy(w, gid);
+  send(w.view.id, { type: 'play.military', military: militaryView(w, gid), done: { kind: 'training', unit, amount } }, gid);
   return militaryView(w, gid);
 }
 function startResearch(w: World, gid: number, tech: TechType) {

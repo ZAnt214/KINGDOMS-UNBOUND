@@ -2,7 +2,6 @@ import { computeEconomy } from '../../../shared/play/economy.js';
 import {
   type Army,
   MILITARY,
-  MILITARY_RULES_VERSION,
   militaryPower,
   type Research,
   researchProblem,
@@ -11,7 +10,6 @@ import {
   techCost,
   techSeconds,
   trainCost,
-  trainSeconds,
   UNIT_TYPES,
   unitProblem,
   type UnitType,
@@ -132,11 +130,15 @@ export class MilitaryService {
     if (rows[0]?.finished_at) throw conflict('match_over', 'Esta partida já terminou.');
   }
 
-  /** Põe um lote de unidades na fila de treinamento. */
+  /**
+   * Cria as unidades na hora: com a instalação exigida e os recursos, o exército cresce no mesmo
+   * pedido (sem fila, sem tempo de treinamento e sem recrutas). O saldo é acertado antes, com a
+   * manutenção antiga; a nova manutenção começa agora.
+   */
   async train(g: GovernorCtx, unit: UnitType, amount: number): Promise<MilitaryView> {
     if (!UNIT_TYPES.includes(unit)) throw bad('invalid_unit', 'Unidade desconhecida.');
     if (!Number.isInteger(amount) || amount < 1 || amount > MILITARY.maxBatch) throw bad('invalid_amount', `Escolha de 1 a ${MILITARY.maxBatch} unidades.`);
-    // Obras vencidas (ex.: a base ou o centro tecnológico que acabou de ficar pronto) contam já.
+    // Obras vencidas (ex.: a base que acabou de ficar pronta) contam já.
     await this.economy.completeDue(g.kingdomId);
     await this.completeDue(g.kingdomId);
     await tx(this.db, async (client) => {
@@ -146,29 +148,16 @@ export class MilitaryService {
       const [structures, research] = await Promise.all([this.structures(client, g.id), this.research(client, g.id)]);
       const problem = unitProblem(unit, structures, research.levels);
       if (problem) throw conflict('cannot_train', problem);
-      const queue = await client.query('SELECT COUNT(*)::int AS n, max(ends_at) AS last FROM training WHERE governor_id = $1', [g.id]);
-      if (queue.rows[0].n >= MILITARY.queue) throw conflict('cannot_train', `A fila já tem ${MILITARY.queue} lotes. Aguarde um terminar.`);
-      const { cost, recruits } = trainCost(unit, amount);
-      // Saldo e recrutas acertados agora (a mesma chamada acerta os dois).
-      await this.economy.spend(client, g.id, cost, 'este treinamento');
-      const mil = await client.query('SELECT recruits::float8 AS recruits FROM military WHERE governor_id = $1 FOR UPDATE', [g.id]);
-      if (!(await this.economy.unlimited(client, g.id))) {
-        if ((mil.rows[0]?.recruits ?? 0) + 1e-6 < recruits) {
-          throw new HttpError(409, 'insufficient', `Recrutas insuficientes: este lote precisa de ${recruits} e há ${Math.floor(mil.rows[0]?.recruits ?? 0)}.`);
-        }
-        await client.query('UPDATE military SET recruits = recruits - $2 WHERE governor_id = $1', [g.id, recruits]);
-      }
-      const mode = await this.economy.modeOf(client, g.id);
-      const seconds = trainSeconds(unit, amount, structures, research.levels, mode);
+      await this.economy.spend(client, g.id, trainCost(unit, amount).cost, 'estas unidades');
       await client.query(
-        `INSERT INTO training (kingdom_id, governor_id, unit, amount, started_at, ends_at, rules_version)
-         SELECT $1, $2, $3, $4, s, s + make_interval(secs => $5::double precision), $6
-           FROM (SELECT GREATEST(now(), COALESCE($7::timestamptz, now())) AS s) t`,
-        [g.kingdomId, g.id, unit, amount, seconds, MILITARY_RULES_VERSION, queue.rows[0].last],
+        `INSERT INTO army (governor_id, unit, amount) VALUES ($1, $2, $3)
+         ON CONFLICT (governor_id, unit) DO UPDATE SET amount = army.amount + EXCLUDED.amount`,
+        [g.id, unit, amount],
       );
     });
+    await this.refreshPower(g.id);
     await this.economy.announceEconomy(g.id);
-    await this.announce(g.id);
+    await this.announce(g.id, { kind: 'training', unit, amount });
     return (await this.view(this.db, g.id))!;
   }
 

@@ -249,3 +249,9 @@ Regras em `docs/PLAY_RULES.md` (seção Guerra); migração 7.
 - [x] **Silo simples:** com o silo pronto, já lança míssil ou bomba pesada, pagando cada lançamento. Saíram a unidade "míssil", o estoque e a pesquisa Foguetes balísticos. Atalho "Míssil ou bomba" no cartão da região inimiga.
 - [x] Campanha: nação sem regiões volta à escolha de ponto e pode fundar de novo.
 - Migração 9 (`kingdoms.started_at`, `strikes.weapon`).
+
+## 2026-11-11 — Tropas na hora e bots parados
+
+- [x] Tropas criadas na hora: com a instalação e os recursos, sem fila, tempo, recrutas ou pesquisa obrigatória (a pesquisa vira só bônus).
+- [x] Bots parados na partida rápida: na Vercel, um passo dos bots podia ficar congelado no meio quando a função terminava, e a trava "já estou jogando" nunca soltava naquela instância. Agora a trava vence em 20 s e o passo pedido pela leitura do estado não depende do worker. Erros reais dos bots passam a ir para o log (antes eram engolidos).
+- Bots compram tropas com até 25% do dinheiro por vez.

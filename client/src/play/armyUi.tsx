@@ -1,7 +1,7 @@
 // Fase D: exército, treinamento, pesquisa e poder militar. Tudo vem do servidor (MilitaryView);
 // as funções de shared/play/military.ts só mostram custos, tempos e o que libera cada coisa.
 import { useMemo, useState } from 'react';
-import { type StructureType, STRUCTURES } from '../../../shared/play/economy';
+import { missing, type StructureType, STRUCTURES } from '../../../shared/play/economy';
 import {
   MILITARY,
   type PowerGroup,
@@ -13,7 +13,6 @@ import {
   techSeconds,
   TECHS,
   trainCost,
-  trainSeconds,
   UNIT_TYPES,
   unitProblem,
   type UnitType,
@@ -86,24 +85,21 @@ export function ArmySheet(p: {
   const [amount, setAmount] = useState(10);
   const m = p.military;
   const have = amountsNow(p.economy);
-  const recruits = p.economy.unlimited ? Infinity : Math.floor(recruitsNow(m));
-  const now = serverNow();
   const pw = m.power;
   const groups = (Object.keys(pw.groups) as (PowerGroup | 'infrastructure')[]).filter((g) => pw.groups[g] > 0);
   const total = groups.reduce((s, g) => s + pw.groups[g], 0) || 1;
 
   const def = UNITS[unit];
   const lock = unitProblem(unit, p.structures, m.research);
-  const maxByRecruits = Math.floor(recruits / def.recruits);
-  const maxByMoney = have ? Math.floor((have.money ?? 0) / (def.cost.money ?? 1)) : 0;
-  const max = Math.max(0, Math.min(MILITARY.maxBatch, maxByRecruits, maxByMoney));
+  // Máximo que os recursos pagam agora (todas as matérias do custo, não só o dinheiro).
+  const max = have
+    ? Math.max(0, Math.min(MILITARY.maxBatch, ...(Object.entries(def.cost) as [keyof typeof have, number][]).map(([r, v]) => Math.floor(have[r] / v))))
+    : 0;
   const n = Math.max(1, Math.min(amount, Math.max(1, max)));
-  const { cost, recruits: needRecruits } = trainCost(unit, n);
-  const seconds = trainSeconds(unit, n, p.structures, m.research, p.mode);
+  const { cost } = trainCost(unit, n);
   const lotUpkeep = upkeep({ [unit]: n }, m.research, p.mode);
-  const queueFull = m.training.length >= MILITARY.queue;
-  const trainProblem = lock ?? (queueFull ? `A fila já tem ${MILITARY.queue} lotes.` : needRecruits > recruits ? `Faltam ${needRecruits - recruits} recrutas.` : null);
-  const noBase = !p.structures.some((s) => s.type === 'military_base' && s.level > 0);
+  const short = have ? Object.keys(missing(have, cost)).length > 0 : true;
+  const trainProblem = lock ?? (short ? 'Recursos insuficientes' : null);
   const negative = useMemo(() => (['money', 'oil'] as const).filter((r) => p.economy.rates[r] < 0), [p.economy.rates]);
 
   return (
@@ -153,40 +149,10 @@ export function ArmySheet(p: {
         </div>
       )}
 
-      <div className="ku-recruits" data-testid="army-recruits">
-        <span>
-          <b>{recruits.toLocaleString('pt-BR')}</b> recrutas <small>de {m.recruits.cap.toLocaleString('pt-BR')}</small>
-        </span>
-        <small>{recruits === Infinity ? 'Conta de teste com recursos infinitos.' : recruits >= m.recruits.cap ? 'Teto atingido: construa cidades ou bases militares para receber mais.' : `${fmtRate(m.recruits.rate)} ${noBase ? '· devagar sem base militar' : ''}`}</small>
-        <i>
-          <u style={{ transform: `scaleX(${Math.min(1, recruits / m.recruits.cap)})` }} />
-        </i>
-      </div>
       {negative.length > 0 && (
         <p className="ku-warn" data-testid="army-upkeep-warn">
           A manutenção do exército passa da produção de {negative.map((r) => (r === 'money' ? 'dinheiro' : 'petróleo')).join(' e ')}: o estoque está caindo.
         </p>
-      )}
-
-      {m.training.length > 0 && (
-        <ol className="ku-queue" data-testid="army-queue">
-          {m.training.map((t, i) => {
-            const running = i === 0 || t.startedAt <= now;
-            const prog = Math.min(1, Math.max(0, (now - t.startedAt) / (t.endsAt - t.startedAt)));
-            return (
-              <li key={t.id} className={running ? 'run' : ''}>
-                <Glyph d={UNIT_GLYPH[t.unit]} size={18} />
-                <span>
-                  {t.amount} × {UNITS[t.unit].short}
-                </span>
-                <em>{running ? fmtClock(t.endsAt - now) : 'na fila'}</em>
-                <i>
-                  <u style={{ transform: `scaleX(${running ? prog : 0})` }} />
-                </i>
-              </li>
-            );
-          })}
-        </ol>
       )}
 
       <div className="ku-tabs" role="tablist">
@@ -253,12 +219,6 @@ export function ArmySheet(p: {
                     Construir {STRUCTURES[def.structure].name.toLowerCase()}
                   </button>
                 )}
-                {def.research && (m.research[def.research] ?? 0) < 1 && (
-                  <button type="button" className="ku-btn" onClick={() => setTab('research')} data-testid="army-see-research">
-                    <Glyph d={RESEARCH_GLYPH} size={16} />
-                    Ver pesquisa {TECHS[def.research].name}
-                  </button>
-                )}
               </div>
             ) : (
               <>
@@ -274,11 +234,10 @@ export function ArmySheet(p: {
                 </div>
                 <div className="ku-train-cost">
                   <CostLine cost={cost} have={have} />
-                  <span className={needRecruits > recruits ? 'lack' : ''}>{needRecruits} recrutas</span>
-                  <span>⏱ {fmtSeconds(seconds)}</span>
+                  <span>pronto na hora</span>
                 </div>
                 <button type="button" className="ku-cta" disabled={p.busy || !!trainProblem} onClick={() => p.onTrain(unit, n)} data-testid="army-train-go">
-                  {trainProblem ?? `Treinar ${n} ${n === 1 ? 'unidade' : 'unidades'}`}
+                  {trainProblem ?? `Criar ${n} ${n === 1 ? 'unidade' : 'unidades'}`}
                 </button>
               </>
             )}
