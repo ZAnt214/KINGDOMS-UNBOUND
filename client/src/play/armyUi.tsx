@@ -61,7 +61,6 @@ function effectText(tech: TechType): string {
   if (e.kind === 'units') return `+${pct} de ataque e defesa por nível: ${e.units.map((u) => UNITS[u].short.toLowerCase()).join(', ')}`;
   if (e.kind === 'defense') return `+${pct} de defesa de todo o exército por nível`;
   if (e.kind === 'upkeep') return `−${pct} de manutenção por nível`;
-  if (e.kind === 'range') return `+${pct} de alcance dos mísseis a partir do nível 2`;
   if (e.kind === 'interception') return `+${pct} de chance de interceptar mísseis por nível (exige sistema antimísseis)`;
   return `−${pct} no tempo de treinamento por nível`;
 }
