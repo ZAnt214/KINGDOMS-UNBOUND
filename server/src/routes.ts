@@ -1,6 +1,8 @@
 import { Router } from 'express';
 import { z } from 'zod';
 import { ECONOMY_RULES_VERSION, STRUCTURE_TYPES } from '../../shared/play/economy.js';
+import { MILITARY, MILITARY_RULES_VERSION, TECH_TYPES, UNIT_TYPES } from '../../shared/play/military.js';
+import type { MilitaryService } from './services/military.js';
 import { MODES_AVAILABLE, PLAY_RULES_VERSION } from '../../shared/play/rules.js';
 import {
   clearSessionCookie,
@@ -39,10 +41,10 @@ const credentials = z.object({
 export function apiRouter(
   db: Db,
   hub: Hub,
-  services: { alliance: AllianceService; chat: ChatService; nation: NationService; territory: TerritoryService; economy: EconomyService; match: MatchService },
+  services: { alliance: AllianceService; chat: ChatService; nation: NationService; territory: TerritoryService; economy: EconomyService; match: MatchService; military: MilitaryService },
 ) {
   const r = Router();
-  const { alliance, chat, nation, territory, economy, match } = services;
+  const { alliance, chat, nation, territory, economy, match, military } = services;
   const authLimiter = new RateLimiter(config.authRatePerMinute, 60);
 
   r.get(
@@ -56,6 +58,7 @@ export function apiRouter(
       return {
         playRulesVersion: PLAY_RULES_VERSION,
         economyRulesVersion: ECONOMY_RULES_VERSION,
+        militaryRulesVersion: MILITARY_RULES_VERSION,
         modes: MODES_AVAILABLE,
         serverTime: Date.now(),
         worlds: k.rows.map((row) => ({ ...row, capacity: config.kingdomCapacity })),
@@ -258,6 +261,18 @@ export function apiRouter(
       );
       return { structure: await economy.build(requireGovernor(req), input.at, input.type, input.region ?? null) };
     }),
+  );
+  // Fase D: treinamento e pesquisa militar.
+  r.post(
+    '/play/train',
+    handler(async (req) => {
+      const body = parse(z.object({ unit: z.enum(UNIT_TYPES), amount: z.number().int().min(1).max(MILITARY.maxBatch) }), req.body);
+      return { military: await military.train(requireGovernor(req), body.unit, body.amount) };
+    }),
+  );
+  r.post(
+    '/play/research',
+    handler(async (req) => ({ military: await military.startResearch(requireGovernor(req), parse(z.object({ tech: z.enum(TECH_TYPES) }), req.body).tech) })),
   );
   r.post('/play/upgrade', handler(async (req) => ({ structure: await economy.upgrade(requireGovernor(req), parse(z.object({ structureId: id }), req.body).structureId) })));
   r.get(

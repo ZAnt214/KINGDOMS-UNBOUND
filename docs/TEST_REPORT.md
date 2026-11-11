@@ -244,3 +244,17 @@ Parado 60 fps, arraste 60 fps, zoom por roda 37 fps — sem regressão com as fe
 
 ### Resultado
 CI do commit `e04337b`: verde — typecheck e **87/87** testes (10 arquivos), incluindo `tests/integration/logistics.test.ts` 3/3 e `tests/unit/logistics.test.ts` 10/10. Prévia `kingdoms-unbound-2x8ucicjf-test11-1d8d.vercel.app`: `GET /api/meta` 200 com `economyRulesVersion: 2`.
+
+## 2026-11-11 — Fase D: Sistema militar
+
+### Unidade (local)
+`tests/unit/military.test.ts` **13/13**: recrutamento e teto, projeção de recrutas, oito unidades completas, exigências de instalação e pesquisa (obra no nível 0 não libera), tempo de treino (×3 sem base, cortes com teto), custo do lote, regras de pesquisa (centro tecnológico, uma por vez, nível máximo), custo/tempo crescentes, fórmula do poder (unidades + infraestrutura), bônus de pesquisa por grupo e de fortificação só na defesa, manutenção na produção com Logística militar, saldo caindo até zero com produção negativa. Demais: logistics 10/10, play 14/14, economy 12/12, geo 2/2.
+
+### Integração (CI, PostgreSQL real)
+`tests/integration/military.test.ts`: nação nova com 40 recrutas e poder 0; treino sem base só de infantaria, com tempo ×3, gastando dinheiro e recrutas; mecanizado recusado; segundo lote começa quando o primeiro termina; falta de recrutas e quantidades inválidas recusadas; lotes concluídos entram no exército, cobram manutenção e o poder é avisado ao outro jogador; base militar concluída acelera recrutas e soma infraestrutura ao poder; pesquisa exige centro tecnológico, uma de cada vez, e ao concluir reforça as tropas em 10% e libera mecanizados.
+
+### Interface — navegador automatizado com SERVIDOR FALSO
+`tests/e2e/play-visual.cjs`: **31/31** em 390×844 e **31/31** em 1280×800. Novos: tela Exército com poder 0 e recrutas; unidade bloqueada explica e oferece construir a base; lote de 10 infantarias entra na fila, termina sozinho, avisa e o poder vira 11; aba de pesquisa lista as 10 tecnologias e pede o centro tecnológico. O servidor falso reproduz as regras compartilhadas, mas persistência e concorrência só são provadas no teste de integração.
+
+### Desempenho
+Parado 60 fps, arraste 60 fps, zoom por roda 41 fps (mesmo método): sem regressão.

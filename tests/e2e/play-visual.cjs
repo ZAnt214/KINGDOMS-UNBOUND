@@ -188,6 +188,34 @@ async function enter(page, name, color, flag) {
   check('economia mostra a rede logística com o trecho e o bônus', /1 trecho de ferrovia.*\+4%/.test(await A.locator('[data-testid=economy-rail]').innerText()));
   await A.keyboard.press('Escape');
 
+  // ---------- Fase D: exército ----------
+  await A.click('[data-testid=dock-army]');
+  await A.waitForSelector('[data-testid=army-sheet]');
+  await A.waitForTimeout(300);
+  await A.screenshot({ path: `${OUT}/22-exercito.png` });
+  check('exército começa com poder 0 e recrutas', /^0$/.test((await A.locator('[data-testid=army-power] b').innerText()).trim()) && /recrutas/.test(await A.locator('[data-testid=army-recruits]').innerText()));
+  await A.click('[data-testid=unit-mechanized]');
+  check('unidade bloqueada explica o que falta e oferece construir a base', /base militar/i.test(await A.locator('[data-testid=army-train]').innerText()) && (await A.locator('[data-testid=army-build-required]').count()) === 1);
+  await A.click('[data-testid=unit-infantry]');
+  await A.click('[data-testid=amount-10]');
+  await A.click('[data-testid=army-train-go]');
+  await A.waitForSelector('[data-testid=army-queue]');
+  await A.screenshot({ path: `${OUT}/23-treinando.png` });
+  check('lote de treinamento entra na fila com contagem regressiva', /10 × Infantaria/.test(await A.locator('[data-testid=army-queue]').innerText()));
+  await A.waitForFunction(() => /prontas\. Poder militar/.test(document.body.textContent ?? ''), null, { timeout: 60000 }).then(
+    () => check('treinamento termina sozinho, avisa e o poder militar sobe', true),
+    () => check('treinamento termina sozinho, avisa e o poder militar sobe', false),
+  );
+  await A.waitForTimeout(500);
+  check('poder militar mostrado bate com as tropas treinadas', Number((await A.locator('[data-testid=army-power] b').innerText()).replace(/\D/g, '')) === 11);
+  await A.screenshot({ path: `${OUT}/24-tropas-prontas.png` });
+  await A.click('[data-testid=army-tab-research]');
+  await A.waitForSelector('[data-testid=army-research]');
+  await A.waitForTimeout(200);
+  await A.screenshot({ path: `${OUT}/25-pesquisa.png` });
+  check('pesquisa lista as tecnologias e exige centro tecnológico', (await A.locator('[data-testid=army-research] li').count()) === 10 && /centro tecnológico/.test(await A.locator('[data-testid=army-research]').innerText()));
+  await A.keyboard.press('Escape');
+
   await A.click('[data-testid=dock-ranking]');
   await A.waitForSelector('[data-testid=ranking-sheet]');
   await A.waitForTimeout(400);

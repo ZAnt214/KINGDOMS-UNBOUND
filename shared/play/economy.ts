@@ -2,6 +2,7 @@
 // o cliente usa as mesmas funções para mostrar custos, tempos e a produção prevista.
 // Documentação em docs/PLAY_RULES.md.
 import { type LogisticsNode, LOGISTICS, logistics } from './logistics';
+import { type Army, recruitment, type Research, upkeep } from './military';
 import { REGION_BY_ID } from '../world/regions';
 import { ECONOMY_SPEED, type GameMode, MODE_SPEED } from './rules';
 
@@ -26,7 +27,21 @@ export const ENERGY_INFO = {
   use: 'Não é estocada. Cada construção consome; se a demanda passar da oferta, a produção de todas as construções cai na mesma proporção.',
 };
 
-export const STRUCTURE_TYPES = ['city', 'factory', 'port', 'refinery', 'power', 'tech', 'depot'] as const;
+export const STRUCTURE_TYPES = [
+  'city',
+  'factory',
+  'port',
+  'refinery',
+  'power',
+  'tech',
+  'depot',
+  'military_base',
+  'training_center',
+  'arms_factory',
+  'air_base',
+  'naval_base',
+  'defense_center',
+] as const;
 export type StructureType = (typeof STRUCTURE_TYPES)[number];
 
 export type Deposit = 'oil' | 'metal' | 'special';
@@ -38,7 +53,9 @@ export interface StructureDef {
   short: string;
   /** O que a construção faz, em uma frase. */
   role: string;
-  tier: 'Básica' | 'Intermediária' | 'Complexa';
+  tier: 'Básica' | 'Intermediária' | 'Complexa' | 'Militar';
+  /** Instalação militar (Fase D): não produz recursos; libera unidades e recrutamento. */
+  military?: boolean;
   /** Custo para construir (nível 1). */
   cost: Cost;
   /** Tempo do nível 1, em segundos, no ritmo da campanha. */
@@ -144,6 +161,80 @@ export const STRUCTURES: Record<StructureType, StructureDef> = {
     energy: 3,
     efficiency: 0.03,
   },
+  // Instalações militares (Fase D). Efeitos em shared/play/military.ts.
+  military_base: {
+    id: 'military_base',
+    short: 'Base militar',
+    name: 'Base militar',
+    role: 'Ativa o treinamento de tropas e acelera o recrutamento (+30 recrutas/h por nível, +250 de teto).',
+    tier: 'Militar',
+    military: true,
+    cost: { money: 900, materials: 600, metal: 200 },
+    seconds: 60,
+    produces: {},
+    energy: 2,
+  },
+  training_center: {
+    id: 'training_center',
+    short: 'Treinamento',
+    name: 'Centro de treinamento',
+    role: 'Treinamento 12% mais rápido por nível, mais recrutas e libera as forças especiais.',
+    tier: 'Militar',
+    military: true,
+    cost: { money: 1000, materials: 500, metal: 250 },
+    seconds: 75,
+    produces: {},
+    energy: 2,
+  },
+  arms_factory: {
+    id: 'arms_factory',
+    short: 'Prod. militar',
+    name: 'Instalação de produção militar',
+    role: 'Fabrica equipamentos pesados: libera blindados e artilharia.',
+    tier: 'Militar',
+    military: true,
+    cost: { money: 1400, materials: 700, metal: 500, oil: 150 },
+    seconds: 90,
+    produces: {},
+    energy: 3,
+  },
+  air_base: {
+    id: 'air_base',
+    short: 'Base aérea',
+    name: 'Base aérea',
+    role: 'Pistas e hangares: libera a aviação.',
+    tier: 'Militar',
+    military: true,
+    cost: { money: 1800, materials: 900, metal: 600, oil: 400 },
+    seconds: 120,
+    produces: {},
+    energy: 3,
+  },
+  naval_base: {
+    id: 'naval_base',
+    short: 'Base naval',
+    name: 'Base naval',
+    role: 'Estaleiro e cais militar: libera a marinha. Só no litoral.',
+    tier: 'Militar',
+    military: true,
+    cost: { money: 1600, materials: 800, metal: 700, oil: 300 },
+    seconds: 120,
+    produces: {},
+    energy: 2,
+    coastal: true,
+  },
+  defense_center: {
+    id: 'defense_center',
+    short: 'Defesa',
+    name: 'Centro de defesa',
+    role: 'Comando da defesa: libera a defesa terrestre e soma 10% de defesa por nível.',
+    tier: 'Militar',
+    military: true,
+    cost: { money: 1000, materials: 700, metal: 300 },
+    seconds: 70,
+    produces: {},
+    energy: 2,
+  },
 };
 
 export const ECONOMY = {
@@ -228,6 +319,9 @@ export interface EconomyInput {
   structures: { type: StructureType; level: number; region: string; id?: number; at?: [number, number] }[];
   /** Construções concluídas das outras nações da mesma aliança (para as conexões entre aliados). */
   allied?: LogisticsNode[];
+  /** Exército e pesquisas (Fase D): a manutenção sai da produção. */
+  army?: Army;
+  research?: Research;
 }
 
 export interface EconomyOutput {
@@ -241,6 +335,10 @@ export interface EconomyOutput {
   efficiency: number;
   /** Rede logística da nação: trechos próprios, conexões com aliados e bônus médio das construções ligadas. */
   logistics: { links: number; allyLinks: number; connected: number; averageBonus: number };
+  /** Manutenção do exército por hora (já descontada de `rates`). */
+  upkeep: ResourceMap;
+  /** Recrutamento: recrutas por hora e teto. */
+  recruits: { rate: number; cap: number };
 }
 
 const add = (into: ResourceMap, cost: Cost, k = 1) => {
@@ -298,7 +396,18 @@ export function computeEconomy(input: EconomyInput, mode: GameMode = 'campaign')
     connected: mineConnected.length,
     averageBonus: mineConnected.length ? mineConnected.reduce((sum, id) => sum + (net.bonus.get(id) ?? 0), 0) / mineConnected.length : 0,
   };
-  return { rates, territory, capacity, energy: { supply, demand }, efficiency, logistics: logisticsOut };
+  const upkeepOut = upkeep(input.army ?? {}, input.research ?? {}, mode);
+  for (const r of RESOURCES) rates[r] -= upkeepOut[r];
+  return {
+    rates,
+    territory,
+    capacity,
+    energy: { supply, demand },
+    efficiency,
+    logistics: logisticsOut,
+    upkeep: upkeepOut,
+    recruits: recruitment(input.structures.filter((s) => s.level > 0), mode),
+  };
 }
 
 /** Nós da rede logística a partir da entrada da economia: a nação é 0, aliados mantêm o id da nação deles (todos na aliança 1). */
@@ -317,10 +426,18 @@ export function project(amounts: ResourceMap, settledAt: number, rates: Resource
   const h = Math.max(0, at - settledAt) / 3_600_000;
   const out = zero();
   for (const r of RESOURCES) {
-    const a = amounts[r];
-    out[r] = a >= capacity ? a : Math.min(capacity, a + rates[r] * h);
+    out[r] = projectOne(amounts[r], rates[r], capacity, h);
   }
   return out;
+}
+
+/**
+ * Um recurso após `h` horas: cresce até a capacidade (o que já passou dela fica) e, com produção
+ * negativa (manutenção maior que a produção), cai até zero.
+ */
+export function projectOne(a: number, rate: number, capacity: number, h: number): number {
+  if (rate < 0) return Math.max(0, a + rate * h);
+  return a >= capacity ? a : Math.min(capacity, a + rate * h);
 }
 
 export function missing(have: ResourceMap, cost: Cost): Cost {

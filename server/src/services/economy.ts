@@ -7,6 +7,7 @@ import {
   type EconomyInput,
   buildProblem,
   missing,
+  projectOne,
   RESOURCES,
   type ResourceMap,
   STRUCTURE_TYPES,
@@ -15,6 +16,7 @@ import {
   type StructureType,
   zero,
 } from '../../../shared/play/economy.js';
+import { MILITARY, projectRecruits } from '../../../shared/play/military.js';
 import type { GameMode } from '../../../shared/play/rules.js';
 import type { EconomyView, StructureView } from '../../../shared/play/types.js';
 import { distanceKm, REGION_BY_ID, START_POINT_BY_ID } from '../../../shared/world/regions.js';
@@ -49,6 +51,9 @@ const STRUCTURE_COLUMNS = 'id, governor_id, region_id, type, level, target_level
  * estar conectado nem de um temporizador vivo.
  */
 export class EconomyService {
+  /** Chamado depois de uma obra concluir (o poder militar conta as instalações militares). */
+  afterStructure: ((governorId: number, type: StructureType) => Promise<void>) | null = null;
+
   constructor(
     private db: Db,
     private hub: Hub,
@@ -56,7 +61,7 @@ export class EconomyService {
 
   /** Entradas do cálculo de produção, lidas do banco. */
   async inputs(q: Queryable, governorId: number): Promise<EconomyInput> {
-    const [regions, structures, nation, allied] = await Promise.all([
+    const [regions, structures, nation, allied, army, research] = await Promise.all([
       q.query('SELECT region_id FROM region_control WHERE governor_id = $1', [governorId]),
       q.query('SELECT id, type, level, region_id, lon, lat FROM structures WHERE governor_id = $1 AND level > 0', [governorId]),
       q.query('SELECT capital_point FROM nations WHERE governor_id = $1', [governorId]),
@@ -70,12 +75,16 @@ export class EconomyService {
           WHERE me.governor_id = $1`,
         [governorId],
       ),
+      q.query('SELECT unit, amount FROM army WHERE governor_id = $1', [governorId]),
+      q.query('SELECT tech, level FROM research WHERE governor_id = $1', [governorId]),
     ]);
     return {
       regions: regions.rows.map((r) => r.region_id),
       capitalRegion: START_POINT_BY_ID[nation.rows[0]?.capital_point]?.region ?? null,
       structures: structures.rows.map((r) => ({ id: Number(r.id), type: r.type, level: r.level, region: r.region_id, at: pointOf(r) })),
       allied: allied.rows.map((r) => ({ id: Number(r.id), nation: Number(r.governor_id), type: r.type, level: r.level, region: r.region_id, at: pointOf(r) })),
+      army: Object.fromEntries(army.rows.map((r) => [r.unit, r.amount])),
+      research: Object.fromEntries(research.rows.map((r) => [r.tech, r.level])),
     };
   }
 
@@ -109,6 +118,10 @@ export class EconomyService {
     for (const r of RESOURCES) {
       await client.query('INSERT INTO nation_resources (governor_id, resource, amount, settled_at) VALUES ($1, $2, $3, now())', [governorId, r, ECONOMY.starting[r]]);
     }
+    await client.query(
+      'INSERT INTO military (governor_id, kingdom_id, recruits, settled_at) SELECT governor_id, kingdom_id, $2, now() FROM nations WHERE governor_id = $1',
+      [governorId, MILITARY.recruitsStarting],
+    );
   }
 
   /** Lê o saldo travando as linhas (ordem fixa por recurso: evita impasse entre transações). */
@@ -133,15 +146,24 @@ export class EconomyService {
   async settle(client: Tx, governorId: number, at: Date): Promise<ResourceMap> {
     const { amounts, settledAt } = await this.lock(client, governorId);
     if (!settledAt) return amounts; // sem nação fundada: nada a acertar
+    // Recrutas (Fase D) crescem pela mesma produção: acertados junto, na mesma transação.
+    const mil = await client.query('SELECT recruits::float8 AS recruits, settled_at FROM military WHERE governor_id = $1 FOR UPDATE', [governorId]);
+    const milAt = mil.rows[0] ? new Date(mil.rows[0].settled_at).getTime() : Infinity;
     const when = Math.max(at.getTime(), settledAt);
-    if (when === settledAt) return amounts;
+    if (when === settledAt && when <= milAt) return amounts;
     const econ = computeEconomy(await this.inputs(client, governorId), await this.modeOf(client, governorId));
-    const h = (when - settledAt) / 3_600_000;
-    const out = zero();
-    for (const r of RESOURCES) {
-      const a = amounts[r];
-      out[r] = a >= econ.capacity ? a : Math.min(econ.capacity, a + econ.rates[r] * h);
-      await client.query('UPDATE nation_resources SET amount = $3, settled_at = $4 WHERE governor_id = $1 AND resource = $2', [governorId, r, out[r], new Date(when)]);
+    const out = { ...amounts };
+    if (when > settledAt) {
+      const h = (when - settledAt) / 3_600_000;
+      for (const r of RESOURCES) {
+        out[r] = projectOne(amounts[r], econ.rates[r], econ.capacity, h);
+        await client.query('UPDATE nation_resources SET amount = $3, settled_at = $4 WHERE governor_id = $1 AND resource = $2', [governorId, r, out[r], new Date(when)]);
+      }
+    }
+    const milWhen = Math.max(at.getTime(), milAt);
+    if (mil.rows[0] && milWhen > milAt) {
+      const recruits = projectRecruits(mil.rows[0].recruits, milAt, econ.recruits.rate, econ.recruits.cap, milWhen);
+      await client.query('UPDATE military SET recruits = $2, settled_at = $3 WHERE governor_id = $1', [governorId, recruits, new Date(milWhen)]);
     }
     return out;
   }
@@ -167,7 +189,16 @@ export class EconomyService {
       settledAt = Math.max(settledAt, new Date(r.settled_at).getTime());
     }
     const econ = computeEconomy(await this.inputs(q, governorId), await this.modeOf(q, governorId));
-    return { amounts, settledAt, rates: econ.rates, capacity: econ.capacity, energy: econ.energy, efficiency: econ.efficiency, logistics: econ.logistics };
+    return {
+      amounts,
+      settledAt,
+      rates: econ.rates,
+      capacity: econ.capacity,
+      energy: econ.energy,
+      efficiency: econ.efficiency,
+      logistics: econ.logistics,
+      upkeep: econ.upkeep,
+    };
   }
 
   async structures(kingdomId: number, q: Queryable = this.db): Promise<StructureView[]> {
@@ -294,6 +325,7 @@ export class EconomyService {
       n++;
       this.hub.toKingdom(done.kingdomId, { type: 'play.structure', structure: done.structure, completed: true, serverTime: Date.now() });
       for (const id of done.affected) await this.announceEconomy(id);
+      if (this.afterStructure) await this.afterStructure(done.structure.nationId, done.structure.type);
     }
     return n;
   }

@@ -8,7 +8,8 @@ import { serverNow } from '../api';
 import { nationFlagSrc } from './identity';
 import { IcClock, IcClose } from './icons';
 import { useTick } from '../hooks';
-import { amountsNow, CostLine } from './economyUi';
+import { amountsNow, CostLine, Glyph } from './economyUi';
+import { POWER_GLYPH } from './glyphs';
 import { fmtArea, fmtClock, fmtPeople, fmtSeconds } from './model';
 
 function CountryLine({ code }: { code: string }) {
@@ -69,7 +70,7 @@ export function PointCard({ point, color, blocked, busy, error, onColor, onConfi
       </dl>
       {reach < 6 && (
         <p className="ku-note">
-          {reach === 1 ? 'Ilha sem vizinhos por terra' : `Só ${reach} regiões alcançáveis por terra`}: a expansão por mar depende da Marinha, que ainda não existe.
+          {reach === 1 ? 'Ilha sem vizinhos por terra' : `Só ${reach} regiões alcançáveis por terra`}: atravessar o mar exigirá operações navais, que ainda não estão disponíveis.
         </p>
       )}
       <div className="ku-swatches small" role="radiogroup" aria-label="Cor do território">
@@ -149,7 +150,7 @@ export function RegionCard(p: RegionProps) {
 
   let reason: string | null = null;
   if (p.outside) reason = 'Fora da área desta partida.';
-  else if (!mine && owner) reason = 'Ataques a outras nações ainda não existem no servidor.';
+  else if (!mine && owner) reason = 'Ataques a outras nações chegam na próxima fase. Por enquanto, compare o poder militar.';
   else if (!owner && !occupation && !p.adjacent) reason = 'Sem fronteira terrestre com o seu território.';
   else if (!owner && !occupation && p.slotBusy) reason = 'Aguarde a ocupação em andamento terminar.';
 
@@ -168,6 +169,15 @@ export function RegionCard(p: RegionProps) {
         {(owner || by) && <img src={nationFlagSrc((owner ?? by)!)} alt="" />}
         {status}
       </p>
+      {owner && (
+        <p className="ku-rail on" data-testid="owner-power">
+          <Glyph d={POWER_GLYPH} size={16} />
+          <span>
+            Poder militar {mine ? 'da sua nação' : `de ${owner.name}`}: <b>{owner.power.toLocaleString('pt-BR')}</b>
+            {!mine && me.power > 0 && <> · o seu: {me.power.toLocaleString('pt-BR')}</>}
+          </span>
+        </p>
+      )}
       {country && !mine && (
         <div className="ku-meter" data-testid="country-share">
           <span>

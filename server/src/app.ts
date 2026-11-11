@@ -11,6 +11,8 @@ import { migrate, seedWorld } from './migrate.js';
 import { apiRouter } from './routes.js';
 import { AllianceService } from './services/alliance.js';
 import { ChatService } from './services/chat.js';
+import { STRUCTURES } from '../../shared/play/economy.js';
+import { MilitaryService } from './services/military.js';
 import { EconomyService } from './services/economy.js';
 import { MatchService } from './services/match.js';
 import { NationService } from './services/nation.js';
@@ -51,8 +53,14 @@ export async function createGameServer(
     },
   });
   const territory = new TerritoryService(db, hub, economy);
-  const nation = new NationService(db, hub, territory, economy);
+  const military = new MilitaryService(db, hub, economy);
+  // Instalações militares contam no poder militar: recalcula quando uma obra termina.
+  economy.afterStructure = async (governorId, type) => {
+    if (STRUCTURES[type]?.military) await military.refreshPower(governorId);
+  };
+  const nation = new NationService(db, hub, territory, economy, military);
   const match = new MatchService(db, hub, nation, territory, economy);
+  match.military = military;
   // Toda região conquistada numa partida rápida pode decidir a partida.
   territory.onRegion = (kingdomId) => match.check(kingdomId);
 
@@ -72,7 +80,7 @@ export async function createGameServer(
       .catch(() => res.status(503).json({ ok: false }));
   });
 
-  app.use('/api', express.json({ limit: '16kb' }), csrfGuard, authMiddleware(db), apiRouter(db, hub, { alliance, chat, nation, territory, economy, match }));
+  app.use('/api', express.json({ limit: '16kb' }), csrfGuard, authMiddleware(db), apiRouter(db, hub, { alliance, chat, nation, territory, economy, match, military }));
   app.use('/api', errorMiddleware);
 
   if (opts.staticDir && fs.existsSync(opts.staticDir)) {
@@ -89,6 +97,7 @@ export async function createGameServer(
     (async () => {
       await territory.processDue();
       await economy.processDue();
+      await military.processDue();
       await match.check();
       await match.tick();
     })()

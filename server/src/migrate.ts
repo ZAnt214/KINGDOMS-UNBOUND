@@ -359,6 +359,60 @@ ALTER TABLE structures DROP CONSTRAINT structures_kingdom_id_region_id_type_key;
 CREATE INDEX structures_region ON structures (kingdom_id, region_id);
 `,
   },
+  {
+    id: 6,
+    name: 'military',
+    sql: `
+-- Fase D: recrutas, exército, fila de treinamento e pesquisa. Regras em shared/play/military.ts.
+-- Recrutas crescem com o tempo (como os recursos): valor no instante settled_at.
+CREATE TABLE military (
+  governor_id BIGINT PRIMARY KEY REFERENCES nations(governor_id) ON DELETE CASCADE,
+  kingdom_id INT NOT NULL REFERENCES kingdoms(id),
+  recruits NUMERIC(14,4) NOT NULL CHECK (recruits >= 0),
+  settled_at TIMESTAMPTZ NOT NULL,
+  power INT NOT NULL DEFAULT 0
+);
+INSERT INTO military (governor_id, kingdom_id, recruits, settled_at)
+SELECT governor_id, kingdom_id, 40, now() FROM nations;
+
+CREATE TABLE army (
+  governor_id BIGINT NOT NULL REFERENCES nations(governor_id) ON DELETE CASCADE,
+  unit TEXT NOT NULL,
+  amount INT NOT NULL CHECK (amount >= 0),
+  PRIMARY KEY (governor_id, unit)
+);
+
+-- Lotes de treinamento, em sequência: cada lote começa quando o anterior termina.
+CREATE TABLE training (
+  id BIGSERIAL PRIMARY KEY,
+  kingdom_id INT NOT NULL REFERENCES kingdoms(id),
+  governor_id BIGINT NOT NULL REFERENCES nations(governor_id) ON DELETE CASCADE,
+  unit TEXT NOT NULL,
+  amount INT NOT NULL CHECK (amount > 0),
+  started_at TIMESTAMPTZ NOT NULL,
+  ends_at TIMESTAMPTZ NOT NULL CHECK (ends_at > started_at),
+  rules_version INT NOT NULL
+);
+CREATE INDEX training_due ON training (ends_at);
+CREATE INDEX training_owner ON training (governor_id, ends_at);
+
+-- Uma linha por tecnologia pesquisada; pesquisa em andamento quando target_level não é nulo.
+CREATE TABLE research (
+  governor_id BIGINT NOT NULL REFERENCES nations(governor_id) ON DELETE CASCADE,
+  kingdom_id INT NOT NULL REFERENCES kingdoms(id),
+  tech TEXT NOT NULL,
+  level INT NOT NULL DEFAULT 0 CHECK (level >= 0),
+  target_level INT,
+  started_at TIMESTAMPTZ,
+  ends_at TIMESTAMPTZ,
+  PRIMARY KEY (governor_id, tech),
+  CHECK ((target_level IS NULL) = (ends_at IS NULL)),
+  CHECK (target_level IS NULL OR target_level = level + 1)
+);
+CREATE INDEX research_due ON research (ends_at) WHERE target_level IS NOT NULL;
+CREATE UNIQUE INDEX research_one_active ON research (governor_id) WHERE target_level IS NOT NULL;
+`,
+  },
 ];
 
 export async function migrate(db: Db, log: (msg: string) => void = () => {}) {

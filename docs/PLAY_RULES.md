@@ -107,6 +107,49 @@ Regras em `shared/play/logistics.ts`, usadas pelo servidor (produção) e pelo c
 - A rede não é guardada no banco: é derivada das construções a cada cálculo. Antes de uma obra do nível 0→1 terminar, e antes de alguém entrar ou sair de uma aliança, o servidor acerta o saldo de todos os afetados (a nação e os membros da aliança, em ordem crescente de id) com a produção antiga.
 - Metas novas: "Ligar duas construções por ferrovia" e "Ter 6 trechos de ferrovia".
 
+### Sistema militar (Fase D)
+
+Regras em `shared/play/military.ts` (servidor aplica, cliente mostra). Combate é da Fase E.
+
+**Instalações militares** (construídas como as demais: barra de construções + toque no mapa; não produzem recursos):
+
+| Instalação | Custo (nível 1) | Tempo | Energia | Efeito |
+|---|---|---|---|---|
+| Base militar | $900, 600 materiais, 200 metal | 60 s | 2 | Ativa o treino normal; +30 recrutas/h e +250 de teto por nível; libera mecanizados (com pesquisa) |
+| Centro de treinamento | $1.000, 500 materiais, 250 metal | 75 s | 2 | −12% no tempo de treino por nível; +15 recrutas/h; libera forças especiais |
+| Instalação de produção militar | $1.400, 700 materiais, 500 metal, 150 petróleo | 90 s | 3 | Libera blindados e artilharia |
+| Base aérea | $1.800, 900 materiais, 600 metal, 400 petróleo | 120 s | 3 | Libera aviação |
+| Base naval (litoral) | $1.600, 800 materiais, 700 metal, 300 petróleo | 120 s | 2 | Libera marinha |
+| Centro de defesa | $1.000, 700 materiais, 300 metal | 70 s | 2 | Libera defesa terrestre; +10% de defesa por nível |
+
+**Recrutas:** crescem sozinhos, como os recursos: 8/h sem instalações, +30/h por nível de base militar, +15/h por nível de centro de treinamento (× ritmo econômico do modo). Teto: 150 + 60 por nível de cidade + 250 por nível de base militar. Nação nova começa com 40. Acertados junto com o saldo, na mesma transação.
+
+**Unidades** (por unidade; manutenção por hora, campanha):
+
+| Unidade | Custo | Recrutas | Tempo | Ataque | Defesa | Manutenção | Exige |
+|---|---|---|---|---|---|---|---|
+| Infantaria | $30 | 1 | 1,5 s (×3 sem base militar) | 1 | 1,2 | $3 | — |
+| Mecanizados | $80, 20 metal, 8 petróleo | 1 | 4 s | 3 | 3 | $5 + 1 petróleo | Base militar + Motorização |
+| Blindados | $260, 110 metal, 30 petróleo | 3 | 10 s | 12 | 9 | $10 + 4 petróleo | Produção militar + Blindagem composta |
+| Artilharia | $200, 80 metal, 12 petróleo | 4 | 8 s | 10 | 3 | $7 + 1 petróleo | Produção militar |
+| Forças especiais | $180, 6 componentes | 1 | 12 s | 8 | 6 | $12 | Centro de treinamento + Operações especiais |
+| Defesa terrestre | $140, 60 materiais, 40 metal | 2 | 6 s | 1 | 12 | $4 | Centro de defesa |
+| Aviação | $700, 240 metal, 150 petróleo, 20 componentes | 2 | 30 s | 34 | 16 | $28 + 12 petróleo | Base aérea + Caças a jato |
+| Marinha | $1.000, 450 metal, 180 petróleo, 12 componentes | 12 | 40 s | 32 | 34 | $34 + 14 petróleo | Base naval + Engenharia naval |
+
+- Treinamento em lotes de 1 a 500; até 3 lotes na fila, em sequência (cada um começa quando o anterior termina). Tempo do lote = tempo da unidade × quantidade × (1 − cortes) ÷ ritmo do modo; cortes = 12%/nível de centro de treinamento + 10%/nível de Métodos de treinamento, até 60%.
+- **Manutenção** sai da produção por hora. Se passar da produção, o estoque cai até zero (nunca negativo) e o painel avisa.
+- Antes de um lote ou pesquisa terminar, o saldo é acertado até o fim com a manutenção antiga.
+
+**Pesquisa** (exige centro tecnológico concluído; uma de cada vez; até o nível 3; custo dobra e tempo ×1,8 por nível): Doutrina de infantaria (+10%/nível infantaria e especiais), Motorização (libera mecanizados; +8%), Blindagem composta (libera blindados; +8% blindados e mecanizados), Balística (+10% artilharia), Operações especiais (libera especiais; +10%), Fortificação (+8% de defesa de todo o exército), Caças a jato (libera aviação; +8%), Engenharia naval (libera marinha; +8%), Logística militar (−10% de manutenção/nível), Métodos de treinamento (−10% no tempo de treino/nível).
+
+**Poder militar** (público, no ranking e no cartão da nação):
+- Por unidade: ataque × (1 + pesquisa) e defesa × (1 + pesquisa) × (1 + fortificação + centro de defesa).
+- Poder = (soma dos ataques + soma das defesas) ÷ 2 + 40 por nível de instalação militar, arredondado.
+- O dono vê o detalhamento: ataque, defesa, tropas e a parte de cada grupo (tropas, blindados e artilharia, aviação, marinha, defesa, infraestrutura) e quanto a tecnologia soma.
+
+**Bots:** constroem base militar (a partir de 3 construções) e centro de defesa (a partir de 5) e treinam com os recrutas disponíveis, gastando até 40% do dinheiro por vez.
+
 ### Autoridade do servidor
 
 O saldo é guardado como "valor num instante" (`nation_resources.settled_at`). Antes de qualquer mudança que altere a produção (região ganha, obra concluída) ou o saldo (gasto), o servidor acerta o saldo até aquele instante com a produção antiga. Obras e ocupações terminam pelo relógio do banco, por três caminhos equivalentes (worker, leitura, novo pedido), com `FOR UPDATE SKIP LOCKED`. O cliente nunca envia custo, nível, duração ou saldo; quando envia, é ignorado.

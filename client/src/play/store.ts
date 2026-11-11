@@ -1,6 +1,18 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { StructureType } from '../../../shared/play/economy';
-import type { EconomyView, FoundInput, NationView, OccupationView, PlayEvent, PlaySnapshot, StructureView, WorldView } from '../../../shared/play/types';
+import type { TechType, UnitType } from '../../../shared/play/military';
+import type {
+  EconomyView,
+  FoundInput,
+  MilitaryDone,
+  MilitaryView,
+  NationView,
+  OccupationView,
+  PlayEvent,
+  PlaySnapshot,
+  StructureView,
+  WorldView,
+} from '../../../shared/play/types';
 import type { Link } from '../../../shared/play/logistics';
 import { dominatedCountries } from '../../../shared/world/regions';
 import { linkKey, worldNetwork } from './model';
@@ -17,6 +29,8 @@ export interface WorldState {
   occupations: OccupationView[];
   structures: Map<number, StructureView>;
   economy: EconomyView | null;
+  /** Exército próprio (Fase D). */
+  military: MilitaryView | null;
 }
 
 /** Acontecimentos que a interface anima (derivados de eventos do servidor ou da diferença entre estados). */
@@ -27,7 +41,8 @@ export type WorldMoment =
   | { kind: 'country'; country: string; nationId: number }
   | { kind: 'structure'; structure: StructureView; completed: boolean }
   | { kind: 'match'; world: WorldView }
-  | { kind: 'rail'; link: Link; nationId: number };
+  | { kind: 'rail'; link: Link; nationId: number }
+  | { kind: 'military'; done: MilitaryDone };
 
 function fromSnapshot(s: PlaySnapshot): WorldState {
   return {
@@ -38,6 +53,7 @@ function fromSnapshot(s: PlaySnapshot): WorldState {
     occupations: s.occupations,
     structures: new Map(s.structures.map((x) => [x.id, x])),
     economy: s.economy,
+    military: s.military ?? null,
   };
 }
 
@@ -133,6 +149,7 @@ export function usePlayWorld(worldId: number | null, governorId: number | null, 
       if (!event.type.startsWith('play.')) return;
       const e = event as PlayEvent;
       const next: WorldState = { ...prev, nations: new Map(prev.nations), control: new Map(prev.control), structures: new Map(prev.structures) };
+      let done: MilitaryDone | null = null;
       if (e.type === 'play.nation') {
         next.nations.set(e.nation.id, e.nation);
         next.control.set(e.region, e.nation.id);
@@ -152,11 +169,18 @@ export function usePlayWorld(worldId: number | null, governorId: number | null, 
         if (n) next.nations.set(e.nationId, { ...n, alliance: e.alliance });
       } else if (e.type === 'play.economy') {
         next.economy = e.economy;
+      } else if (e.type === 'play.military') {
+        next.military = e.military;
+        if (e.done) done = e.done;
+      } else if (e.type === 'play.power') {
+        const n = next.nations.get(e.nationId);
+        if (n) next.nations.set(e.nationId, { ...n, power: e.power });
       } else if (e.type === 'play.match') {
         next.world = e.world;
         if (e.world.finishedAt) next.occupations = [];
       }
       commit(next, true);
+      if (done) moment.current({ kind: 'military', done }, next);
     };
     const rt = new Realtime(apply, setStatus, () => void refresh());
     rt.connect();
@@ -168,6 +192,8 @@ export function usePlayWorld(worldId: number | null, governorId: number | null, 
     if (!state || state.world.finishedAt) return null;
     const ends = [...state.occupations.map((o) => o.endsAt), ...[...state.structures.values()].flatMap((s) => (s.building ? [s.building.endsAt] : []))];
     if (state.world.endsAt) ends.push(state.world.endsAt);
+    if (state.military?.training[0]) ends.push(state.military.training[0].endsAt);
+    if (state.military?.researching) ends.push(state.military.researching.endsAt);
     return ends.length ? Math.min(...ends) : null;
   }, [state]);
   useEffect(() => {
@@ -218,5 +244,18 @@ export function usePlayWorld(worldId: number | null, governorId: number | null, 
     [upsertStructure],
   );
 
-  return { state, status, error, refresh, found, expand, build, upgrade };
+  const setMilitary = useCallback(
+    (military: MilitaryView) => {
+      const prev = current.current;
+      if (prev) commit({ ...prev, military }, true);
+    },
+    [commit],
+  );
+  const train = useCallback(
+    async (unit: UnitType, amount: number) => setMilitary((await api.post<{ military: MilitaryView }>('/play/train', { unit, amount })).military),
+    [setMilitary],
+  );
+  const research = useCallback(async (tech: TechType) => setMilitary((await api.post<{ military: MilitaryView }>('/play/research', { tech })).military), [setMilitary]);
+
+  return { state, status, error, refresh, found, expand, build, upgrade, train, research };
 }

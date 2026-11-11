@@ -7,6 +7,7 @@ import type { GovernorCtx } from '../auth.js';
 import { type Db, type Tx, tx } from '../db.js';
 import { bad, conflict, notFound } from '../http.js';
 import type { Hub } from '../hub.js';
+import type { MilitaryService } from './military.js';
 import type { EconomyService } from './economy.js';
 import type { TerritoryService } from './territory.js';
 
@@ -15,8 +16,10 @@ type Queryable = Pick<Db, 'query'> | Pick<Tx, 'query'>;
 const NATION_SQL = `SELECT n.governor_id, n.name, n.color, n.flag, n.flag_image_version, (n.flag_image IS NOT NULL) AS has_image,
                            n.capital_point, n.founded_at, g.is_bot,
                            (SELECT m.alliance_id FROM alliance_members m JOIN alliances a ON a.id = m.alliance_id AND a.status = 'active'
-                             WHERE m.governor_id = n.governor_id) AS alliance_id
-                      FROM nations n JOIN governors g ON g.id = n.governor_id`;
+                             WHERE m.governor_id = n.governor_id) AS alliance_id,
+                           COALESCE(mil.power, 0) AS power
+                      FROM nations n JOIN governors g ON g.id = n.governor_id
+                      LEFT JOIN military mil ON mil.governor_id = n.governor_id`;
 
 const nationView = (r: any): NationView => ({
   id: Number(r.governor_id),
@@ -28,6 +31,7 @@ const nationView = (r: any): NationView => ({
   foundedAt: new Date(r.founded_at).getTime(),
   bot: r.is_bot === true,
   alliance: r.alliance_id === null || r.alliance_id === undefined ? null : Number(r.alliance_id),
+  power: Number(r.power ?? 0),
 });
 
 export interface NewNation {
@@ -51,6 +55,7 @@ export class NationService {
     private hub: Hub,
     private territory: TerritoryService,
     private economy: EconomyService,
+    private military: MilitaryService | null = null,
   ) {}
 
   async list(kingdomId: number, q: Queryable = this.db): Promise<NationView[]> {
@@ -81,6 +86,7 @@ export class NationService {
   async snapshot(g: GovernorCtx): Promise<PlaySnapshot> {
     await this.territory.completeDue(g.kingdomId);
     await this.economy.completeDue(g.kingdomId);
+    await this.military?.completeDue(g.kingdomId);
     const [world, nations, control, occupations, structures] = await Promise.all([
       this.world(g.kingdomId),
       this.list(g.kingdomId),
@@ -98,6 +104,7 @@ export class NationService {
       occupations,
       structures,
       economy: mine ? await this.economy.view(this.db, g.id) : null,
+      military: mine && this.military ? await this.military.view(this.db, g.id) : null,
     };
   }
 

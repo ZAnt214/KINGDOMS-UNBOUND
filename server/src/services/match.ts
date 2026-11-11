@@ -6,6 +6,8 @@ import type { GovernorCtx } from '../auth.js';
 import { type Db, tx } from '../db.js';
 import { conflict } from '../http.js';
 import type { Hub } from '../hub.js';
+import { MILITARY, projectRecruits, UNITS, unitProblem, type UnitType } from '../../../shared/play/military.js';
+import type { MilitaryService } from './military.js';
 import type { EconomyService } from './economy.js';
 import type { NationService } from './nation.js';
 import type { TerritoryService } from './territory.js';
@@ -27,6 +29,9 @@ export class MatchService {
     private territory: TerritoryService,
     private economy: EconomyService,
   ) {}
+
+  /** Exército dos bots (Fase D). Definido em app.ts. */
+  military: MilitaryService | null = null;
 
   /** Entra na partida rápida em andamento do usuário ou cria uma nova. */
   async start(userId: number): Promise<{ worldId: number; created: boolean }> {
@@ -151,6 +156,7 @@ export class MatchService {
         this.nextThink.set(id, now + rand(QUICK.botThink[0], QUICK.botThink[1]) * 1000);
         const ctx: GovernorCtx = { id, name: b.name, kingdomId: b.kingdom_id, mode: 'quick', allianceId: null, allianceRank: null };
         await this.botBuild(ctx).catch(() => {});
+        await this.botArmy(ctx).catch(() => {});
         await this.botExpand(ctx, b.arena as string[]).catch(() => {});
       }
     } finally {
@@ -206,8 +212,26 @@ export class MatchService {
     if (capital && econ.energy.demand + 2 > econ.energy.supply && (await tryBuild('power', capital))) return;
     if (capital && !has('factory', capital) && (await tryBuild('factory', capital))) return;
     for (const r of inputs.regions) if (r !== capital && !has('city', r) && (await tryBuild('city', r))) return;
+    // Exército: base militar depois da economia básica, centro de defesa depois.
+    if (capital && mine.length >= 3 && !has('military_base', null) && (await tryBuild('military_base', capital))) return;
+    if (capital && mine.length >= 5 && !has('defense_center', null) && (await tryBuild('defense_center', capital))) return;
     // Melhora a construção mais barata de melhorar.
     const up = mine.filter((s) => s.level >= 1 && s.level < ECONOMY.maxLevel && (s.type === 'city' || s.type === 'factory')).sort((a, b) => a.level - b.level)[0];
     if (up && affordable(up.type, up.level)) await this.economy.upgrade(g, up.id);
+  }
+
+  /** Bots treinam com os recrutas que têm, gastando no máximo 40% do dinheiro por vez. */
+  private async botArmy(g: GovernorCtx) {
+    if (!this.military) return;
+    const [mil, view] = await Promise.all([this.military.view(this.db, g.id), this.economy.view(this.db, g.id)]);
+    if (!mil || !view || mil.training.length) return;
+    const now = Date.now();
+    const recruits = Math.floor(projectRecruits(mil.recruits.amount, mil.recruits.settledAt, mil.recruits.rate, mil.recruits.cap, now));
+    const money = project(view.amounts, view.settledAt, view.rates, view.capacity, now).money;
+    const structures = (await this.economy.inputs(this.db, g.id)).structures;
+    const unit: UnitType = !unitProblem('defense', structures, mil.research) && (mil.army.defense ?? 0) < (mil.army.infantry ?? 0) / 4 ? 'defense' : 'infantry';
+    const per = UNITS[unit];
+    const amount = Math.min(MILITARY.maxBatch, Math.floor(recruits / per.recruits), Math.floor((money * 0.4) / (per.cost.money ?? 1)));
+    if (amount >= 10) await this.military.train(g, unit, amount);
   }
 }

@@ -2,6 +2,7 @@
 import type { Cost, ResourceMap, StructureType } from './economy';
 import type { FlagSpec } from './flags';
 import type { OutcomeReason } from './match';
+import type { Army, MilitaryPower, Research, TechType, UnitType } from './military';
 import type { GameMode } from './rules';
 
 export interface NationView {
@@ -20,6 +21,8 @@ export interface NationView {
   bot: boolean;
   /** Aliança ativa da nação (id), ou null. Define as conexões logísticas entre aliados. */
   alliance: number | null;
+  /** Poder militar total (Fase D), público para comparar nações. */
+  power: number;
 }
 
 export interface OccupationView {
@@ -56,6 +59,19 @@ export interface EconomyView {
   efficiency: number;
   /** Rede logística (Fase C): trechos de ferrovia, conexões com aliados e bônus médio. */
   logistics: { links: number; allyLinks: number; connected: number; averageBonus: number };
+  /** Manutenção do exército por hora (Fase D), já descontada de `rates`. */
+  upkeep: ResourceMap;
+}
+
+/** Exército da própria nação (Fase D). Outras nações só veem o poder total (`NationView.power`). */
+export interface MilitaryView {
+  recruits: { amount: number; settledAt: number; rate: number; cap: number };
+  army: Army;
+  /** Lotes na fila, em ordem; o primeiro está em treinamento. */
+  training: { id: number; unit: UnitType; amount: number; startedAt: number; endsAt: number }[];
+  research: Research;
+  researching: { tech: TechType; to: number; startedAt: number; endsAt: number } | null;
+  power: MilitaryPower;
 }
 
 export interface ResultView {
@@ -90,7 +106,12 @@ export interface PlaySnapshot {
   occupations: OccupationView[];
   structures: StructureView[];
   economy: EconomyView | null;
+  /** Exército da própria nação (Fase D), ou null se ainda não fundou. */
+  military: MilitaryView | null;
 }
+
+/** O que acabou de terminar (para o aviso e o som). */
+export type MilitaryDone = { kind: 'training'; unit: UnitType; amount: number } | { kind: 'research'; tech: TechType; level: number };
 
 /** Eventos em tempo real enviados a todos do mesmo mundo (e `play.economy` só ao dono). */
 export type PlayEvent =
@@ -101,6 +122,8 @@ export type PlayEvent =
   | { type: 'play.structure'; structure: StructureView; completed: boolean }
   | { type: 'play.economy'; economy: EconomyView }
   | { type: 'play.alliance'; nationId: number; alliance: number | null }
+  | { type: 'play.military'; military: MilitaryView; done?: MilitaryDone }
+  | { type: 'play.power'; nationId: number; power: number }
   | { type: 'play.match'; world: WorldView };
 
 export interface FoundInput {

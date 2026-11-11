@@ -27,6 +27,13 @@ export const IcBuild = (p: SVGProps<SVGSVGElement>) => (
     <path d="M11.5 11h1M11.5 14h1M11.5 17h1" />
   </Icon>
 );
+/** Exército: escudo com divisa. */
+export const IcArmy = (p: SVGProps<SVGSVGElement>) => (
+  <Icon {...p}>
+    <path d="M12 3l7 3v5c0 5-3 8.5-7 10-4-1.5-7-5-7-10V6z" />
+    <path d="M8.5 10.5 12 13l3.5-2.5M8.5 14.5 12 17l3.5-2.5" />
+  </Icon>
+);
 export const IcRanking = (p: SVGProps<SVGSVGElement>) => (
   <Icon {...p}>
     <path d="M4 20V11h4v9M10 20V5h4v15M16 20v-6h4v6" />

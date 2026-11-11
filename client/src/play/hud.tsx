@@ -4,7 +4,7 @@ import { serverNow } from '../api';
 import { useTick } from '../hooks';
 import type { RealtimeStatus } from '../realtime';
 import { nationFlagSrc } from './identity';
-import { IcBuild, IcCapital, IcClock, IcExpand, IcGear, IcGlobe, IcMinus, IcPlus, IcRanking } from './icons';
+import { IcArmy, IcBuild, IcCapital, IcClock, IcExpand, IcGear, IcGlobe, IcMinus, IcPlus, IcRanking } from './icons';
 import { fmtClock, type NationStats } from './model';
 
 export interface Toast {
@@ -104,7 +104,17 @@ export function OccupationCapsule({ name, startedAt, endsAt, onFocus }: { name: 
   );
 }
 
-export function Dock(p: { targets: number; occupying: boolean; building: number; onExpand: () => void; onCapital: () => void; onBuild: () => void; onRanking: () => void }) {
+export function Dock(p: {
+  targets: number;
+  occupying: boolean;
+  building: number;
+  training: number;
+  onExpand: () => void;
+  onCapital: () => void;
+  onBuild: () => void;
+  onArmy: () => void;
+  onRanking: () => void;
+}) {
   return (
     <nav className="ku-dock" aria-label="Ações">
       <button type="button" onClick={p.onCapital} data-testid="dock-capital">
@@ -120,6 +130,11 @@ export function Dock(p: { targets: number; occupying: boolean; building: number;
         <IcBuild />
         <span>Construções</span>
         {p.building > 0 && <em className="soft">{p.building}</em>}
+      </button>
+      <button type="button" onClick={p.onArmy} data-testid="dock-army">
+        <IcArmy />
+        <span>Exército</span>
+        {p.training > 0 && <em className="soft">{p.training}</em>}
       </button>
       <button type="button" onClick={p.onRanking} data-testid="dock-ranking">
         <IcRanking />

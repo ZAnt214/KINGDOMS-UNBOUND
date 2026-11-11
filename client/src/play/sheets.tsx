@@ -105,6 +105,7 @@ export function RankingSheet({ board, me, world, onPick, onClose }: { board: Nat
                   <small>
                     {s.regions.length} {s.regions.length === 1 ? 'região' : 'regiões'} · {fmtArea(s.area)}
                     {s.countries.length > 0 && ` · ${s.countries.length} ${s.countries.length === 1 ? 'país' : 'países'}`}
+                    {` · poder ${s.nation.power.toLocaleString('pt-BR')}`}
                   </small>
                 </span>
                 <i style={{ background: s.nation.color }} />

@@ -21,12 +21,30 @@ import {
   STRUCTURE_TYPES,
   structureCost,
   structureSeconds,
+  STRUCTURES,
   type StructureType,
 } from '../../../shared/play/economy';
+import {
+  type Army,
+  MILITARY,
+  militaryPower,
+  projectRecruits,
+  type Research,
+  researchProblem,
+  TECH_TYPES,
+  type TechType,
+  techCost,
+  techSeconds,
+  trainCost,
+  trainSeconds,
+  UNIT_TYPES,
+  unitProblem,
+  type UnitType,
+} from '../../../shared/play/military';
 import { inspectFlagImage, parseFlag } from '../../../shared/play/flags';
 import { botIdentities, buildArena, matchOutcome, pickBotPoints, QUICK, rank, THEATERS } from '../../../shared/play/match';
 import { cleanNationName, COLOR_EXCLUSION_KM, expansionSeconds, type GameMode, MODES_AVAILABLE, NATION_COLOR_BY_HEX, nationNameProblem } from '../../../shared/play/rules';
-import type { EconomyView, NationView, OccupationView, StructureView, WorldView } from '../../../shared/play/types';
+import type { EconomyView, MilitaryView, NationView, OccupationView, StructureView, WorldView } from '../../../shared/play/types';
 import { freePointIn, regionAt } from '../../../server/src/geo';
 import { borderingRegion, distanceKm, expansionTargets, REGION_BY_ID, START_POINT_BY_ID, type StartPoint } from '../../../shared/world/regions';
 
@@ -43,6 +61,15 @@ interface World {
   structures: Map<number, StructureView>;
   wallet: Map<number, { amounts: ResourceMap; settledAt: number }>;
   bots: Set<number>;
+  army: Map<number, MockArmy>;
+}
+interface MockArmy {
+  recruits: number;
+  settledAt: number;
+  units: Army;
+  research: Research;
+  training: MilitaryView['training'];
+  researching: MilitaryView['researching'];
 }
 interface Session {
   userId: number;
@@ -61,6 +88,7 @@ const newWorld = (wid: number, name: string, mode: GameMode, arena: string[] | n
   structures: new Map(),
   wallet: new Map(),
   bots: new Set(),
+  army: new Map(),
 });
 worlds.set(1, newWorld(1, 'Campanha · Mundo 1 (servidor falso)', 'campaign', null));
 const sessions = new Map<string, Session>();
@@ -87,14 +115,95 @@ const inputs = (w: World, gid: number) => ({
   regions: [...w.control].filter(([, o]) => o === gid).map(([r]) => r),
   capitalRegion: START_POINT_BY_ID[w.nations.get(gid)!.capital].region,
   structures: [...w.structures.values()].filter((s) => s.nationId === gid && s.level > 0).map((s) => ({ id: s.id, type: s.type, level: s.level, region: s.region, at: s.at })),
+  army: w.army.get(gid)?.units ?? {},
+  research: w.army.get(gid)?.research ?? {},
 });
 function settle(w: World, gid: number, at = Date.now()) {
   const wal = w.wallet.get(gid)!;
-  if (at <= wal.settledAt) return wal.amounts;
   const e = computeEconomy(inputs(w, gid), w.view.mode);
+  const a = w.army.get(gid);
+  if (a && at > a.settledAt) {
+    a.recruits = projectRecruits(a.recruits, a.settledAt, e.recruits.rate, e.recruits.cap, at);
+    a.settledAt = at;
+  }
+  if (at <= wal.settledAt) return wal.amounts;
   wal.amounts = project(wal.amounts, wal.settledAt, e.rates, e.capacity, at);
   wal.settledAt = at;
   return wal.amounts;
+}
+
+// ---------- exército (mesmas regras de shared/play/military.ts) ----------
+
+const builtOf = (w: World, gid: number) => [...w.structures.values()].filter((s) => s.nationId === gid && s.level > 0).map((s) => ({ type: s.type, level: s.level }));
+function militaryView(w: World, gid: number): MilitaryView | null {
+  const a = w.army.get(gid);
+  if (!a) return null;
+  const e = computeEconomy(inputs(w, gid), w.view.mode);
+  return {
+    recruits: { amount: a.recruits, settledAt: a.settledAt, rate: e.recruits.rate, cap: e.recruits.cap },
+    army: { ...a.units },
+    training: [...a.training],
+    research: { ...a.research },
+    researching: a.researching,
+    power: militaryPower(a.units, a.research, builtOf(w, gid)),
+  };
+}
+function refreshPower(w: World, gid: number) {
+  const n = w.nations.get(gid);
+  const power = militaryPower(w.army.get(gid)!.units, w.army.get(gid)!.research, builtOf(w, gid)).power;
+  if (n && n.power !== power) {
+    n.power = power;
+    send(w.view.id, { type: 'play.power', nationId: gid, power });
+  }
+}
+function train(w: World, gid: number, unit: UnitType, amount: number) {
+  if (!UNIT_TYPES.includes(unit)) throw new Fail(400, 'invalid_unit', 'Unidade desconhecida.');
+  if (!Number.isInteger(amount) || amount < 1 || amount > MILITARY.maxBatch) throw new Fail(400, 'invalid_amount', 'Quantidade inválida.');
+  const a = w.army.get(gid)!;
+  const problem = unitProblem(unit, builtOf(w, gid), a.research);
+  if (problem) throw new Fail(409, 'cannot_train', problem);
+  if (a.training.length >= MILITARY.queue) throw new Fail(409, 'cannot_train', `A fila já tem ${MILITARY.queue} lotes. Aguarde um terminar.`);
+  const { cost, recruits } = trainCost(unit, amount);
+  settle(w, gid);
+  if (a.recruits + 1e-6 < recruits) throw new Fail(409, 'insufficient', `Recrutas insuficientes: este lote precisa de ${recruits} e há ${Math.floor(a.recruits)}.`);
+  spend(w, gid, cost, 'este treinamento');
+  a.recruits -= recruits;
+  const start = Math.max(Date.now(), a.training.at(-1)?.endsAt ?? 0);
+  a.training.push({ id: id(), unit, amount, startedAt: start, endsAt: start + (trainSeconds(unit, amount, builtOf(w, gid), a.research, w.view.mode) * 1000) / SPEED });
+  announceEconomy(w, gid);
+  return militaryView(w, gid);
+}
+function startResearch(w: World, gid: number, tech: TechType) {
+  if (!TECH_TYPES.includes(tech)) throw new Fail(400, 'invalid_tech', 'Pesquisa desconhecida.');
+  const a = w.army.get(gid)!;
+  const problem = researchProblem(tech, builtOf(w, gid), a.research, a.researching !== null);
+  if (problem) throw new Fail(409, 'cannot_research', problem);
+  const from = a.research[tech] ?? 0;
+  spend(w, gid, techCost(tech, from), 'esta pesquisa');
+  const now = Date.now();
+  a.researching = { tech, to: from + 1, startedAt: now, endsAt: now + (techSeconds(tech, from, w.view.mode) * 1000) / SPEED };
+  announceEconomy(w, gid);
+  return militaryView(w, gid);
+}
+function militaryTick(w: World, gid: number, now: number) {
+  const a = w.army.get(gid)!;
+  while (a.training[0] && a.training[0].endsAt <= now) {
+    const t = a.training.shift()!;
+    settle(w, gid, t.endsAt);
+    a.units[t.unit] = (a.units[t.unit] ?? 0) + t.amount;
+    refreshPower(w, gid);
+    announceEconomy(w, gid);
+    send(w.view.id, { type: 'play.military', military: militaryView(w, gid), done: { kind: 'training', unit: t.unit, amount: t.amount } }, gid);
+  }
+  if (a.researching && a.researching.endsAt <= now) {
+    const r = a.researching;
+    settle(w, gid, r.endsAt);
+    a.research[r.tech] = r.to;
+    a.researching = null;
+    refreshPower(w, gid);
+    announceEconomy(w, gid);
+    send(w.view.id, { type: 'play.military', military: militaryView(w, gid), done: { kind: 'research', tech: r.tech, level: r.to } }, gid);
+  }
 }
 function spend(w: World, gid: number, cost: Cost, what: string) {
   const have = settle(w, gid);
@@ -106,7 +215,7 @@ function economyView(w: World, gid: number): EconomyView | null {
   const wal = w.wallet.get(gid);
   if (!wal) return null;
   const e = computeEconomy(inputs(w, gid), w.view.mode);
-  return { amounts: { ...wal.amounts }, settledAt: wal.settledAt, rates: e.rates, capacity: e.capacity, energy: e.energy, efficiency: e.efficiency, logistics: e.logistics };
+  return { amounts: { ...wal.amounts }, settledAt: wal.settledAt, rates: e.rates, capacity: e.capacity, energy: e.energy, efficiency: e.efficiency, logistics: e.logistics, upkeep: e.upkeep };
 }
 const announceEconomy = (w: World, gid: number) => send(w.view.id, { type: 'play.economy', economy: economyView(w, gid) }, gid);
 
@@ -131,7 +240,9 @@ function tick() {
       w.structures.set(s.id, done);
       send(w.view.id, { type: 'play.structure', structure: done, completed: true });
       announceEconomy(w, s.nationId);
+      if (STRUCTURES[s.type].military) refreshPower(w, s.nationId);
     }
+    for (const gid of w.army.keys()) militaryTick(w, gid, now);
     if (w.view.mode === 'quick' && w.view.endsAt) {
       for (const b of w.bots) botStep(w, b);
       checkMatch(w);
@@ -205,10 +316,11 @@ function createNation(w: World, gid: number, point: StartPoint, name: string, co
   if (w.control.has(point.region)) throw new Fail(409, 'region_taken', 'Esta região já pertence a outra nação. Escolha outro ponto.');
   if ([...w.nations.values()].some((n) => n.name.toLowerCase() === name.toLowerCase())) throw new Fail(409, 'name_taken', 'Já existe uma nação com este nome neste mundo.');
   if (blockedColors(w, point.id).includes(color)) throw new Fail(409, 'color_taken', 'Uma nação vizinha já usa esta cor. Escolha outra para que as fronteiras fiquem legíveis.');
-  const nation: NationView = { id: gid, name, color, flag, flagImage: image ? 1 : null, capital: point.id, foundedAt: Date.now(), bot, alliance: null };
+  const nation: NationView = { id: gid, name, color, flag, flagImage: image ? 1 : null, capital: point.id, foundedAt: Date.now(), bot, alliance: null, power: 0 };
   w.nations.set(gid, { ...nation, image });
   w.control.set(point.region, gid);
   w.wallet.set(gid, { amounts: { ...ECONOMY.starting }, settledAt: Date.now() });
+  w.army.set(gid, { recruits: MILITARY.recruitsStarting, settledAt: Date.now(), units: {}, research: {}, training: [], researching: null });
   if (bot) w.bots.add(gid);
   return nation;
 }
@@ -284,6 +396,7 @@ const snapshot = (w: World, gid: number | null) => ({
   occupations: w.occupations,
   structures: [...w.structures.values()],
   economy: gid !== null ? economyView(w, gid) : null,
+  military: gid !== null ? militaryView(w, gid) : null,
 });
 
 const seatsOf = (s: Session) =>
@@ -353,6 +466,8 @@ function route(method: string, url: URL, body: any, s: Session | null, worldHead
   }
   if (p === '/play/expand' && method === 'POST') return expand(w, gid, body.region);
   if (p === '/play/build' && method === 'POST') return { structure: build(w, gid, body.at, body.type, body.region) };
+  if (p === '/play/train' && method === 'POST') return { military: train(w, gid, body.unit, Number(body.amount)) };
+  if (p === '/play/research' && method === 'POST') return { military: startResearch(w, gid, body.tech) };
   if (p === '/play/upgrade' && method === 'POST') return { structure: upgrade(w, gid, Number(body.structureId)) };
   throw new Fail(404, 'not_found', 'Rota inexistente.');
 }

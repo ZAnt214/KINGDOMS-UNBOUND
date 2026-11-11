@@ -339,7 +339,7 @@ export function EconomySheet({ economy, onClose }: { economy: EconomyView; onClo
             </span>
             <em>
               <b>{fmtAmount(have[r])}</b>
-              <small>{economy.rates[r] > 0 ? fmtRate(economy.rates[r]) : 'sem produção'}</small>
+              <small className={economy.rates[r] < 0 ? 'neg' : ''}>{Math.abs(economy.rates[r]) >= 0.5 ? fmtRate(economy.rates[r]) : 'sem produção'}</small>
             </em>
             <i>
               <u style={{ transform: `scaleX(${Math.min(1, have[r] / economy.capacity)})`, background: RESOURCE_INFO[r].color }} />

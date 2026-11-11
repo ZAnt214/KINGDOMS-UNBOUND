@@ -1,6 +1,8 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { buildProblem, type EconomyInput, ECONOMY, expansionCost, missing, STRUCTURES, structureCost, type StructureType } from '../../../shared/play/economy';
 import { LOGISTICS, previewLinks } from '../../../shared/play/logistics';
+import { type TechType, TECHS, type UnitType, UNITS } from '../../../shared/play/military';
+import { ArmySheet } from './armyUi';
 import { QUICK } from '../../../shared/play/match';
 import { expansionSeconds, MILESTONES, milestoneProgress } from '../../../shared/play/rules';
 import type { NationView, StructureView } from '../../../shared/play/types';
@@ -22,7 +24,7 @@ import { regionsOf, structuresOf, type WorldMoment, type WorldState } from './st
 const LABELS: MapLabel[] = COUNTRIES.map((c) => ({ code: c.code, text: c.name, at: c.labelAt, rank: c.labelRank }));
 const BLOOM_MS = 2200;
 /** Concordância dos avisos: "Cidade concluída", "Porto concluído". */
-const FEMININE = new Set<StructureType>(['city', 'factory', 'refinery', 'power']);
+const FEMININE = new Set<StructureType>(['city', 'factory', 'refinery', 'power', 'military_base', 'arms_factory', 'air_base', 'naval_base']);
 
 interface Props {
   engine: WorldMapEngine;
@@ -39,13 +41,15 @@ interface Props {
   expand: (region: string) => Promise<void>;
   build: (at: [number, number], type: StructureType, region: string) => Promise<void>;
   upgrade: (structureId: number) => Promise<void>;
+  train: (unit: UnitType, amount: number) => Promise<void>;
+  research: (tech: TechType) => Promise<void>;
   onEditIdentity: () => void;
   onSwitchMode: () => void;
   onLeave: () => Promise<void>;
   onLogout: () => void;
 }
 
-type Sheet = 'nation' | 'ranking' | 'settings' | 'economy' | null;
+type Sheet = 'nation' | 'ranking' | 'settings' | 'economy' | 'army' | null;
 type Panel = { kind: 'existing'; id: number } | null;
 interface Bloom {
   color: string;
@@ -61,7 +65,7 @@ const prefersReduced = () => typeof matchMedia === 'function' && matchMedia('(pr
  * mostra o HUD. Não decide regra nenhuma: tudo que muda o mundo passa por found, expand, build e upgrade.
  */
 export function MapStage(props: Props) {
-  const { engine, state, status, active, draft, onDraft, username, subscribe, found, expand, build, upgrade } = props;
+  const { engine, state, status, active, draft, onDraft, username, subscribe, found, expand, build, upgrade, train, research } = props;
   const me = state.me !== null ? (state.nations.get(state.me) ?? null) : null;
   const quick = state.world.mode === 'quick';
   const arena = state.world.arena;
@@ -518,6 +522,18 @@ export function MapStage(props: Props) {
           } else audio.play('build');
           return;
         }
+        if (m.kind === 'military') {
+          if (m.done.kind === 'training') {
+            audio.play('drill');
+            const d = UNITS[m.done.unit];
+            toast(`${m.done.amount} ${m.done.amount === 1 ? 'unidade' : 'unidades'} de ${d.short.toLowerCase()} prontas. Poder militar: ${(s.military?.power.power ?? 0).toLocaleString('pt-BR')}.`, 'good');
+          } else {
+            audio.play('built');
+            const t = TECHS[m.done.tech];
+            toast(`Pesquisa concluída: ${t.name}, nível ${m.done.level}.${t.unlocks && m.done.level === 1 ? ` ${UNITS[t.unlocks].short} liberados.` : ''}`, 'good');
+          }
+          return;
+        }
         if (m.kind === 'rail') {
           // A obra que completa o trecho chega no mesmo instante: a linha começa depois do selo saltar.
           railBorn.current.set(linkKey(m.link), now + 450);
@@ -636,7 +652,7 @@ export function MapStage(props: Props) {
     if (myOccupation) return void engine.flyToRegions([myOccupation.region, myOccupation.from], 0.5, 12);
     if (!targets.length) {
       const reach = landmassSize(stats.regions[0]) <= stats.regions.length;
-      return void toast(reach ? 'Não há mais regiões alcançáveis por terra. A travessia marítima depende da Marinha, que ainda não existe.' : 'Todas as regiões vizinhas já têm dono ou estão sendo ocupadas.');
+      return void toast(reach ? 'Não há mais regiões alcançáveis por terra. Atravessar o mar exigirá operações navais, que ainda não estão disponíveis.' : 'Todas as regiões vizinhas já têm dono ou estão sendo ocupadas.');
     }
     engine.flyToRegions([...stats.regions, ...targets], 0.62, 10);
     toast(`${targets.length} ${targets.length === 1 ? 'região vizinha livre' : 'regiões vizinhas livres'}. Toque em uma área tracejada.`);
@@ -733,6 +749,12 @@ export function MapStage(props: Props) {
                 setBuildOpen(true);
               }}
               onRanking={() => setSheet('ranking')}
+              training={state.military?.training.length ?? 0}
+              onArmy={() => {
+                audio.play('tap');
+                setCardError(null);
+                setSheet('army');
+              }}
             />
           )}
         </div>
@@ -833,6 +855,25 @@ export function MapStage(props: Props) {
         />
       )}
       {sheet === 'economy' && state.economy && <EconomySheet economy={state.economy} onClose={() => setSheet(null)} />}
+      {sheet === 'army' && state.military && state.economy && (
+        <ArmySheet
+          military={state.military}
+          economy={state.economy}
+          structures={myStructures.filter((x) => x.level > 0)}
+          mode={state.world.mode}
+          busy={busy}
+          error={cardError}
+          onTrain={(unit, amount) => void run(async () => (await train(unit, amount), audio.play('build')))}
+          onResearch={(tech) => void run(async () => (await research(tech), audio.play('build')))}
+          onBuild={(type) => {
+            setSheet(null);
+            setBuildOpen(true);
+            setPlacing(type);
+            toast(`Toque no seu território para construir: ${STRUCTURES[type].name.toLowerCase()}.`);
+          }}
+          onClose={() => setSheet(null)}
+        />
+      )}
       {sheet === 'ranking' && (
         <RankingSheet
           board={board}

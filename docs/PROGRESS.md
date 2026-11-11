@@ -202,3 +202,18 @@ Decisões em `docs/adr/0006-logistica-derivada.md`; regras em `docs/PLAY_RULES.m
 **Pendências**
 - [ ] Botão de pedir aliança no jogo (Fase F). Até lá a conexão entre aliados existe e é testada no servidor, mas o jogador não tem como formar aliança pela tela.
 - [ ] Prévia de trechos no toque (celular): hoje o toque já constrói; a prévia aparece só com mouse.
+
+## 2026-11-11 — Fase D: Sistema militar
+
+Regras em `docs/PLAY_RULES.md` (seção Sistema militar); migração 6 (`military`, `army`, `training`, `research`).
+
+- [x] Formação de exército progressiva: recrutas crescem sozinhos; sem base militar só infantaria, 3× mais lenta.
+- [x] Seis instalações militares no mesmo fluxo de construção (base militar, centro de treinamento, produção militar, base aérea, base naval, centro de defesa).
+- [x] Oito unidades (infantaria, mecanizados, blindados, artilharia, forças especiais, defesa terrestre, aviação, marinha) com custo, recrutas, tempo, ataque, defesa e manutenção.
+- [x] Treinamento em fila de até 3 lotes, concluído pelo relógio do servidor; manutenção descontada da produção.
+- [x] Pesquisa militar com 10 tecnologias e 3 níveis, no centro tecnológico.
+- [x] Poder militar calculado pelo servidor, público no ranking e no cartão da nação, com detalhamento para o dono.
+- [x] Tela Exército (novo botão no dock), avisos e sons de tropas prontas e pesquisa concluída; ícones vetoriais próprios para instalações e unidades.
+- [x] Bots constroem instalações e treinam pelas mesmas regras.
+
+**Fora desta fase (Fase E):** ataques, escolha de porcentagem das tropas, batalhas, ocupação de território inimigo, mísseis e interceptação. Nenhum botão de ataque aparece.

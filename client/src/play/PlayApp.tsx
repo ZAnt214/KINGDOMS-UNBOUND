@@ -210,6 +210,8 @@ export function PlayApp({ me, enter, reloadMe, onLoginForm, onLogout }: Props) {
           expand={world.expand}
           build={world.build}
           upgrade={world.upgrade}
+          train={world.train}
+          research={world.research}
           onEditIdentity={() => setStage('identity')}
           onSwitchMode={() => setStage('mode')}
           onLeave={leave}

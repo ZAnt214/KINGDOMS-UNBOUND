@@ -90,8 +90,10 @@ export function fmtAmount(n: number): string {
 
 /** Produção por hora, ou por minuto quando o ritmo é alto (partida rápida). */
 export function fmtRate(perHour: number): string {
-  if (perHour >= 6000) return `+${fmtAmount(perHour / 60)}/min`;
-  return `+${fmtAmount(perHour)}/h`;
+  const sign = perHour < 0 ? '−' : '+';
+  const v = Math.abs(perHour);
+  if (v >= 6000) return `${sign}${fmtAmount(v / 60)}/min`;
+  return `${sign}${fmtAmount(v)}/h`;
 }
 
 export const fmtArea = (km2: number) =>
