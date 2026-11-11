@@ -116,7 +116,7 @@ export function PlayApp({ me, enter, reloadMe, onLoginForm, onLogout }: Props) {
     if (routing.to === null ? s.world.mode !== 'campaign' : s.world.id !== routing.to) return;
     setRouting(null);
     setModeBusy(null);
-    setStage(world.state.me !== null ? 'map' : 'identity');
+    setStage(s.me !== null ? 'map' : 'identity');
   }, [routing, world.state]);
 
   // Saiu da conta: volta para a tela inicial.
