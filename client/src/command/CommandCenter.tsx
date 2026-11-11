@@ -119,12 +119,12 @@ export function CommandCenter(props: Props) {
 
   const onSelect = useCallback((pick: MapEvents['select']) => {
     if (!pick) setSelected(null);
-    else if (pick.kind !== 'marker') setSelected(pick.code);
+    else if (pick.kind === 'country' || pick.kind === 'city') setSelected(pick.code);
   }, []);
 
   const onHover = useCallback(
     (hover: MapEvents['hover']) => {
-      if (!hover || hover.pick.kind === 'marker') return setTip(null);
+      if (!hover || (hover.pick.kind !== 'country' && hover.pick.kind !== 'city')) return setTip(null);
       const country = COUNTRY_BY_CODE[hover.pick.code];
       if (!country) return setTip(null);
       const t = territoryInfo(world, country.code);
