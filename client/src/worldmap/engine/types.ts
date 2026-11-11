@@ -163,3 +163,30 @@ export type MapEffect =
   | { kind: 'beacon'; at: [number, number]; color: string; ms?: number }
   | { kind: 'conquest'; region: string; color: string; ms?: number }
   | { kind: 'ring'; at: [number, number]; color: string; ms?: number };
+
+/** Operação militar no mapa (Fase E): seta da origem ao alvo e marcador de batalha com o progresso. */
+export interface MapOperation {
+  id: string;
+  from: [number, number];
+  to: [number, number];
+  color: string;
+  naval?: boolean;
+  /** Nação do jogador ataca (own) ou é atacada (against). */
+  own?: boolean;
+  against?: boolean;
+  /** Ocupação no instante `at` e variação por segundo (relógio do servidor). */
+  progress: { at: number; value: number; rate: number };
+}
+
+/** Míssil no mapa (Fase E). Tempos no relógio do servidor. */
+export interface MapMissile {
+  id: string;
+  from: [number, number];
+  to: [number, number];
+  color: string;
+  launchedAt: number;
+  flightAt: number;
+  interceptAt: number;
+  impactAt: number;
+  intercepted: boolean;
+}

@@ -12,6 +12,8 @@ import type {
   MapPick,
   MapPlacement,
   MapPoint,
+  MapMissile,
+  MapOperation,
   MapRail,
   MapRoute,
   MapStructure,
@@ -51,6 +53,8 @@ const OCEAN_TOP = '#0d3a78';
 const OCEAN_MID = '#0a2857';
 const OCEAN_BOTTOM = '#061634';
 const TAU = Math.PI * 2;
+/** Espadas cruzadas do selo de batalha (grade 24). */
+const SWORDS = 'M4 4l9 9M4 4h3.5M4 4v3.5M20 4l-9 9M20 4h-3.5M20 4v3.5M9.5 14.5 6 18M14.5 14.5 18 18M4.5 16.5l3 3M19.5 16.5l-3 3';
 /** Duração do desenho de um trecho novo de ferrovia (ms). */
 const RAIL_MS = 1400;
 /** A camada base cobre 1,8× a tela: arrastar até essa margem não exige redesenhar o mapa. */
@@ -105,6 +109,9 @@ export class WorldMapEngine {
   private markers: MapMarker[] = [];
   private routes: MapRoute[] = [];
   private rails: MapRail[] = [];
+  private operations: MapOperation[] = [];
+  private missiles: MapMissile[] = [];
+  private missileRange: { center: [number, number]; km: number; color: string } | null = null;
   private placement: MapPlacement | null = null;
   private hoveredRegion: string | null = null;
   private pointer: { x: number; y: number } | null = null;
@@ -253,6 +260,32 @@ export class WorldMapEngine {
     this.markers = markers;
     this.invalidate();
   }
+  /** Operações militares (Fase E). */
+  setOperations(list: MapOperation[]) {
+    this.operations = list;
+    this.invalidate();
+  }
+
+  operationList(): readonly MapOperation[] {
+    return this.operations;
+  }
+
+  /** Mísseis em preparação, voo, interceptação ou impacto (Fase E). */
+  setMissiles(list: MapMissile[]) {
+    this.missiles = list;
+    this.invalidate();
+  }
+
+  missileList(): readonly MapMissile[] {
+    return this.missiles;
+  }
+
+  /** Círculo de alcance do silo durante a escolha do alvo. */
+  setMissileRange(range: { center: [number, number]; km: number; color: string } | null) {
+    this.missileRange = range;
+    this.invalidate();
+  }
+
   railList(): readonly MapRail[] {
     return this.rails;
   }
@@ -596,7 +629,8 @@ export class WorldMapEngine {
       this.structures.some((x) => (x.completedAt !== undefined && t - x.completedAt < 900) || (x.building && now < x.building.endAt + 300)) ||
       this.rails.some((r) => r.appearAt !== undefined && t - r.appearAt < RAIL_MS + 200 && t - r.appearAt > -4000);
     const filling = this.fills.some((f) => now < f.endAt + 400);
-    const live = this.routes.length > 0 || this.pointsLive || this.preview !== null || filling || moving;
+    const war = this.operations.length > 0 || this.missiles.some((m) => now < m.impactAt + 2600);
+    const live = this.routes.length > 0 || this.pointsLive || this.preview !== null || filling || moving || war;
     if (this.anim || this.effects.length || (live && !this.opts.reducedMotion)) this.invalidate();
     else if (live) {
       // Movimento reduzido: atualiza o progresso devagar, sem animação contínua.
@@ -847,6 +881,9 @@ export class WorldMapEngine {
         this.drawRails(t);
         this.drawStructures(t);
       }
+      this.drawRange();
+      this.drawOperations(t);
+      this.drawMissiles();
       if (!this.hidden.has('flags')) this.drawFlags(t);
       if (this.placement) this.drawPlacement();
     }
@@ -1259,6 +1296,320 @@ export class WorldMapEngine {
         ctx.globalAlpha = 0.9;
         ctx.fill();
         ctx.globalAlpha = 1;
+      }
+    }
+    ctx.restore();
+  }
+
+  /** Curva da origem ao alvo, arqueada para cima (mísseis) ou de lado (operações). */
+  private curve(x0: number, y0: number, x1: number, y1: number, lift: number) {
+    const mx = (x0 + x1) / 2;
+    const my = (y0 + y1) / 2;
+    const len = Math.hypot(x1 - x0, y1 - y0) || 1;
+    // Perpendicular voltada para cima da tela.
+    let nx = -(y1 - y0) / len;
+    let ny = (x1 - x0) / len;
+    if (ny > 0) {
+      nx = -nx;
+      ny = -ny;
+    }
+    const cx = mx + nx * len * lift;
+    const cy = my + ny * len * lift;
+    return (u: number): [number, number] => {
+      const a = (1 - u) * (1 - u);
+      const b = 2 * (1 - u) * u;
+      const c = u * u;
+      return [a * x0 + b * cx + c * x1, a * y0 + b * cy + c * y1];
+    };
+  }
+
+  private drawRange() {
+    const r = this.missileRange;
+    if (!r) return;
+    const { ctx } = this;
+    const R = 6371;
+    const d = r.km / R;
+    const [lon0, lat0] = [(r.center[0] * Math.PI) / 180, (r.center[1] * Math.PI) / 180];
+    ctx.save();
+    ctx.beginPath();
+    let prevX: number | null = null;
+    for (let i = 0; i <= 120; i++) {
+      const b = (i / 120) * TAU;
+      const lat = Math.asin(Math.sin(lat0) * Math.cos(d) + Math.cos(lat0) * Math.sin(d) * Math.cos(b));
+      const lon = lon0 + Math.atan2(Math.sin(b) * Math.sin(d) * Math.cos(lat0), Math.cos(d) - Math.sin(lat0) * Math.sin(lat));
+      const [x, y] = this.toScreen((((lon * 180) / Math.PI + 540) % 360) - 180, (lat * 180) / Math.PI);
+      // Pula a costura do antimeridiano.
+      if (prevX === null || Math.abs(x - prevX) > this.w * 0.6) ctx.moveTo(x, y);
+      else ctx.lineTo(x, y);
+      prevX = x;
+    }
+    ctx.fillStyle = rgba(r.color, 0.08);
+    ctx.fill();
+    ctx.strokeStyle = rgba(r.color, 0.85);
+    ctx.lineWidth = 1.6;
+    ctx.setLineDash([7, 6]);
+    ctx.stroke();
+    ctx.restore();
+  }
+
+  /**
+   * Operações: seta tracejada em movimento da origem ao alvo e, no alvo, um selo de batalha com
+   * espadas cruzadas e o anel de ocupação na cor do atacante.
+   */
+  private drawOperations(t: number) {
+    if (!this.operations.length) return;
+    const { ctx } = this;
+    const now = this.opts.now();
+    const swords = this.glyph(SWORDS);
+    ctx.save();
+    ctx.lineCap = 'round';
+    for (const o of this.operations) {
+      const [x0, y0] = this.toScreen(o.from[0], o.from[1]);
+      const [x1, y1] = this.toScreen(o.to[0], o.to[1]);
+      const len = Math.hypot(x1 - x0, y1 - y0);
+      const P = this.curve(x0, y0, x1, y1, 0.18);
+      const end = len > 60 ? 0.86 : 0.7;
+      ctx.beginPath();
+      ctx.moveTo(x0, y0);
+      for (let i = 1; i <= 24; i++) {
+        const [x, y] = P((i / 24) * end);
+        ctx.lineTo(x, y);
+      }
+      ctx.strokeStyle = 'rgba(6, 12, 26, 0.7)';
+      ctx.lineWidth = 6;
+      ctx.setLineDash([]);
+      ctx.stroke();
+      ctx.strokeStyle = o.color;
+      ctx.lineWidth = 3;
+      ctx.setLineDash(o.naval ? [12, 7] : [8, 6]);
+      ctx.lineDashOffset = this.opts.reducedMotion ? 0 : -t / 35;
+      ctx.stroke();
+      ctx.setLineDash([]);
+      // Ponta da seta.
+      const [ax, ay] = P(end);
+      const [bx, by] = P(end - 0.04);
+      const ang = Math.atan2(ay - by, ax - bx);
+      ctx.beginPath();
+      ctx.moveTo(ax + Math.cos(ang) * 9, ay + Math.sin(ang) * 9);
+      ctx.lineTo(ax + Math.cos(ang + 2.4) * 8, ay + Math.sin(ang + 2.4) * 8);
+      ctx.lineTo(ax + Math.cos(ang - 2.4) * 8, ay + Math.sin(ang - 2.4) * 8);
+      ctx.closePath();
+      ctx.fillStyle = o.color;
+      ctx.strokeStyle = 'rgba(6, 12, 26, 0.7)';
+      ctx.lineWidth = 2;
+      ctx.stroke();
+      ctx.fill();
+      // Selo de batalha.
+      const v = Math.max(0, Math.min(1, o.progress.value + (o.progress.rate * Math.max(0, now - o.progress.at)) / 1000));
+      const r = 14;
+      if (o.own || o.against) {
+        const pulse = this.opts.reducedMotion ? 0 : (t % 1400) / 1400;
+        ctx.beginPath();
+        ctx.arc(x1, y1, r + 4 + pulse * 14, 0, TAU);
+        ctx.strokeStyle = o.against ? `rgba(255, 90, 90, ${0.6 * (1 - pulse)})` : rgba(o.color, 0.6 * (1 - pulse));
+        ctx.lineWidth = 2;
+        ctx.stroke();
+      }
+      ctx.beginPath();
+      ctx.arc(x1, y1, r, 0, TAU);
+      ctx.fillStyle = 'rgba(8, 16, 34, 0.92)';
+      ctx.fill();
+      ctx.lineWidth = 3;
+      ctx.strokeStyle = 'rgba(150, 190, 255, 0.25)';
+      ctx.stroke();
+      ctx.beginPath();
+      ctx.arc(x1, y1, r, -Math.PI / 2, -Math.PI / 2 + v * TAU);
+      ctx.strokeStyle = o.color;
+      ctx.stroke();
+      ctx.save();
+      ctx.translate(x1 - 8.5, y1 - 8.5);
+      ctx.scale(17 / 24, 17 / 24);
+      ctx.strokeStyle = '#ffffff';
+      ctx.lineWidth = 2.2;
+      ctx.stroke(swords);
+      ctx.restore();
+    }
+    ctx.restore();
+  }
+
+  /**
+   * Mísseis, em fases pelo relógio do servidor: preparação (brilho no silo), abertura das tampas,
+   * lançamento, voo em arco com rastro, e no fim interceptação (interceptador e explosão ciano) ou
+   * impacto (clarão, onda de choque e brasas). Efeitos curtos e contidos, sem cobrir o mapa.
+   */
+  private drawMissiles() {
+    if (!this.missiles.length) return;
+    const { ctx } = this;
+    const now = this.opts.now();
+    ctx.save();
+    ctx.lineCap = 'round';
+    for (const m of this.missiles) {
+      if (now > m.impactAt + 2600 || now < m.launchedAt - 50) continue;
+      const [x0, y0] = this.toScreen(m.from[0], m.from[1]);
+      const [x1, y1] = this.toScreen(m.to[0], m.to[1]);
+      const len = Math.hypot(x1 - x0, y1 - y0);
+      const P = this.curve(x0, y0, x1, y1, Math.min(0.45, 160 / Math.max(1, len) + 0.12));
+      const flight = Math.max(1, m.impactAt - m.flightAt);
+      const stopU = m.intercepted ? (m.interceptAt - m.flightAt) / flight : 1;
+      // Alvo marcado durante todo o voo.
+      if (now < (m.intercepted ? m.interceptAt : m.impactAt)) {
+        const k = (now % 1000) / 1000;
+        ctx.beginPath();
+        ctx.arc(x1, y1, 10 + k * 8, 0, TAU);
+        ctx.strokeStyle = `rgba(255, 90, 70, ${0.8 - k * 0.6})`;
+        ctx.lineWidth = 2;
+        ctx.stroke();
+        ctx.beginPath();
+        ctx.moveTo(x1 - 7, y1);
+        ctx.lineTo(x1 + 7, y1);
+        ctx.moveTo(x1, y1 - 7);
+        ctx.lineTo(x1, y1 + 7);
+        ctx.strokeStyle = 'rgba(255, 120, 100, 0.9)';
+        ctx.lineWidth = 1.5;
+        ctx.stroke();
+      }
+      if (now < m.flightAt) {
+        // Preparação e abertura do silo.
+        const q = (now - m.launchedAt) / Math.max(1, m.flightAt - m.launchedAt);
+        const glow = Math.min(1, q / 0.55);
+        for (let i = 0; i < 3; i++) {
+          const k = ((now / 600 + i / 3) % 1) * glow;
+          ctx.beginPath();
+          ctx.arc(x0, y0, 8 + k * 18, 0, TAU);
+          ctx.strokeStyle = `rgba(255, 170, 60, ${(1 - k) * 0.7 * glow})`;
+          ctx.lineWidth = 2;
+          ctx.stroke();
+        }
+        const open = Math.max(0, (q - 0.55) / 0.45);
+        ctx.beginPath();
+        ctx.arc(x0, y0, 7, 0, TAU);
+        ctx.fillStyle = '#05080f';
+        ctx.fill();
+        ctx.fillStyle = '#9aa7bd';
+        const shift = open * 7;
+        ctx.beginPath();
+        ctx.arc(x0 - shift, y0, 7, Math.PI / 2, (3 * Math.PI) / 2);
+        ctx.fill();
+        ctx.beginPath();
+        ctx.arc(x0 + shift, y0, 7, -Math.PI / 2, Math.PI / 2);
+        ctx.fill();
+        continue;
+      }
+      const u = Math.min(stopU, (now - m.flightAt) / flight);
+      const ended = now >= (m.intercepted ? m.interceptAt : m.impactAt);
+      // Fumaça do lançamento.
+      const since = now - m.flightAt;
+      if (since < 1800) {
+        const k = since / 1800;
+        for (let i = 0; i < 5; i++) {
+          const a = (i / 5) * TAU + 0.6;
+          ctx.beginPath();
+          ctx.arc(x0 + Math.cos(a) * k * 14, y0 + Math.sin(a) * k * 6, 4 + k * 7, 0, TAU);
+          ctx.fillStyle = `rgba(200, 205, 215, ${0.35 * (1 - k)})`;
+          ctx.fill();
+        }
+        if (since < 220) {
+          ctx.beginPath();
+          ctx.arc(x0, y0, 14 * (1 - since / 220) + 4, 0, TAU);
+          ctx.fillStyle = 'rgba(255, 230, 170, 0.85)';
+          ctx.fill();
+        }
+      }
+      if (!ended) {
+        // Rastro: segmentos que esmaecem atrás da ogiva.
+        const tail = Math.max(0, u - 0.22);
+        let [px, py] = P(tail);
+        for (let i = 1; i <= 14; i++) {
+          const w = tail + ((u - tail) * i) / 14;
+          const [x, y] = P(w);
+          ctx.beginPath();
+          ctx.moveTo(px, py);
+          ctx.lineTo(x, y);
+          ctx.strokeStyle = `rgba(255, ${170 + i * 5}, 120, ${(i / 14) * 0.85})`;
+          ctx.lineWidth = 1 + (i / 14) * 2.2;
+          ctx.stroke();
+          px = x;
+          py = y;
+        }
+        const [hx, hy] = P(u);
+        ctx.beginPath();
+        ctx.arc(hx, hy, 6, 0, TAU);
+        ctx.fillStyle = 'rgba(255, 190, 90, 0.35)';
+        ctx.fill();
+        ctx.beginPath();
+        ctx.arc(hx, hy, 3, 0, TAU);
+        ctx.fillStyle = '#fffbe8';
+        ctx.fill();
+      }
+      if (m.intercepted) {
+        const [ix, iy] = P(stopU);
+        const lead = 1100;
+        if (now >= m.interceptAt - lead && now < m.interceptAt) {
+          // Interceptador sobe do alvo até o ponto de encontro.
+          const k = (now - (m.interceptAt - lead)) / lead;
+          const Q = this.curve(x1, y1, ix, iy, 0.15);
+          const [qx, qy] = Q(k);
+          const [sx, sy] = Q(Math.max(0, k - 0.3));
+          ctx.beginPath();
+          ctx.moveTo(sx, sy);
+          ctx.lineTo(qx, qy);
+          ctx.strokeStyle = 'rgba(110, 235, 255, 0.85)';
+          ctx.lineWidth = 2;
+          ctx.stroke();
+          ctx.beginPath();
+          ctx.arc(qx, qy, 2.5, 0, TAU);
+          ctx.fillStyle = '#e6fdff';
+          ctx.fill();
+        }
+        if (now >= m.interceptAt) {
+          const k = Math.min(1, (now - m.interceptAt) / 1200);
+          ctx.beginPath();
+          ctx.arc(ix, iy, 6 + k * 30, 0, TAU);
+          ctx.strokeStyle = `rgba(110, 235, 255, ${1 - k})`;
+          ctx.lineWidth = 3 * (1 - k) + 1;
+          ctx.stroke();
+          for (let i = 0; i < 10; i++) {
+            const a = (i / 10) * TAU;
+            ctx.beginPath();
+            ctx.moveTo(ix + Math.cos(a) * (4 + k * 10), iy + Math.sin(a) * (4 + k * 10));
+            ctx.lineTo(ix + Math.cos(a) * (8 + k * 24), iy + Math.sin(a) * (8 + k * 24));
+            ctx.strokeStyle = `rgba(230, 253, 255, ${1 - k})`;
+            ctx.lineWidth = 1.5;
+            ctx.stroke();
+          }
+          if (k < 0.2) {
+            ctx.beginPath();
+            ctx.arc(ix, iy, 10 * (1 - k * 5), 0, TAU);
+            ctx.fillStyle = 'rgba(255, 255, 255, 0.9)';
+            ctx.fill();
+          }
+        }
+      } else if (now >= m.impactAt) {
+        const k = Math.min(1, (now - m.impactAt) / 2400);
+        ctx.beginPath();
+        ctx.arc(x1, y1, 10 + k * 26, 0, TAU);
+        ctx.fillStyle = `rgba(255, 110, 40, ${0.35 * (1 - k)})`;
+        ctx.fill();
+        const s = Math.min(1, (now - m.impactAt) / 1100);
+        ctx.beginPath();
+        ctx.arc(x1, y1, 6 + s * 56, 0, TAU);
+        ctx.strokeStyle = `rgba(255, 200, 120, ${0.9 * (1 - s)})`;
+        ctx.lineWidth = 3 * (1 - s) + 0.5;
+        ctx.stroke();
+        if (now - m.impactAt < 260) {
+          ctx.beginPath();
+          ctx.arc(x1, y1, 4 + ((now - m.impactAt) / 260) * 16, 0, TAU);
+          ctx.fillStyle = 'rgba(255, 252, 235, 0.95)';
+          ctx.fill();
+        }
+        for (let i = 0; i < 9; i++) {
+          const a = (i / 9) * TAU + 0.3;
+          const dist = 6 + k * (22 + (i % 3) * 8);
+          ctx.beginPath();
+          ctx.arc(x1 + Math.cos(a) * dist, y1 + Math.sin(a) * dist - k * 6, 1.6 * (1 - k) + 0.4, 0, TAU);
+          ctx.fillStyle = `rgba(255, 170, 80, ${1 - k})`;
+          ctx.fill();
+        }
       }
     }
     ctx.restore();

@@ -76,7 +76,7 @@ describe('exército progressivo', () => {
     expect(tooMany.status).toBe(409);
     expect(tooMany.data.message).toMatch(/Recrutas insuficientes/);
     expect((await A.post('/play/train', { unit: 'infantry', amount: 0 })).status).toBe(400);
-    expect((await A.post('/play/train', { unit: 'missile', amount: 1 })).status).toBe(400);
+    expect((await A.post('/play/train', { unit: 'tank', amount: 1 })).status).toBe(400);
   });
 
   it('lotes concluídos entram no exército, cobram manutenção e o poder é avisado a todos', async () => {
