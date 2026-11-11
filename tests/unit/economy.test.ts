@@ -152,21 +152,20 @@ describe('partida rápida: regras', () => {
     expect(ids.some((i) => i.color === '#e5484d')).toBe(false);
   });
 
-  it('vitória por maioria, por tempo ou por esgotamento', () => {
-    const s = [
-      { nationId: 1, regions: 10, area: 5 },
-      { nationId: 2, regions: 21, area: 1 },
+  it('vence quem conquista 100% da arena; o jogador sem regiões perde; não há fim por tempo nem esgotamento', () => {
+    const all = [
+      { nationId: 1, regions: 40, area: 5 },
+      { nationId: 2, regions: 0, area: 0 },
     ];
-    expect(matchOutcome({ arenaSize: 40, standings: s, now: 0, endsAt: 100, neutralLeft: 9, activeOccupations: 0 })).toMatchObject({ over: true, reason: 'majority' });
-    const even = [
-      { nationId: 1, regions: 10, area: 5 },
-      { nationId: 2, regions: 10, area: 9 },
+    expect(matchOutcome({ arenaSize: 40, standings: all, human: 1 })).toMatchObject({ over: true, reason: 'conquest' });
+    const half = [
+      { nationId: 1, regions: 25, area: 5 },
+      { nationId: 2, regions: 15, area: 9 },
     ];
-    expect(matchOutcome({ arenaSize: 40, standings: even, now: 50, endsAt: 100, neutralLeft: 20, activeOccupations: 1 })).toEqual({ over: false });
-    const t = matchOutcome({ arenaSize: 40, standings: even, now: 100, endsAt: 100, neutralLeft: 20, activeOccupations: 1 });
-    expect(t.over && t.ranking[0].nationId).toBe(2);
-    expect(matchOutcome({ arenaSize: 40, standings: even, now: 50, endsAt: 100, neutralLeft: 0, activeOccupations: 0 })).toMatchObject({ reason: 'exhausted' });
-    expect(matchOutcome({ arenaSize: 40, standings: even, now: 50, endsAt: null, neutralLeft: 0, activeOccupations: 0 })).toEqual({ over: false });
+    // Mais da metade, arena toda ocupada: a guerra continua.
+    expect(matchOutcome({ arenaSize: 40, standings: half, human: 1 })).toEqual({ over: false });
+    const out = matchOutcome({ arenaSize: 40, standings: [{ nationId: 1, regions: 0, area: 0 }, ...half.slice(1)], human: 1 });
+    expect(out).toMatchObject({ over: true, reason: 'eliminated', loser: 1 });
     expect(rank([{ nationId: 5, regions: 3, area: 1 }, { nationId: 4, regions: 3, area: 1 }])[0].nationId).toBe(4);
   });
 });

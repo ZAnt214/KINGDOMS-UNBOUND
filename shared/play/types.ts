@@ -107,6 +107,8 @@ export interface StrikeView {
   /** Decidido no lançamento (sorteio reproduzível pelo id); público. */
   intercepted: boolean;
   status: 'flying' | 'intercepted' | 'impact';
+  /** Arma lançada do silo (Fase E). */
+  weapon: 'missile' | 'bomb';
   result?: { troopsLost: number; structure: { type: StructureType; from: number; to: number } | null; engaged: boolean };
 }
 
@@ -137,6 +139,8 @@ export interface WorldView {
   arena: string[] | null;
   /** Fim previsto da partida (partida rápida, depois da fundação). */
   endsAt: number | null;
+  /** Partida rápida: início (fundação do jogador). Sem prazo de fim. */
+  startedAt: number | null;
   finishedAt: number | null;
   outcome: OutcomeReason | null;
   winner: number | null;
@@ -196,8 +200,10 @@ export interface WorldSeat {
   mode: GameMode;
   governorId: number;
   finished: boolean;
-  /** Fim previsto (partida rápida). */
+  /** Fim previsto (não usado desde a Fase E: a partida rápida não tem prazo). */
   endsAt: number | null;
+  /** Início da partida rápida (fundação do jogador), ou null antes de fundar. */
+  startedAt: number | null;
 }
 
 export type { Cost };

@@ -66,6 +66,8 @@ import {
   survivors,
   troops,
   WAR,
+  type Weapon,
+  WEAPONS,
 } from '../../../shared/play/war';
 import { freePointIn, regionAt } from '../../../server/src/geo';
 import { borderingRegion, distanceKm, expansionTargets, REGION_BY_ID, START_POINT_BY_ID, START_POINTS, type StartPoint } from '../../../shared/world/regions';
@@ -105,7 +107,7 @@ let nextId = 1;
 const id = () => nextId++;
 const worlds = new Map<number, World>();
 const newWorld = (wid: number, name: string, mode: GameMode, arena: string[] | null): World => ({
-  view: { id: wid, name, mode, arena, endsAt: null, finishedAt: null, outcome: null, winner: null, results: [] },
+  view: { id: wid, name, mode, arena, endsAt: null, startedAt: null, finishedAt: null, outcome: null, winner: null, results: [] },
   nations: new Map(),
   control: new Map(),
   occupations: [],
@@ -272,22 +274,20 @@ function finishOps(w: World, now: number) {
   }
 }
 
-function launchMissile(w: World, gid: number, siloId: number, region: string) {
+function launchMissile(w: World, gid: number, siloId: number, region: string, weapon: Weapon) {
   const silo = w.structures.get(siloId);
   if (!silo || silo.nationId !== gid || silo.type !== 'missile_silo' || silo.level < 1) throw new Fail(404, 'not_found', 'Silo não encontrado.');
   const owner = w.control.get(region);
   if (owner === undefined || owner === gid) throw new Fail(409, 'not_enemy', 'Escolha uma região de outra nação.');
   const a = w.army.get(gid)!;
   const km = distanceKm(silo.at, REGION_BY_ID[region].at);
-  const range = missileRange(silo.level, a.research);
+  const range = missileRange(silo.level, weapon);
   if (km > range) throw new Fail(409, 'out_of_range', 'Fora do alcance.');
-  if ((a.units.missile ?? 0) < 1) throw new Fail(409, 'no_missile', 'Nenhum míssil disponível.');
   if ([...w.strikes.values()].some((x) => x.status === 'flying' && x.from[0] === silo.at[0] && x.from[1] === silo.at[1])) throw new Fail(409, 'silo_busy', 'Este silo já tem um míssil em voo.');
-  spend(w, gid, WAR.missile.launchCost, 'o lançamento');
-  a.units.missile = (a.units.missile ?? 0) - 1;
+  spend(w, gid, WEAPONS[weapon].cost, 'o lançamento');
   const chance = interceptChance(builtOf(w, owner), w.army.get(owner)!.research);
   const now = Date.now();
-  const flight = (missileSeconds(km, w.view.mode) * 1000) / SPEED;
+  const flight = (missileSeconds(km, w.view.mode, weapon) * 1000) / SPEED;
   const id = nextId++;
   const strike: StrikeView = {
     id,
@@ -302,6 +302,7 @@ function launchMissile(w: World, gid: number, siloId: number, region: string) {
     impactAt: now + 2200 + flight,
     intercepted: interceptRoll(id) < chance,
     status: 'flying',
+    weapon,
   };
   w.strikes.set(id, strike);
   send(w.view.id, { type: 'play.strike', strike });
@@ -320,20 +321,20 @@ function finishStrikes(w: World, now: number) {
       const home = homeOf(w, x.defenderId);
       let lost = 0;
       for (const u of UNIT_TYPES) {
-        if (u === 'missile') continue;
-        const k = Math.floor((home[u] ?? 0) * WAR.missile.homeLoss);
+        const k = Math.floor((home[u] ?? 0) * WEAPONS[x.weapon].homeLoss);
         home[u] = (home[u] ?? 0) - k;
         lost += k;
       }
       const target = [...w.structures.values()].filter((s) => s.region === x.region && s.nationId === x.defenderId && s.level > 0 && !s.building).sort((a, b) => b.level - a.level)[0];
       let structure: { type: StructureType; from: number; to: number } | null = null;
       if (target) {
-        structure = { type: target.type, from: target.level, to: target.level - 1 };
-        if (target.level <= 1) {
+        const to = Math.max(0, target.level - WEAPONS[x.weapon].levels);
+        structure = { type: target.type, from: target.level, to };
+        if (to === 0) {
           w.structures.delete(target.id);
           send(w.view.id, { type: 'play.structure.removed', structureId: target.id });
         } else {
-          const up = { ...target, level: target.level - 1 };
+          const up = { ...target, level: to };
           w.structures.set(up.id, up);
           send(w.view.id, { type: 'play.structure', structure: up, completed: false });
         }
@@ -460,7 +461,7 @@ function tick() {
     for (const gid of w.army.keys()) militaryTick(w, gid, now);
     finishOps(w, now);
     finishStrikes(w, now);
-    if (w.view.mode === 'quick' && w.view.endsAt) {
+    if (w.view.mode === 'quick' && w.view.startedAt) {
       for (const b of w.bots) botStep(w, b);
       checkMatch(w);
     }
@@ -516,8 +517,9 @@ function finish(w: World, reason: WorldView['outcome'], loser: number | null = n
 }
 function checkMatch(w: World) {
   const s = standings(w);
-  const out = matchOutcome({ arenaSize: w.view.arena!.length, standings: s.list, now: Date.now(), endsAt: w.view.endsAt, neutralLeft: s.neutral, activeOccupations: w.occupations.length });
-  if (out.over) finish(w, out.reason);
+  const human = [...w.nations.keys()].find((id) => !w.bots.has(id)) ?? null;
+  const out = matchOutcome({ arenaSize: w.view.arena!.length, standings: s.list, human });
+  if (out.over) finish(w, out.reason, out.loser);
 }
 
 // ---------- comandos ----------
@@ -619,8 +621,7 @@ function seedWar(w: World, gid: number, point: StartPoint) {
   createNation(w, rival, rivalCap, 'Rival (teste)', '#2fd6a8', FLAG_PRESETS[3 % FLAG_PRESETS.length].flag, undefined, false);
   w.control.set(front, rival);
   w.army.get(rival)!.units = { infantry: 40 };
-  w.army.get(gid)!.units = { infantry: 300, armor: 10, missile: 3 };
-  w.army.get(gid)!.research = { rocketry: 1 };
+  w.army.get(gid)!.units = { infantry: 300, armor: 10 };
   const at = freePointIn(capital, [...w.structures.values()].map((x) => x.at), 40)!;
   w.structures.set(nextId, { id: nextId, nationId: gid, region: capital, type: 'missile_silo', at, level: 1, building: null });
   nextId++;
@@ -708,14 +709,14 @@ function route(method: string, url: URL, body: any, s: Session | null, worldHead
     }
     const nation = createNation(w, gid, point, name, body.color, flag, image);
     if (process.env.MOCK_WAR === '1' && w.view.mode === 'campaign') seedWar(w, gid, point);
-    if (w.view.mode === 'quick' && !w.view.endsAt) w.view = { ...w.view, endsAt: Date.now() + QUICK.minutes * 60_000 };
+    if (w.view.mode === 'quick' && !w.view.startedAt) w.view = { ...w.view, startedAt: Date.now() };
     send(w.view.id, { type: 'play.nation', nation, region: point.region });
     send(w.view.id, { type: 'play.match', world: w.view });
     return snapshot(w, gid);
   }
   if (p === '/play/expand' && method === 'POST') return expand(w, gid, body.region);
   if (p === '/play/build' && method === 'POST') return { structure: build(w, gid, body.at, body.type, body.region) };
-  if (p === '/play/launch' && method === 'POST') return { strike: launchMissile(w, gid, Number(body.siloId), String(body.region)) };
+  if (p === '/play/launch' && method === 'POST') return { strike: launchMissile(w, gid, Number(body.siloId), String(body.region), body.weapon === 'bomb' ? 'bomb' : 'missile') };
   if (p === '/play/reinforce' && method === 'POST') throw new Fail(409, 'not_defender', 'Reforço não simulado no servidor falso.');
   if (p === '/play/attack' && method === 'POST') return { operation: attackRegion(w, gid, String(body.region), Number(body.percent)) };
   if (p === '/play/train' && method === 'POST') return { military: train(w, gid, body.unit, Number(body.amount)) };

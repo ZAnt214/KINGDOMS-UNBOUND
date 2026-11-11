@@ -68,7 +68,7 @@ export class NationService {
 
   async world(kingdomId: number, q: Queryable = this.db): Promise<WorldView> {
     const [w, results] = await Promise.all([
-      q.query('SELECT id, name, mode, arena, ends_at, finished_at, outcome, winner_governor_id FROM kingdoms WHERE id = $1', [kingdomId]),
+      q.query('SELECT id, name, mode, arena, ends_at, started_at, finished_at, outcome, winner_governor_id FROM kingdoms WHERE id = $1', [kingdomId]),
       q.query('SELECT governor_id, rank, regions, area FROM match_results WHERE kingdom_id = $1 ORDER BY rank', [kingdomId]),
     ]);
     const r = w.rows[0];
@@ -78,6 +78,7 @@ export class NationService {
       mode: r.mode as GameMode,
       arena: (r.arena as string[] | null) ?? null,
       endsAt: r.ends_at ? new Date(r.ends_at).getTime() : null,
+      startedAt: r.started_at ? new Date(r.started_at).getTime() : null,
       finishedAt: r.finished_at ? new Date(r.finished_at).getTime() : null,
       outcome: r.outcome ?? null,
       winner: r.winner_governor_id === null ? null : Number(r.winner_governor_id),
@@ -98,7 +99,9 @@ export class NationService {
       this.territory.occupations(g.kingdomId),
       this.economy.structures(g.kingdomId),
     ]);
-    const mine = nations.some((n) => n.id === g.id);
+    // Na campanha, quem perdeu todas as regiões volta a escolher um ponto de partida.
+    const defeated = world.mode === 'campaign' && !control.some(([, owner]) => owner === g.id);
+    const mine = nations.some((n) => n.id === g.id) && !defeated;
     return {
       serverTime: Date.now(),
       world,
@@ -131,7 +134,13 @@ export class NationService {
   /** Cria a nação dentro de uma transação que já travou o mundo. Usado por jogadores e bots. */
   async create(client: Tx, n: NewNation): Promise<NationView> {
     const exists = await client.query('SELECT 1 FROM nations WHERE governor_id = $1', [n.governorId]);
-    if (exists.rowCount) throw conflict('nation_exists', 'Você já fundou sua nação neste mundo.');
+    if (exists.rowCount) {
+      // Nação derrotada (perdeu todas as regiões) na campanha: pode fundar de novo; a antiga sai do mundo.
+      const left = await client.query('SELECT 1 FROM region_control WHERE governor_id = $1 LIMIT 1', [n.governorId]);
+      const mode = (await client.query('SELECT mode FROM kingdoms WHERE id = $1', [n.kingdomId])).rows[0]?.mode;
+      if (left.rowCount || mode !== 'campaign') throw conflict('nation_exists', 'Você já fundou sua nação neste mundo.');
+      await client.query('DELETE FROM nations WHERE governor_id = $1', [n.governorId]);
+    }
     const world = (await client.query('SELECT arena, finished_at FROM kingdoms WHERE id = $1', [n.kingdomId])).rows[0];
     if (world.finished_at) throw conflict('match_over', 'Esta partida já terminou.');
     if (world.arena && !(world.arena as string[]).includes(n.point.region)) throw conflict('outside_arena', 'Este ponto fica fora da área da partida.');
@@ -180,11 +189,8 @@ export class NationService {
       // Fundações do mesmo mundo passam uma de cada vez: ponto, nome e cor são conferidos sem corrida.
       await client.query('SELECT id FROM kingdoms WHERE id = $1 FOR UPDATE', [g.kingdomId]);
       const created = await this.create(client, { governorId: g.id, kingdomId: g.kingdomId, point, name, color, flag, image });
-      // Partida rápida: o relógio começa quando o jogador funda a nação.
-      await client.query(
-        `UPDATE kingdoms SET ends_at = now() + make_interval(mins => $2) WHERE id = $1 AND mode = 'quick' AND ends_at IS NULL`,
-        [g.kingdomId, QUICK.minutes],
-      );
+      // Partida rápida: começa quando o jogador funda a nação (sem prazo de fim: vence a conquista total).
+      await client.query(`UPDATE kingdoms SET started_at = now() WHERE id = $1 AND mode = 'quick' AND started_at IS NULL`, [g.kingdomId]);
       await client.query(
         `INSERT INTO audit_logs (actor_governor_id, action, target_type, target_id, data) VALUES ($1, 'nation.founded', 'region', $2, $3)`,
         [g.id, point.region, { kingdomId: g.kingdomId, point: point.id, color }],

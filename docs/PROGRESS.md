@@ -242,3 +242,10 @@ Regras em `docs/PLAY_RULES.md` (seção Guerra); migração 7.
 
 - [x] `users.unlimited` (migração 8): com ela, gastos e recrutas não descontam; a tela mostra ∞.
 - [x] A pedido do dono do jogo, **toda conta criada a partir de agora nasce com recursos infinitos**. Para desligar sem mudar código: variável `KU_UNLIMITED_NEW_ACCOUNTS=0` na Vercel. Contas já existentes não foram alteradas. Bots não são afetados.
+
+## 2026-11-11 — Ajustes pedidos depois da Fase E
+
+- [x] **Partida rápida até 100%:** acabou o fim por tempo, por "mais da metade" e por "todas as regiões ocupadas". Vence quem conquistar a arena inteira; o jogador que perder todas as regiões perde. Capitais podem ser tomadas (defesa +50%). Bots atacam qualquer vizinho, inclusive capitais.
+- [x] **Silo simples:** com o silo pronto, já lança míssil ou bomba pesada, pagando cada lançamento. Saíram a unidade "míssil", o estoque e a pesquisa Foguetes balísticos. Atalho "Míssil ou bomba" no cartão da região inimiga.
+- [x] Campanha: nação sem regiões volta à escolha de ponto e pode fundar de novo.
+- Migração 9 (`kingdoms.started_at`, `strikes.weapon`).

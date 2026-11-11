@@ -40,8 +40,8 @@ describe('recrutamento', () => {
 });
 
 describe('unidades e treinamento', () => {
-  it('todas as nove categorias da visão com custo, tempo, ataque, defesa e manutenção', () => {
-    expect(UNIT_TYPES.length).toBe(9);
+  it('oito categorias de tropas com custo, tempo, ataque, defesa e manutenção (mísseis saem do silo)', () => {
+    expect(UNIT_TYPES.length).toBe(8);
     for (const u of UNIT_TYPES) {
       const d = UNITS[u];
       expect(d.seconds > 0 && d.attack > 0 && d.defense > 0 && d.recruits >= 1).toBe(true);

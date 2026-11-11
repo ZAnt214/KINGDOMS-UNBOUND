@@ -213,7 +213,7 @@ async function enter(page, name, color, flag) {
   await A.waitForSelector('[data-testid=army-research]');
   await A.waitForTimeout(200);
   await A.screenshot({ path: `${OUT}/25-pesquisa.png` });
-  check('pesquisa lista as tecnologias e exige centro tecnológico', (await A.locator('[data-testid=army-research] li').count()) === 12 && /centro tecnológico/.test(await A.locator('[data-testid=army-research]').innerText()));
+  check('pesquisa lista as tecnologias e exige centro tecnológico', (await A.locator('[data-testid=army-research] li').count()) === 11 && /centro tecnológico/.test(await A.locator('[data-testid=army-research]').innerText()));
   await A.keyboard.press('Escape');
 
   await A.click('[data-testid=dock-ranking]');
@@ -252,6 +252,7 @@ async function enter(page, name, color, flag) {
   check('relógio da partida aparece depois da fundação', true);
   await A.waitForTimeout(8000);
   await A.screenshot({ path: `${OUT}/22-rapida-jogo.png` });
+  check('objetivo da partida rápida: conquistar a arena inteira', /Conquiste as 40 regiões/.test(await A.locator('body').innerText()));
   await A.click('[data-testid=open-settings]');
   await A.click('[data-testid=leave]');
   await A.click('[data-testid=leave-confirm]');

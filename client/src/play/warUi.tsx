@@ -4,24 +4,29 @@ import { useMemo, useState } from 'react';
 import type { StructureType } from '../../../shared/play/economy';
 import { type Army, type Research, UNIT_TYPES, UNITS } from '../../../shared/play/military';
 import type { GameMode } from '../../../shared/play/rules';
-import type { NationView, OperationView } from '../../../shared/play/types';
+import type { EconomyView, NationView, OperationView } from '../../../shared/play/types';
+import { missing } from '../../../shared/play/economy';
 import {
   attackPower,
   battleSeconds,
   estimatedDefense,
   interceptChance,
+  missileRange,
   missileSeconds,
   predictEnd,
   risk,
   share,
   troops,
   WAR,
+  type Weapon,
+  WEAPON_TYPES,
+  WEAPONS,
 } from '../../../shared/play/war';
 import { distanceKm, REGION_BY_ID } from '../../../shared/world/regions';
 import { serverNow } from '../api';
 import { useTick } from '../hooks';
-import { Glyph } from './economyUi';
-import { BATTLE_GLYPH, POWER_GLYPH, UNIT_GLYPH } from './glyphs';
+import { amountsNow, CostLine, Glyph } from './economyUi';
+import { BATTLE_GLYPH, BOMB_GLYPH, MISSILE_GLYPH, POWER_GLYPH, UNIT_GLYPH } from './glyphs';
 import { nationFlagSrc } from './identity';
 import { fmtClock, fmtSeconds } from './model';
 import { Sheet } from './sheets';
@@ -254,7 +259,7 @@ export function OperationSheet(p: {
             )}
             {p.canMissile && (
               <button type="button" className="ku-btn" onClick={p.onMissile} data-testid="defend-missile">
-                <Glyph d={UNIT_GLYPH.missile} size={16} />
+                <Glyph d={MISSILE_GLYPH} size={16} />
                 Lançar míssil
               </button>
             )}
@@ -269,49 +274,67 @@ export function OperationSheet(p: {
   );
 }
 
-/** Confirmação do lançamento: alvo, distância, tempo de voo e chance de interceptação visível. */
+/** Confirmação do lançamento: escolha entre míssil e bomba, alvo, distância, tempo e custo. */
 export function MissileConfirm(p: {
   from: [number, number];
   region: string;
   owner: NationView;
   ownerStructures: { type: StructureType; level: number }[];
-  stock: number;
+  siloLevel: number;
   mode: GameMode;
+  economy: EconomyView | null;
   busy: boolean;
   error: string | null;
-  onConfirm: () => void;
+  onConfirm: (weapon: Weapon) => void;
   onCancel: () => void;
 }) {
   const r = REGION_BY_ID[p.region];
   const km = distanceKm(p.from, r.at);
+  const [weapon, setWeapon] = useState<Weapon>('missile');
+  const w = WEAPONS[weapon];
+  const range = missileRange(p.siloLevel, weapon);
+  const reach = km <= range;
+  const have = amountsNow(p.economy);
+  const short = have ? Object.keys(missing(have, w.cost)).length > 0 : true;
   const low = interceptChance(p.ownerStructures, {});
   const high = interceptChance(p.ownerStructures, { interception: 3 });
   return (
     <section className="ku-card ku-missile-card" data-testid="missile-confirm">
       <header>
         <h3>
-          <Glyph d={UNIT_GLYPH.missile} size={20} color="#ff7a59" /> Lançar míssil em {r.name}
+          <Glyph d={weapon === 'bomb' ? BOMB_GLYPH : MISSILE_GLYPH} size={20} color="#ff7a59" /> Atacar {r.name}
         </h3>
         <p>
-          <img src={nationFlagSrc(p.owner)} alt="" /> {p.owner.name}
+          <img src={nationFlagSrc(p.owner)} alt="" /> {p.owner.name} · {num(km)} km
         </p>
       </header>
+      <div className="ku-amounts" role="group" aria-label="Arma">
+        {WEAPON_TYPES.map((x) => (
+          <button type="button" key={x} className={weapon === x ? 'on' : ''} onClick={() => setWeapon(x)} data-testid={`weapon-${x}`}>
+            {WEAPONS[x].name}
+          </button>
+        ))}
+      </div>
       <dl className="ku-intel">
         <div>
-          <dt>Distância</dt>
-          <dd>{num(km)} km</dd>
+          <dt>Custo</dt>
+          <dd>
+            <CostLine cost={w.cost} have={have} />
+          </dd>
         </div>
         <div>
           <dt>Tempo de voo</dt>
-          <dd>{fmtSeconds(missileSeconds(km, p.mode))}</dd>
-        </div>
-        <div>
-          <dt>Interceptação</dt>
-          <dd>{low === 0 ? 'sem sistema antimísseis visível: não será interceptado' : `chance entre ${Math.round(low * 100)}% e ${Math.round(high * 100)}%`}</dd>
+          <dd>{reach ? fmtSeconds(missileSeconds(km, p.mode, weapon)) : `fora do alcance (${num(range)} km)`}</dd>
         </div>
         <div>
           <dt>Efeito no impacto</dt>
-          <dd>maior construção da região perde 1 nível; {Math.round(WAR.missile.homeLoss * 100)}% das tropas em casa; tropas engajadas ali perdem {Math.round(WAR.missile.engagedLoss * 100)}%</dd>
+          <dd>
+            maior construção perde {w.levels} {w.levels === 1 ? 'nível' : 'níveis'}; {Math.round(w.homeLoss * 100)}% das tropas em casa; tropas em combate ali perdem {Math.round(w.engagedLoss * 100)}%
+          </dd>
+        </div>
+        <div>
+          <dt>Interceptação</dt>
+          <dd>{low === 0 ? 'o alvo não tem antimísseis' : `chance entre ${Math.round(low * 100)}% e ${Math.round(high * 100)}%`}</dd>
         </div>
       </dl>
       {p.error && <p className="ku-error">{p.error}</p>}
@@ -319,8 +342,8 @@ export function MissileConfirm(p: {
         <button type="button" className="ku-btn" onClick={p.onCancel}>
           Cancelar
         </button>
-        <button type="button" className="ku-cta" disabled={p.busy || p.stock < 1} onClick={p.onConfirm} data-testid="missile-go">
-          {p.stock < 1 ? 'Sem mísseis' : `Lançar (${p.stock} em estoque)`}
+        <button type="button" className="ku-cta" disabled={p.busy || !reach || short} onClick={() => p.onConfirm(weapon)} data-testid="missile-go">
+          {!reach ? 'Fora do alcance' : short ? 'Recursos insuficientes' : `Lançar ${w.short.toLowerCase()}`}
         </button>
       </div>
     </section>
@@ -357,6 +380,8 @@ export function EnemyActions(p: {
   /** Motivo de não poder atacar (null = pode). */
   problem: string | null;
   naval: boolean;
+  canStrike: boolean;
+  onStrike: () => void;
   onAttack: () => void;
   onView: () => void;
 }) {
@@ -376,11 +401,18 @@ export function EnemyActions(p: {
           <dd>{p.owner.alliance === null ? 'Nenhuma' : 'Em aliança'}</dd>
         </div>
       </dl>
+      {p.capital && <p className="ku-note">Capital: defende 50% mais. Tomá-la é o caminho para conquistar a nação inteira.</p>}
       {p.problem && <p className="ku-note">{p.problem}</p>}
       <div className="ku-row-actions">
         <button type="button" className="ku-btn" onClick={p.onView} data-testid="view-territory">
           Ver território
         </button>
+        {p.canStrike && (
+          <button type="button" className="ku-btn" onClick={p.onStrike} data-testid="strike-here">
+            <Glyph d={MISSILE_GLYPH} size={16} />
+            Míssil ou bomba
+          </button>
+        )}
         <button type="button" className="ku-cta" disabled={!!p.problem} onClick={p.onAttack} data-testid="attack">
           {p.naval ? 'ATACAR POR MAR' : 'ATACAR'}
         </button>

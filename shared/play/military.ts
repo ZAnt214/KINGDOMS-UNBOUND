@@ -9,7 +9,7 @@ import { ECONOMY_SPEED, type GameMode, MODE_SPEED } from './rules';
 
 export const MILITARY_RULES_VERSION = 1;
 
-export const UNIT_TYPES = ['infantry', 'mechanized', 'armor', 'artillery', 'special', 'defense', 'aviation', 'navy', 'missile'] as const;
+export const UNIT_TYPES = ['infantry', 'mechanized', 'armor', 'artillery', 'special', 'defense', 'aviation', 'navy'] as const;
 export type UnitType = (typeof UNIT_TYPES)[number];
 
 export const TECH_TYPES = [
@@ -23,7 +23,6 @@ export const TECH_TYPES = [
   'naval',
   'military_logistics',
   'training_methods',
-  'rocketry',
   'interception',
 ] as const;
 export type TechType = (typeof TECH_TYPES)[number];
@@ -180,22 +179,6 @@ export const UNITS: Record<UnitType, UnitDef> = {
     structure: 'naval_base',
     research: 'naval',
   },
-  // Fase E: estoque de mísseis, lançados do silo contra regiões distantes (não entram no combate terrestre).
-  missile: {
-    id: 'missile',
-    name: 'Mísseis balísticos',
-    short: 'Mísseis',
-    role: 'Lançados do silo contra regiões distantes: danificam construções e tropas no alvo.',
-    group: 'missiles',
-    cost: { money: 900, metal: 300, oil: 200, tech: 40 },
-    recruits: 1,
-    seconds: 45,
-    attack: 25,
-    defense: 1,
-    upkeep: { money: 10 },
-    structure: 'missile_silo',
-    research: 'rocketry',
-  },
 };
 
 export interface TechDef {
@@ -210,7 +193,6 @@ export interface TechDef {
     | { kind: 'defense'; perLevel: number }
     | { kind: 'upkeep'; perLevel: number }
     | { kind: 'training'; perLevel: number }
-    | { kind: 'range'; perLevel: number }
     | { kind: 'interception'; perLevel: number };
   /** Custo do nível 1 (dobra a cada nível). */
   cost: Cost;
@@ -303,15 +285,6 @@ export const TECHS: Record<TechType, TechDef> = {
     effect: { kind: 'training', perLevel: 0.1 },
     cost: { money: 600, tech: 40 },
     seconds: 60,
-  },
-  rocketry: {
-    id: 'rocketry',
-    name: 'Foguetes balísticos',
-    role: 'Propulsão e guiagem de mísseis.',
-    unlocks: 'missile',
-    effect: { kind: 'range', perLevel: 0.2 },
-    cost: { money: 1600, metal: 400, oil: 300, tech: 140 },
-    seconds: 150,
   },
   interception: {
     id: 'interception',

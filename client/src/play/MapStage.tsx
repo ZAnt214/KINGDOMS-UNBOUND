@@ -3,9 +3,8 @@ import { buildProblem, type EconomyInput, ECONOMY, expansionCost, missing, STRUC
 import { LOGISTICS, previewLinks } from '../../../shared/play/logistics';
 import { type TechType, TECHS, type UnitType, UNITS } from '../../../shared/play/military';
 import { ArmySheet } from './armyUi';
-import { attackOrigin, missileRange, troops as troopsOf, WAR } from '../../../shared/play/war';
+import { attackOrigin, missileRange, WAR, type Weapon } from '../../../shared/play/war';
 import { AttackSheet, EnemyActions, MissileConfirm, OperationCapsules, OperationSheet, opProgress } from './warUi';
-import { QUICK } from '../../../shared/play/match';
 import { expansionSeconds, MILESTONES, milestoneProgress } from '../../../shared/play/rules';
 import type { NationView, StructureView } from '../../../shared/play/types';
 import { COUNTRIES, COUNTRY_BY_CODE } from '../../../shared/world';
@@ -29,7 +28,7 @@ const BLOOM_MS = 2200;
 function siloOf(s: WorldState, siloId: number) {
   const silo = s.structures.get(siloId);
   if (!silo || silo.nationId !== s.me || silo.type !== 'missile_silo' || silo.level < 1) return null;
-  return { silo, range: missileRange(silo.level, s.military?.research ?? {}) };
+  return { silo, range: missileRange(silo.level, 'missile') };
 }
 
 /** Mesmas regras do servidor para o alvo de um míssil (null = pode). */
@@ -52,7 +51,6 @@ function attackCheck(s: WorldState, rid: string): { problem: string | null; orig
   if (s.me === null || owner === undefined || owner === s.me) return { problem: 'Região sem dono inimigo.', origin: null };
   const me = s.nations.get(s.me);
   const enemy = s.nations.get(owner);
-  if (enemy && START_POINT_BY_ID[enemy.capital]?.region === rid) return { problem: 'A região da capital não pode ser tomada por terra. Mísseis podem atingi-la.', origin: null };
   if (me?.alliance !== null && me?.alliance === enemy?.alliance) return { problem: 'Não é possível atacar um aliado.', origin: null };
   if (s.world.arena && !s.world.arena.includes(rid)) return { problem: 'Esta região fica fora da área da partida.', origin: null };
   const origin = attackOrigin(regionsOf(s, s.me), rid, (s.military?.army.navy ?? 0) > 0);
@@ -90,7 +88,7 @@ interface Props {
   research: (tech: TechType) => Promise<void>;
   attack: (region: string, percent: number) => Promise<void>;
   reinforce: (operationId: number, percent: number) => Promise<void>;
-  launch: (siloId: number, region: string) => Promise<void>;
+  launch: (siloId: number, region: string, weapon: Weapon) => Promise<void>;
   onEditIdentity: () => void;
   onSwitchMode: () => void;
   onLeave: () => Promise<void>;
@@ -337,9 +335,11 @@ export function MapStage(props: Props) {
       if (!cap) continue;
       const image = flagCanvasImage(nationFlagSrc(n), redraw);
       const regions = regionsOf(state, n.id);
-      flags.push({ id: `cap:${n.id}`, lon: cap.at[0], lat: cap.at[1], image, color: n.color, scale: 1.25, label: n.name, plantedAt: planted.current.get(`cap:${n.id}`) });
+      // Capital tomada (Fase E): a bandeira grande sai; a região ganha a bandeira do novo dono.
+      const holdsCapital = state.control.get(cap.region) === n.id;
+      if (holdsCapital) flags.push({ id: `cap:${n.id}`, lon: cap.at[0], lat: cap.at[1], image, color: n.color, scale: 1.25, label: n.name, plantedAt: planted.current.get(`cap:${n.id}`) });
       for (const rid of regions) {
-        if (rid === cap.region || blooms[rid]) continue;
+        if ((rid === cap.region && holdsCapital) || blooms[rid]) continue;
         const r = REGION_BY_ID[rid];
         if (r) flags.push({ id: `reg:${rid}`, lon: r.at[0], lat: r.at[1], image, color: n.color, scale: 0.72, minZoom: 3.2, plantedAt: planted.current.get(`reg:${rid}`) });
       }
@@ -880,7 +880,6 @@ export function MapStage(props: Props) {
   }, [state, panelStructure]);
   const sameType = (t: StructureType) => myStructures.filter((s) => s.type === t).length;
   const arenaMine = arena && stats ? stats.regions.filter((r) => arenaSet!.has(r)).length : 0;
-  const majority = Math.floor((arena?.length ?? 0) * QUICK.majority) + 1;
   if (!active) return null;
 
   return (
@@ -902,10 +901,10 @@ export function MapStage(props: Props) {
 
       <div className="ku-sub">
         {me && state.economy && <ResourceStrip economy={state.economy} onOpen={() => setSheet('economy')} />}
-        {quick && state.world.endsAt && !state.world.finishedAt && <MatchClock endsAt={state.world.endsAt} />}
+        {quick && state.world.startedAt && !state.world.finishedAt && <MatchClock startedAt={state.world.startedAt} />}
       </div>
 
-      {me && quick && arena && <ObjectiveChip title={`Domine ${majority} das ${arena.length} regiões`} value={arenaMine} target={majority} />}
+      {me && quick && arena && <ObjectiveChip title={`Conquiste as ${arena.length} regiões da arena`} value={arenaMine} target={arena.length} />}
       {me && !quick && goal && <ObjectiveChip title={goal.milestone.title} value={goal.value} target={goal.milestone.target} />}
       {!me && !point && (
         <p className="ku-guide" data-testid="guide">
@@ -1029,6 +1028,14 @@ export function MapStage(props: Props) {
               capital={START_POINT_BY_ID[enemyOwner.capital]?.region === regionDef.id}
               problem={enemyCheck?.problem ?? null}
               naval={!!enemyCheck?.origin?.naval}
+              canStrike={!!mySilo && !missileProblem(state, mySilo.id, regionDef.id)}
+              onStrike={() => {
+                if (!mySilo) return;
+                audio.play('select');
+                setRegion(null);
+                setAiming({ siloId: mySilo.id });
+                setMissileTarget(regionDef.id);
+              }}
               onAttack={() => {
                 audio.play('select');
                 setCardError(null);
@@ -1090,8 +1097,8 @@ export function MapStage(props: Props) {
           {panelStructure?.type === 'missile_silo' && panelStructure.nationId === state.me && panelStructure.level > 0 && (
             <div className="ku-silo" data-testid="silo-actions">
               <p>
-                <b>{state.military?.army.missile ?? 0}</b> {(state.military?.army.missile ?? 0) === 1 ? 'míssil' : 'mísseis'} em estoque · alcance{' '}
-                <b>{missileRange(panelStructure.level, state.military?.research ?? {}).toLocaleString('pt-BR')} km</b>
+                Lança direto, pagando cada lançamento. Alcance: míssil <b>{missileRange(panelStructure.level, 'missile').toLocaleString('pt-BR')} km</b>, bomba{' '}
+                <b>{missileRange(panelStructure.level, 'bomb').toLocaleString('pt-BR')} km</b>.
               </p>
               {[...state.strikes.values()].some((x) => x.status === 'flying' && x.attackerId === state.me && distanceKm(x.from, panelStructure.at) < 1) ? (
                 <p className="ku-note">Míssil em voo. O silo recarrega quando ele chegar.</p>
@@ -1099,7 +1106,6 @@ export function MapStage(props: Props) {
                 <button
                   type="button"
                   className="ku-cta"
-                  disabled={(state.military?.army.missile ?? 0) < 1}
                   onClick={() => {
                     audio.play('select');
                     setPanel(null);
@@ -1108,7 +1114,7 @@ export function MapStage(props: Props) {
                   }}
                   data-testid="silo-aim"
                 >
-                  {(state.military?.army.missile ?? 0) < 1 ? 'Fabrique mísseis no Exército' : 'Escolher alvo'}
+                  Escolher alvo
                 </button>
               )}
             </div>
@@ -1163,7 +1169,7 @@ export function MapStage(props: Props) {
             me={state.me}
             home={state.military?.army ?? {}}
             canCounter={!!counter && !counter.problem}
-            canMissile={!!silo && (state.military?.army.missile ?? 0) > 0 && !missileProblem(state, silo.id, o.from)}
+            canMissile={!!silo && !missileProblem(state, silo.id, o.from)}
             busy={busy}
             error={cardError}
             onReinforce={(percent) => void run(async () => (await reinforce(o.id, percent), audio.play('war')))}
@@ -1191,13 +1197,14 @@ export function MapStage(props: Props) {
           region={missileTarget}
           owner={state.nations.get(state.control.get(missileTarget)!)!}
           ownerStructures={structuresOf(state, state.control.get(missileTarget)!).filter((x) => x.level > 0)}
-          stock={state.military?.army.missile ?? 0}
+          siloLevel={siloOf(state, aiming.siloId)!.silo.level}
           mode={state.world.mode}
+          economy={state.economy}
           busy={busy}
           error={cardError}
-          onConfirm={() =>
+          onConfirm={(weapon) =>
             void run(async () => {
-              await launch(aiming.siloId, missileTarget);
+              await launch(aiming.siloId, missileTarget, weapon);
               setAiming(null);
               setMissileTarget(null);
             })

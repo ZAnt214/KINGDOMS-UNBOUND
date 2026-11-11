@@ -144,14 +144,13 @@ export function Dock(p: {
   );
 }
 
-/** Tempo restante da partida rápida; fica vermelho no último minuto. */
-export function MatchClock({ endsAt }: { endsAt: number }) {
+/** Tempo de partida rápida desde a fundação (sem prazo: vence quem conquistar 100% da arena). */
+export function MatchClock({ startedAt }: { startedAt: number }) {
   useTick(1000);
-  const left = endsAt - serverNow();
   return (
-    <span className={`ku-clock ${left < 60_000 ? 'urgent' : ''}`} data-testid="match-clock" aria-label="Tempo restante da partida">
+    <span className="ku-clock" data-testid="match-clock" aria-label="Tempo de partida">
       <IcClock width={15} height={15} />
-      {fmtClock(left)}
+      {fmtClock(serverNow() - startedAt)}
     </span>
   );
 }

@@ -54,9 +54,11 @@ export const UNIT_GLYPH: Record<UnitType, string> = {
   aviation: 'M12 2l1.5 5 7.5 6v2l-7.5-2.5L13 18l3 2v1.5L12 20l-4 1.5V20l3-2-.5-5.5L3 15v-2l7.5-6z',
   // Destróier.
   navy: 'M2 15h20l-3 5H5zM6 15v-3h10v3M9 12V8h3v4M12 8h5M14 10h3M10.5 8V5',
-  // Míssil com aletas.
-  missile: 'M12 2c1.5 1.5 2.5 4 2.5 7v8h-5V9c0-3 1-5.5 2.5-7zM9.5 13 7 17v2h2.5M14.5 13l2.5 4v2h-2.5M11 19.5h2l-1 2.5z',
 };
+
+/** Míssil com aletas e bomba pesada (armas do silo). */
+export const MISSILE_GLYPH = 'M12 2c1.5 1.5 2.5 4 2.5 7v8h-5V9c0-3 1-5.5 2.5-7zM9.5 13 7 17v2h2.5M14.5 13l2.5 4v2h-2.5M11 19.5h2l-1 2.5z';
+export const BOMB_GLYPH = 'M12 21a6.5 6.5 0 1 0 0-13 6.5 6.5 0 0 0 0 13zM12 8V5M10 5h4M15 3l-1.5 2M17.5 12.5a4 4 0 0 0-3-3';
 
 /** Espadas cruzadas: operação militar. */
 export const BATTLE_GLYPH = 'M4 4l9 9M4 4h3.5M4 4v3.5M20 4l-9 9M20 4h-3.5M20 4v3.5M9.5 14.5 6 18M14.5 14.5 18 18M4.5 16.5l3 3M19.5 16.5l-3 3';

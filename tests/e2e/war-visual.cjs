@@ -112,7 +112,7 @@ const stateOf = (page) => page.evaluate(async () => (await fetch('/api/play/stat
   await A.waitForSelector('[data-testid=silo-actions]', { timeout: 8000 });
   await A.waitForTimeout(300);
   await A.screenshot({ path: `${OUT}/06-silo.png` });
-  check('silo mostra estoque e alcance', /3 mísseis em estoque/.test(await A.locator('[data-testid=silo-actions]').innerText()));
+  check('silo lança direto: sem pesquisa nem estoque, mostra o alcance do míssil e da bomba', /Lança direto/.test(await A.locator('[data-testid=silo-actions]').innerText()) && /bomba/.test(await A.locator('[data-testid=silo-actions]').innerText()));
   await A.click('[data-testid=silo-aim]');
   await A.waitForSelector('[data-testid=missile-aiming]');
   await A.waitForTimeout(700);
@@ -123,6 +123,7 @@ const stateOf = (page) => page.evaluate(async () => (await fetch('/api/play/stat
   await A.waitForSelector('[data-testid=missile-confirm]');
   await A.waitForTimeout(300);
   await A.screenshot({ path: `${OUT}/08-confirmacao.png` });
+  check('confirmação oferece míssil ou bomba', (await A.locator('[data-testid=weapon-missile]').count()) === 1 && (await A.locator('[data-testid=weapon-bomb]').count()) === 1);
   check('confirmação mostra distância, tempo de voo e interceptação', /km/.test(await A.locator('[data-testid=missile-confirm]').innerText()) && /Tempo de voo/.test(await A.locator('[data-testid=missile-confirm]').innerText()));
   await A.click('[data-testid=missile-go]');
   await A.waitForTimeout(900);

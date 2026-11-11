@@ -85,12 +85,13 @@ interface Seat extends GovernorCtx {
   worldName: string;
   finished: boolean;
   endsAt: number | null;
+  startedAt: number | null;
 }
 
 /** Todos os lugares do usuário: campanha primeiro, depois partidas rápidas da mais recente para a mais antiga. */
 export async function loadSeats(db: Db, userId: number): Promise<Seat[]> {
   const { rows } = await db.query(
-    `SELECT g.id, g.name, g.kingdom_id, k.mode, k.name AS world_name, k.finished_at, k.ends_at, m.alliance_id, m.rank
+    `SELECT g.id, g.name, g.kingdom_id, k.mode, k.name AS world_name, k.finished_at, k.ends_at, k.started_at, m.alliance_id, m.rank
        FROM governors g
        JOIN kingdoms k ON k.id = g.kingdom_id
        LEFT JOIN alliance_members m ON m.governor_id = g.id
@@ -108,6 +109,7 @@ export async function loadSeats(db: Db, userId: number): Promise<Seat[]> {
     worldName: r.world_name,
     finished: r.finished_at !== null,
     endsAt: r.ends_at ? new Date(r.ends_at).getTime() : null,
+    startedAt: r.started_at ? new Date(r.started_at).getTime() : null,
   }));
 }
 
@@ -133,7 +135,7 @@ export async function authFromToken(db: Db, token: string | undefined, worldId: 
     userId: Number(u.id),
     username: u.username,
     governor: seat && toCtx(seat),
-    worlds: seats.map((s) => ({ id: s.kingdomId, name: s.worldName, mode: s.mode, governorId: s.id, finished: s.finished, endsAt: s.endsAt })),
+    worlds: seats.map((s) => ({ id: s.kingdomId, name: s.worldName, mode: s.mode, governorId: s.id, finished: s.finished, endsAt: s.endsAt, startedAt: s.startedAt })),
   };
 }
 

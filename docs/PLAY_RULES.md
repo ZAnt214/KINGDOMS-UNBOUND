@@ -155,7 +155,8 @@ Regras em `shared/play/military.ts` (servidor aplica, cliente mostra). Combate �
 Regras em `shared/play/war.ts` (servidor aplica; a tela usa as mesmas funções para estimar). Migração 7 (`operations`, `strikes`, `military.troops`).
 
 **Ataque terrestre ou naval**
-- Alvo: região de outra nação, que não seja aliada nem a região da capital dela (a capital não pode ser tomada por terra; mísseis podem atingi-la).
+- Alvo: região de outra nação, que não seja aliada. A região da capital também pode ser tomada, mas defende 50% mais.
+- Nação que perde todas as regiões é derrotada. Na campanha, volta à escolha do ponto de partida e pode fundar uma nação nova (a antiga sai do mundo). Na partida rápida, o jogador derrotado perde a partida.
 - Origem: região sua com fronteira terrestre; ou, com pelo menos 1 navio, região litorânea sua a até 700 km de um alvo litorâneo (ataque naval, que também leva os navios). Com navios, a expansão para regiões neutras litorâneas segue a mesma regra.
 - Porcentagem enviada: 25%, 50%, 75% ou 100% (nada abaixo de 25%), a mesma de cada tipo de unidade, arredondada para baixo. Mísseis nunca vão; navios só em operação naval.
 - Até 2 operações de ataque por nação e 1 operação por região.
@@ -175,12 +176,12 @@ Regras em `shared/play/war.ts` (servidor aplica; a tela usa as mesmas funções 
 **Inteligência (público):** poder militar e tropas estimadas (2 algarismos significativos) de cada nação; defesa estimada de uma região = poder do dono ÷ √(regiões do dono). Risco do ataque: baixo (ataque ≥ 3× defesa estimada), médio (≥ 1,5×), alto (abaixo).
 
 **Mísseis**
-- Silo de lançamento (custo $2.200, 1.000 materiais, 800 metal, 400 petróleo, 60 componentes; 150 s) e míssil como unidade (exige silo e a pesquisa Foguetes balísticos; $900, 300 metal, 200 petróleo, 40 componentes, 45 s cada).
-- Alcance: 2.500 km + 750 km por nível do silo; Foguetes balísticos dá +20% por nível a partir do 2.
-- Lançamento: 1 míssil + 60 de petróleo; um míssil em voo por silo; alvo de outra nação, não aliada (capital incluída).
-- Tempo: 2,2 s de preparação e abertura do silo, depois voo de 1.500 km/min (mínimo 20 s), ÷ ritmo do modo.
+- **Com o silo pronto, já ataca:** sem pesquisa e sem estoque. Cada lançamento paga o seu custo. Silo: $2.200, 1.000 materiais, 800 metal, 400 petróleo, 60 componentes; 150 s.
+- Duas armas: **Míssil** ($500 + 80 petróleo; alcance 2.500 km + 750 km por nível do silo; voo 1.500 km/min) e **Bomba pesada** ($1.000 + 150 metal + 150 petróleo; 60% do alcance; voo 900 km/min; o dobro do estrago).
+- Um lançamento em voo por silo; alvo de outra nação, não aliada (capital incluída). Atalho: no cartão de uma região inimiga no alcance, "Míssil ou bomba".
+- Tempo: 2,2 s de preparação e abertura do silo, depois o voo (mínimo 20 s), ÷ ritmo do modo.
 - Interceptação: 20% por nível de sistema antimísseis do alvo + 10% por nível da pesquisa Interceptação, até 85%; sem antimísseis, 0. Decidida no lançamento com um sorteio reproduzível pelo id do lançamento (qualquer um pode conferir), e acontece a 85% do trajeto.
-- Impacto: a maior construção concluída da região perde 1 nível (no nível 1, é destruída); o alvo perde 6% de cada tipo de tropa em casa; tropas do alvo engajadas naquela região (ou que partiram dela para atacar) perdem 25%, e a batalha é recalculada.
+- Impacto do míssil: a maior construção concluída da região perde 1 nível (chegando a 0, é destruída); o alvo perde 6% de cada tipo de tropa em casa; tropas do alvo engajadas naquela região (ou que partiram dela para atacar) perdem 25%, e a batalha é recalculada. Bomba pesada: 2 níveis, 12% e 40%.
 - Sistema antimísseis: $1.500, 600 materiais, 500 metal, 40 componentes; 100 s.
 
 **Bots:** reforçam uma vez cada região atacada (50% das tropas em casa) e, passados 4 minutos de partida, atacam com 50% a região inimiga vizinha mais fraca quando o ataque passa de 2,5× a defesa estimada. Bots não lançam mísseis.
@@ -195,12 +196,11 @@ O saldo é guardado como "valor num instante" (`nation_resources.settled_at`). A
 
 - Mundo próprio criado sob demanda: o jogador e **3 nações controladas pelo servidor**.
 - **Arena:** as 40 regiões mais próximas do centro de um de 8 teatros (Brasil Central, Europa Central, China Oriental, Costa Leste da América do Norte, África Austral, Norte da Índia, Mesoamérica, Levante e Nilo), sorteado. O resto do mapa fica apagado; expansão e fundação só dentro dela.
-- **Relógio:** 15 minutos a partir da fundação do jogador. Sem fundar em 10 minutos, a partida expira sem vencedor.
+- **Sem prazo:** a partida começa na fundação do jogador e vai até a conquista. Sem fundar em 10 minutos, a partida expira sem vencedor. O relógio na tela mostra o tempo de partida.
 - **Ritmo:** tempos ÷ 3, produção × 12.
-- **Vitória:**
-  1. imediata para quem controlar **mais da metade** das regiões da arena;
-  2. ao fim do tempo, ou quando não sobrar região neutra nem ocupação em andamento, vence quem tiver mais regiões da arena (empate: maior área; depois, quem fundou antes).
-  A condição do documento de visão, 100% do território, depende de ataques (Fase E): até lá, as nações não podem tomar regiões umas das outras.
-- **Abandono:** encerra a partida na hora e põe quem saiu em último. A partida nunca fica sem resolução: o servidor encerra por tempo mesmo com todos desconectados.
+- **Vitória (visão):** vence quem controlar **100% das regiões da arena**. Ter mais da metade ou ocupar todas as neutras não encerra: a guerra continua.
+- **Derrota:** o jogador que perder todas as regiões perde a partida na hora e fica em último.
+- Classificação gravada: regiões da arena (empate: maior área; depois, quem fundou antes).
+- **Abandono:** encerra a partida na hora e põe quem saiu em último. A partida nunca fica sem resolução: termina na conquista total, na derrota do jogador ou no abandono.
 - **Bots:** a cada 3–7 s, cada bot tenta construir (cidade na capital, usina se faltar energia, fábrica, cidades nas demais regiões, melhorias) e ocupar uma região vizinha neutra (prefere fechar o próprio território e regiões menores). Usam os mesmos serviços e regras de um jogador.
 - Resultado gravado em `match_results`.

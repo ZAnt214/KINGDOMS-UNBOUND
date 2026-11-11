@@ -81,8 +81,9 @@ describe('partida rápida', () => {
     const color = NATION_COLORS.find((c) => !used.has(c.hex))!.hex;
     const r = await Q.post('/play/found', { pointId: pick.id, name: 'Relâmpago', color, flag: DEFAULT_FLAG });
     expect(r.status).toBe(200);
-    expect(r.data.world.endsAt - Date.now()).toBeGreaterThan((QUICK.minutes - 1) * 60_000);
-    expect(r.data.world.endsAt - Date.now()).toBeLessThanOrEqual(QUICK.minutes * 60_000 + 2000);
+    // Sem prazo de fim: a partida começa na fundação e vai até a conquista total.
+    expect(r.data.world.endsAt).toBeNull();
+    expect(Math.abs(r.data.world.startedAt - Date.now())).toBeLessThan(5000);
     const mine = r.data.control.find((c: any) => c[1] === qg)?.[0] ?? null;
     expect(mine).toBe(pick.region);
     const outsideNeighbor = REGION_BY_ID[pick.region].neighbors.find((n) => !s.world.arena.includes(n));
@@ -98,20 +99,28 @@ describe('partida rápida', () => {
     for (const o of botOccupations) expect(s.world.arena).toContain(o.region);
   });
 
-  it('mais da metade da arena encerra a partida com vitória e classificação', async () => {
+  it('mais da metade não encerra; 100% da arena encerra com vitória e classificação', async () => {
     await Q.connect();
     const s = await state(Q);
     const owned = new Set(s.control.map((c: any) => c[0]));
     const busy = new Set(s.occupations.map((o: any) => o.region));
     const free = s.world.arena.filter((r: string) => !owned.has(r) && !busy.has(r));
-    // Já tem 1 região: com mais `need` passa da metade.
-    const need = Math.floor(QUICK.arenaSize * QUICK.majority);
-    for (const r of free.slice(0, need)) {
+    const half = Math.floor(QUICK.arenaSize / 2);
+    for (const r of free.slice(0, half)) {
       await db.query('INSERT INTO region_control (kingdom_id, region_id, governor_id) VALUES ($1, $2, $3)', [world, r, qg]);
     }
     await srv.services.match.check(world);
+    expect((await state(Q)).world.finishedAt).toBeNull();
+    // Toma a arena inteira, inclusive as regiões e capitais dos bots.
+    for (const r of s.world.arena as string[]) {
+      await db.query(
+        'INSERT INTO region_control (kingdom_id, region_id, governor_id) VALUES ($1, $2, $3) ON CONFLICT (kingdom_id, region_id) DO UPDATE SET governor_id = $3',
+        [world, r, qg],
+      );
+    }
+    await srv.services.match.check(world);
     const ev = await Q.waitFor((e) => e.type === 'play.match' && e.world.finishedAt);
-    expect(ev.world).toMatchObject({ outcome: 'majority', winner: qg });
+    expect(ev.world).toMatchObject({ outcome: 'conquest', winner: qg });
     expect(ev.world.results[0]).toMatchObject({ nationId: qg, rank: 1 });
     expect(ev.world.results).toHaveLength(QUICK.bots + 1);
     expect(s.world.arena.length).toBe(QUICK.arenaSize);

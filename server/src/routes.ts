@@ -285,8 +285,8 @@ export function apiRouter(
   r.post(
     '/play/launch',
     handler(async (req) => {
-      const body = parse(z.object({ siloId: id, region: z.string().min(1).max(40) }), req.body);
-      return { strike: await war.launch(requireGovernor(req), body.siloId, body.region) };
+      const body = parse(z.object({ siloId: id, region: z.string().min(1).max(40), weapon: z.enum(['missile', 'bomb']).default('missile') }), req.body);
+      return { strike: await war.launch(requireGovernor(req), body.siloId, body.region, body.weapon) };
     }),
   );
   // Fase D: treinamento e pesquisa militar.

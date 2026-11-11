@@ -126,18 +126,19 @@ export class MatchService {
   /** Confere vitória, fim de tempo e prazo de fundação das partidas em andamento. */
   async check(kingdomId: number | null = null) {
     const { rows } = await this.db.query(
-      `SELECT id, arena, ends_at, created_at FROM kingdoms WHERE mode = 'quick' AND finished_at IS NULL AND ($1::int IS NULL OR id = $1)`,
+      `SELECT k.id, k.arena, k.started_at, k.created_at,
+              (SELECT g.id FROM governors g WHERE g.kingdom_id = k.id AND NOT g.is_bot ORDER BY g.id LIMIT 1) AS human
+         FROM kingdoms k WHERE k.mode = 'quick' AND k.finished_at IS NULL AND ($1::int IS NULL OR k.id = $1)`,
       [kingdomId],
     );
     for (const k of rows) {
-      const endsAt = k.ends_at ? new Date(k.ends_at).getTime() : null;
-      if (endsAt === null) {
+      if (!k.started_at) {
         if (Date.now() - new Date(k.created_at).getTime() > QUICK.foundDeadlineMinutes * 60_000) await this.finish(k.id, 'expired');
         continue;
       }
       const s = await this.standings(k.id, k.arena);
-      const out = matchOutcome({ arenaSize: k.arena.length, standings: s.standings, now: Date.now(), endsAt, neutralLeft: s.neutralLeft, activeOccupations: s.active });
-      if (out.over) await this.finish(k.id, out.reason);
+      const out = matchOutcome({ arenaSize: k.arena.length, standings: s.standings, human: k.human === null ? null : Number(k.human) });
+      if (out.over) await this.finish(k.id, out.reason, out.loser);
     }
   }
 
@@ -147,10 +148,10 @@ export class MatchService {
     this.ticking = true;
     try {
       const { rows } = await this.db.query(
-        `SELECT g.id, g.name, g.kingdom_id, k.arena, k.ends_at FROM governors g
+        `SELECT g.id, g.name, g.kingdom_id, k.arena, k.started_at FROM governors g
            JOIN kingdoms k ON k.id = g.kingdom_id
            JOIN nations n ON n.governor_id = g.id
-          WHERE g.is_bot AND k.mode = 'quick' AND k.finished_at IS NULL AND k.ends_at IS NOT NULL AND ($1::int IS NULL OR k.id = $1)`,
+          WHERE g.is_bot AND k.mode = 'quick' AND k.finished_at IS NULL AND k.started_at IS NOT NULL AND ($1::int IS NULL OR k.id = $1)`,
         [kingdomId],
       );
       const now = Date.now();
@@ -161,7 +162,7 @@ export class MatchService {
         const ctx: GovernorCtx = { id, name: b.name, kingdomId: b.kingdom_id, mode: 'quick', allianceId: null, allianceRank: null };
         await this.botBuild(ctx).catch(() => {});
         await this.botArmy(ctx).catch(() => {});
-        await this.botWar(ctx, b.ends_at ? new Date(b.ends_at).getTime() : null).catch(() => {});
+        await this.botWar(ctx, b.started_at ? new Date(b.started_at).getTime() : null).catch(() => {});
         await this.botExpand(ctx, b.arena as string[]).catch(() => {});
       }
     } finally {
@@ -228,9 +229,9 @@ export class MatchService {
   /**
    * Bots na guerra: reforçam uma vez a região atacada (50% das tropas em casa) e, passados 4 minutos
    * de partida, atacam a região inimiga mais fraca vizinha quando o ataque com 50% das tropas passa
-   * de 2,5× a defesa estimada (a mesma estimativa pública que o jogador vê).
+   * de 2,5× a defesa estimada (a mesma estimativa pública que o jogador vê; capital ×1,5).
    */
-  private async botWar(g: GovernorCtx, endsAt: number | null) {
+  private async botWar(g: GovernorCtx, startedAt: number | null) {
     if (!this.war) return;
     const ops = await this.db.query(`SELECT id, attacker_id, defender_id, region_id, events FROM operations WHERE kingdom_id = $1 AND status = 'active'`, [g.kingdomId]);
     for (const o of ops.rows) {
@@ -238,7 +239,7 @@ export class MatchService {
         await this.war.reinforce(g, Number(o.id), 50).catch(() => {});
       }
     }
-    if (!endsAt || endsAt - Date.now() > (QUICK.minutes - 4) * 60_000) return;
+    if (!startedAt || Date.now() - startedAt < QUICK.botWarAfterMinutes * 60_000) return;
     if (ops.rows.some((o) => Number(o.attacker_id) === g.id)) return;
     const [control, nations, home, research] = await Promise.all([
       this.territory.control(g.kingdomId),
@@ -261,8 +262,9 @@ export class MatchService {
     for (const r of mine) {
       for (const n of REGION_BY_ID[r].neighbors) {
         const o = owner.get(n);
-        if (o === undefined || o === g.id || busy.has(n) || info.get(o)?.capital === n) continue;
-        const def = estimatedDefense(info.get(o)?.power ?? 0, regionsOf(o)) + WAR.militia;
+        if (o === undefined || o === g.id || busy.has(n)) continue;
+        const capital = info.get(o)?.capital === n ? WAR.capitalBonus : 1;
+        const def = estimatedDefense(info.get(o)?.power ?? 0, regionsOf(o)) * capital + WAR.militia;
         if (!best || def < best.def) best = { region: n, def };
       }
     }

@@ -8,12 +8,10 @@ export const QUICK = {
   /** Regiões disponíveis na arena. */
   arenaSize: 40,
   bots: 3,
-  /** Duração da partida, contada a partir da fundação do jogador. */
-  minutes: 15,
+  /** Bots só começam a atacar depois destes minutos de partida. */
+  botWarAfterMinutes: 4,
   /** Sem fundar em 10 minutos, a partida é encerrada sem vencedor. */
   foundDeadlineMinutes: 10,
-  /** Vitória imediata: mais da metade das regiões da arena. */
-  majority: 0.5,
   /** Intervalo (s) entre decisões de um bot: sorteado nesta faixa. */
   botThink: [3, 7] as [number, number],
 };
@@ -115,17 +113,25 @@ export function rank(standings: Standing[]): Standing[] {
  * - Vitória imediata: uma nação com mais da metade das regiões da arena.
  * - Fim por tempo, ou quando não sobra região neutra nem ocupação em andamento: vence quem tiver mais regiões.
  */
-export function matchOutcome(o: { arenaSize: number; standings: Standing[]; now: number; endsAt: number | null; neutralLeft: number; activeOccupations: number }):
+/**
+ * Fim da partida rápida (visão: vence quem conquistar 100% do território disponível):
+ * - uma nação controla todas as regiões da arena → 'conquest';
+ * - o jogador humano perdeu todas as regiões → 'eliminated' (ele fica em último).
+ * Não há fim por tempo nem por "todas as regiões ocupadas": a guerra continua até a conquista.
+ */
+export function matchOutcome(o: { arenaSize: number; standings: Standing[]; human: number | null }):
   | { over: false }
-  | { over: true; reason: 'majority' | 'time' | 'exhausted'; ranking: Standing[] } {
+  | { over: true; reason: 'conquest' | 'eliminated'; ranking: Standing[]; loser: number | null } {
   const ranking = rank(o.standings);
-  if (ranking[0] && ranking[0].regions > o.arenaSize * QUICK.majority) return { over: true, reason: 'majority', ranking };
-  if (o.endsAt !== null && o.now >= o.endsAt) return { over: true, reason: 'time', ranking };
-  if (o.endsAt !== null && o.neutralLeft === 0 && o.activeOccupations === 0) return { over: true, reason: 'exhausted', ranking };
+  if (ranking[0] && ranking[0].regions >= o.arenaSize) return { over: true, reason: 'conquest', ranking, loser: null };
+  const human = o.standings.find((s) => s.nationId === o.human);
+  if (human && human.regions === 0) return { over: true, reason: 'eliminated', ranking, loser: human.nationId };
   return { over: false };
 }
 
 export const OUTCOME_LABEL = {
+  conquest: 'Conquista de 100% da arena',
+  eliminated: 'Sua nação perdeu todas as regiões',
   majority: 'Domínio de mais da metade da arena',
   time: 'Fim do tempo',
   exhausted: 'Todas as regiões ocupadas',

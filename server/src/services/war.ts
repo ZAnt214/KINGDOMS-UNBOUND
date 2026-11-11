@@ -23,6 +23,9 @@ import {
   troops,
   WAR,
   WAR_RULES_VERSION,
+  type Weapon,
+  WEAPON_TYPES,
+  WEAPONS,
 } from '../../../shared/play/war.js';
 import { distanceKm, REGION_BY_ID, START_POINT_BY_ID } from '../../../shared/world/regions.js';
 import type { GovernorCtx } from '../auth.js';
@@ -89,6 +92,7 @@ export function strikeView(r: any, _now: number): StrikeView {
     // Decidido no lançamento e público desde então: a tela anima o interceptador a tempo.
     intercepted: r.intercepted,
     status: r.status,
+    weapon: (r.weapon ?? 'missile') as Weapon,
     result: r.result ?? undefined,
   };
 }
@@ -210,8 +214,9 @@ export class WarService {
         // Trava as duas nações em ordem de id (a mesma em toda transação).
         const both = await client.query('SELECT governor_id, capital_point FROM nations WHERE governor_id IN ($1, $2) ORDER BY governor_id FOR UPDATE', [g.id, defenderId]);
         if (!both.rows.some((r) => Number(r.governor_id) === g.id)) throw new HttpError(409, 'no_nation', 'Funde sua nação antes de atacar.');
+        // A capital pode ser tomada (vence quem conquistar 100%), mas defende 50% mais.
         const defCapital = START_POINT_BY_ID[both.rows.find((r) => Number(r.governor_id) === defenderId)?.capital_point]?.region;
-        if (defCapital === regionId) throw conflict('capital', 'A região da capital não pode ser tomada por terra. Mísseis podem atingi-la.');
+        const capitalBonus = defCapital === regionId ? WAR.capitalBonus : 1;
         if (await this.allied(client, g.id, defenderId)) throw conflict('allied', 'Não é possível atacar um aliado.');
         const busy = await client.query(`SELECT 1 FROM operations WHERE kingdom_id = $1 AND region_id = $2 AND status = 'active'`, [g.kingdomId, regionId]);
         if (busy.rowCount) throw conflict('region_contested', 'Já há uma operação militar nesta região.');
@@ -244,7 +249,7 @@ export class WarService {
           attackerResearch,
           defender: defenders,
           defenderResearch,
-          defenderMultiplier: defenseMultiplier(defenderResearch, defBuilt),
+          defenderMultiplier: defenseMultiplier(defenderResearch, defBuilt) * capitalBonus,
           events: [],
         };
         await this.take(client, g.id, sent);
@@ -292,9 +297,10 @@ export class WarService {
   }
 
   /** Lança um míssil do silo contra uma região inimiga no alcance. */
-  async launch(g: GovernorCtx, siloId: number, regionId: string): Promise<StrikeView> {
+  async launch(g: GovernorCtx, siloId: number, regionId: string, weapon: Weapon = 'missile'): Promise<StrikeView> {
     const target = REGION_BY_ID[regionId];
     if (!target) throw notFound('Região desconhecida.');
+    if (!WEAPON_TYPES.includes(weapon)) throw bad('invalid_weapon', 'Arma desconhecida.');
     await this.settleWorld(g.kingdomId);
     let row: any;
     try {
@@ -310,25 +316,21 @@ export class WarService {
         if (!owner.rowCount || Number(owner.rows[0].governor_id) === g.id) throw conflict('not_enemy', 'Escolha uma região de outra nação.');
         const defenderId = Number(owner.rows[0].governor_id);
         if (await this.allied(client, g.id, defenderId)) throw conflict('allied', 'Não é possível atacar um aliado.');
-        const research = await this.research(client, g.id);
         const from: [number, number] = silo.lon === null ? REGION_BY_ID[silo.region_id].at : [silo.lon, silo.lat];
         const km = distanceKm(from, target.at);
-        const range = missileRange(silo.level, research);
-        if (km > range) throw conflict('out_of_range', `Fora do alcance: ${Math.round(km).toLocaleString('pt-BR')} km (alcance de ${range.toLocaleString('pt-BR')} km).`);
-        const stock = (await client.query(`SELECT amount FROM army WHERE governor_id = $1 AND unit = 'missile' FOR UPDATE`, [g.id])).rows[0]?.amount ?? 0;
-        if (stock < 1) throw conflict('no_missile', 'Nenhum míssil disponível. Fabrique mísseis no Exército.');
-        // Saldo acertado agora (a manutenção muda ao gastar o míssil) e custo do lançamento.
-        await this.economy.spend(client, g.id, WAR.missile.launchCost, 'o lançamento');
-        await client.query(`UPDATE army SET amount = amount - 1 WHERE governor_id = $1 AND unit = 'missile'`, [g.id]);
+        const range = missileRange(silo.level, weapon);
+        if (km > range) throw conflict('out_of_range', `Fora do alcance da ${WEAPONS[weapon].name.toLowerCase()}: ${Math.round(km).toLocaleString('pt-BR')} km (alcance de ${range.toLocaleString('pt-BR')} km).`);
+        // Silo pronto lança direto: só o custo do lançamento.
+        await this.economy.spend(client, g.id, WEAPONS[weapon].cost, 'o lançamento');
         const [defBuilt, defResearch, mode] = await Promise.all([this.built(client, defenderId), this.research(client, defenderId), this.modeOf(client, g.kingdomId)]);
         const chance = interceptChance(defBuilt, defResearch);
         const now = Date.now();
-        const flight = missileSeconds(km, mode) * 1000;
+        const flight = missileSeconds(km, mode, weapon) * 1000;
         const flightAt = now + PREP_MS;
         const ins = await client.query(
-          `INSERT INTO strikes (kingdom_id, attacker_id, defender_id, silo_id, from_lon, from_lat, region_id, launched_at, flight_at, intercept_at, impact_at, chance, intercepted, rules_version)
-           VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, false, $13) RETURNING id`,
-          [g.kingdomId, g.id, defenderId, siloId, from[0], from[1], regionId, new Date(now), new Date(flightAt), new Date(flightAt + flight * WAR.missile.interceptAt), new Date(flightAt + flight), chance, WAR_RULES_VERSION],
+          `INSERT INTO strikes (kingdom_id, attacker_id, defender_id, silo_id, from_lon, from_lat, region_id, launched_at, flight_at, intercept_at, impact_at, chance, intercepted, rules_version, weapon)
+           VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, false, $13, $14) RETURNING id`,
+          [g.kingdomId, g.id, defenderId, siloId, from[0], from[1], regionId, new Date(now), new Date(flightAt), new Date(flightAt + flight * WAR.missile.interceptAt), new Date(flightAt + flight), chance, WAR_RULES_VERSION, weapon],
         );
         const id = Number(ins.rows[0].id);
         const { rows } = await client.query('UPDATE strikes SET intercepted = $2 WHERE id = $1 RETURNING *', [id, interceptRoll(id) < chance]);
@@ -428,13 +430,13 @@ export class WarService {
       }
       const defenderId = Number(s.defender_id);
       const at = new Date(s.impact_at);
+      const w = WEAPONS[(s.weapon as Weapon) ?? 'missile'] ?? WEAPONS.missile;
       await this.economy.settle(client, defenderId, at);
-      // Tropas em casa do alvo: 6% de cada tipo (mísseis guardados não são atingidos).
+      // Tropas em casa do alvo: 6% de cada tipo (míssil) ou 12% (bomba).
       const home = await this.home(client, defenderId);
       let lost = 0;
       for (const u of UNIT_TYPES) {
-        if (u === 'missile') continue;
-        const k = Math.floor((home[u] ?? 0) * WAR.missile.homeLoss);
+        const k = Math.floor((home[u] ?? 0) * w.homeLoss);
         if (k > 0) {
           lost += k;
           await client.query('UPDATE army SET amount = amount - $3 WHERE governor_id = $1 AND unit = $2', [defenderId, u, k]);
@@ -453,14 +455,15 @@ export class WarService {
       let removed: number | null = null;
       let structure: { type: any; from: number; to: number } | null = null;
       if (target) {
-        structure = { type: target.type, from: target.level, to: target.level - 1 };
-        if (target.level <= 1) {
+        const to = Math.max(0, target.level - w.levels);
+        structure = { type: target.type, from: target.level, to };
+        if (to === 0) {
           await client.query('DELETE FROM structures WHERE id = $1', [target.id]);
           removed = Number(target.id);
         } else {
           const up = await client.query(
-            'UPDATE structures SET level = level - 1 WHERE id = $1 RETURNING id, governor_id, region_id, type, level, target_level, started_at, ends_at, lon, lat',
-            [target.id],
+            'UPDATE structures SET level = $2 WHERE id = $1 RETURNING id, governor_id, region_id, type, level, target_level, started_at, ends_at, lon, lat',
+            [target.id, to],
           );
           damaged = structureView(up.rows[0]);
         }
@@ -474,7 +477,7 @@ export class WarService {
       const touched: any[] = [];
       for (const o of ops.rows) {
         const side = Number(o.defender_id) === defenderId && o.region_id === s.region_id ? 'defender' : 'attacker';
-        const events = [...(o.events as BattleEvent[]), { at: at.getTime(), kind: 'strike', side, fraction: WAR.missile.engagedLoss } as BattleEvent];
+        const events = [...(o.events as BattleEvent[]), { at: at.getTime(), kind: 'strike', side, fraction: w.engagedLoss } as BattleEvent];
         const ends = predictEnd({ ...setupOf(o), events });
         const up = await client.query(`UPDATE operations SET events = $2, ends_at = $3 WHERE id = $1 RETURNING ${OP_COLUMNS}`, [o.id, JSON.stringify(events), new Date(Math.max(ends, Date.now()))]);
         touched.push(up.rows[0]);

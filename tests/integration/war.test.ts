@@ -1,7 +1,7 @@
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { DEFAULT_FLAG } from '../../shared/play/flags.js';
 import { NATION_COLORS } from '../../shared/play/rules.js';
-import { garrison, interceptRoll, WAR } from '../../shared/play/war.js';
+import { garrison, interceptRoll, WAR, WEAPONS } from '../../shared/play/war.js';
 import { REGION_BY_ID, REGIONS, START_POINTS } from '../../shared/world/regions.js';
 import type { Db } from '../../server/src/db.js';
 import { Player, resetDb, startServer, type TestPlayer } from './helpers.js';
@@ -68,9 +68,8 @@ describe('ataque terrestre', () => {
   let opId = 0;
   let frontStructure = '';
 
-  it('recusa porcentagem abaixo de 25%, a capital e regiões sem fronteira', async () => {
+  it('recusa porcentagem abaixo de 25% e regiões sem fronteira ou próprias', async () => {
     expect((await A.post('/play/attack', { region: FRONT, percent: 10 })).status).toBe(400);
-    expect((await A.post('/play/attack', { region: bh.region, percent: 50 })).data.error).toBe('capital');
     expect((await A.post('/play/attack', { region: FAR, percent: 50 })).data.error).toBe('not_adjacent');
     expect((await A.post('/play/attack', { region: brasilia.region, percent: 50 })).data.error).toBe('not_enemy');
   });
@@ -124,11 +123,11 @@ describe('ataque terrestre', () => {
 
 describe('mísseis', () => {
   let silo = '';
+  let targetId = '';
 
-  it('exige silo concluído, míssil e alcance; um míssil em voo por silo', async () => {
+  it('silo pronto lança direto (sem pesquisa nem estoque), dentro do alcance e só contra outra nação', async () => {
     silo = await addStructure(aId, brasilia.region, 'missile_silo', 1);
-    expect((await A.post('/play/launch', { siloId: Number(silo), region: bh.region })).data.error).toBe('no_missile');
-    await setArmy(aId, 'missile', 2);
+    expect((await A.post('/play/launch', { siloId: Number(silo), region: bh.region, weapon: 'laser' })).status).toBe(400);
     expect((await A.post('/play/launch', { siloId: Number(silo), region: FAR })).data.error).toBe('out_of_range');
     expect((await A.post('/play/launch', { siloId: Number(silo), region: brasilia.region })).data.error).toBe('not_enemy');
   });
@@ -144,14 +143,27 @@ describe('mísseis', () => {
     expect(strike.impactAt).toBeGreaterThan(strike.interceptAt);
     await B.waitFor((e) => e.type === 'play.strike' && e.strike.id === strike.id);
     expect((await A.post('/play/launch', { siloId: Number(silo), region: bh.region })).data.error).toBe('silo_busy');
-    expect((await state(A)).military.army.missile).toBe(1);
     await db.query(`UPDATE strikes SET impact_at = now() - interval '1 second' WHERE id = $1`, [strike.id]);
     const sb = await state(B);
     expect(sb.strikes.find((x: any) => x.id === strike.id)).toBeUndefined();
     expect(sb.structures.find((x: any) => String(x.id) === String(target)).level).toBe(2);
-    expect(sb.military.army.infantry).toBe(100 - Math.floor(100 * WAR.missile.homeLoss));
+    expect(sb.military.army.infantry).toBe(100 - Math.floor(100 * WEAPONS.missile.homeLoss));
     const done = await A.waitFor((e) => e.type === 'play.strike' && e.strike.id === strike.id && e.strike.status === 'impact');
     expect(done.strike.result.structure).toEqual({ type: 'factory', from: 3, to: 2 });
+    targetId = target;
+  });
+
+  it('bomba pesada: mais estrago (2 níveis e 12% das tropas), alcance menor', async () => {
+    expect((await A.post('/play/launch', { siloId: Number(silo), region: FAR, weapon: 'bomb' })).data.error).toBe('out_of_range');
+    const home = (await state(B)).military.army.infantry;
+    const res = await A.post('/play/launch', { siloId: Number(silo), region: bh.region, weapon: 'bomb' });
+    expect(res.status).toBe(200);
+    expect(res.data.strike.weapon).toBe('bomb');
+    await db.query(`UPDATE strikes SET impact_at = now() - interval '1 second' WHERE id = $1`, [res.data.strike.id]);
+    const sb = await state(B);
+    // Fábrica no nível 2 perde 2 níveis: destruída.
+    expect(sb.structures.find((x: any) => String(x.id) === String(targetId))).toBeUndefined();
+    expect(sb.military.army.infantry).toBe(home - Math.floor(home * WEAPONS.bomb.homeLoss));
   });
 
   it('com sistema antimísseis, a interceptação segue a chance e o sorteio reproduzível', async () => {
@@ -168,5 +180,34 @@ describe('mísseis', () => {
     const after = await db.query('SELECT status FROM strikes WHERE id = $1', [res.data.strike.id]);
     expect(after.rows[0].status).toBe(rows[0].intercepted ? 'intercepted' : 'impact');
     if (rows[0].intercepted) expect((await state(B)).structures.filter((x: any) => x.nationId === bId).map((x: any) => x.level)).toEqual(levels);
+  });
+});
+
+describe('capital', () => {
+  it('pode ser atacada (vence quem conquistar 100%), com 50% a mais de defesa', async () => {
+    await setArmy(aId, 'infantry', 300);
+    const res = await A.post('/play/attack', { region: bh.region, percent: 50 });
+    expect(res.status).toBe(200);
+    const { rows } = await db.query(`SELECT (setup->>'defenderMultiplier')::float8 AS m FROM operations WHERE id = $1`, [res.data.operation.id]);
+    expect(rows[0].m).toBeCloseTo(WAR.capitalBonus, 6);
+  });
+});
+
+describe('nação derrotada na campanha', () => {
+  it('sem nenhuma região volta à escolha de ponto e pode fundar de novo', async () => {
+    await db.query(`UPDATE operations SET status = 'failed' WHERE status = 'active'`);
+    await db.query('DELETE FROM region_control WHERE governor_id = $1', [bId]);
+    const s = await state(B);
+    expect(s.me).toBeNull();
+    expect(s.economy).toBeNull();
+    const taken = new Set(s.control.map(([r]: [string, number]) => r));
+    const point = START_POINTS.find((p) => !taken.has(p.region) && p.id.startsWith('cap-'))!;
+    const res = await B.post('/play/found', { pointId: point.id, name: 'Gerais Renascida', color: NATION_COLORS[7].hex, flag: DEFAULT_FLAG });
+    expect(res.status).toBe(200);
+    expect(res.data.me).toBe(bId);
+    expect(res.data.control.filter(([, o]: [string, number]) => o === bId)).toHaveLength(1);
+    // A que ainda tem regiões não pode fundar de novo.
+    const other = START_POINTS.find((p) => !taken.has(p.region) && p.id !== point.id && p.region !== point.region && p.id.startsWith('cap-'))!;
+    expect((await A.post('/play/found', { pointId: other.id, name: 'Outra', color: NATION_COLORS[2].hex, flag: DEFAULT_FLAG })).data.error).toBe('nation_exists');
   });
 });

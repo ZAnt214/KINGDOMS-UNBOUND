@@ -7,7 +7,7 @@
  * simula de novo quando precisa; nada é sorteado no combate. Documentação em docs/PLAY_RULES.md.
  */
 import { distanceKm, REGION_BY_ID } from '../world/regions';
-import type { StructureType } from './economy';
+import type { Cost, StructureType } from './economy';
 import { type Army, levelOf, MILITARY, type Research, TECHS, techBonus, UNIT_TYPES, type UnitType, UNITS } from './military';
 import { type GameMode, MODE_SPEED } from './rules';
 
@@ -37,7 +37,9 @@ export const WAR = {
   /** Ataque naval: região litorânea a até 700 km de uma região litorânea sua, com pelo menos 1 navio. */
   seaRangeKm: 700,
   /** Unidades que não entram no combate terrestre (mísseis são lançados do silo). */
-  excluded: ['missile'] as UnitType[],
+  excluded: [] as UnitType[],
+  /** A região da capital pode ser tomada, mas defende 50% mais (Fase E, partida até 100%). */
+  capitalBonus: 1.5,
   /** Míssil: alcance, velocidade, custo de lançamento e efeitos. */
   missile: {
     rangeKm: 2500,
@@ -47,13 +49,9 @@ export const WAR = {
     minSeconds: 20,
     /** A interceptação, se houver, acontece a 85% do trajeto. */
     interceptAt: 0.85,
-    launchCost: { oil: 60 },
     /** Chance por nível de sistema antimísseis e por nível de pesquisa de interceptação; teto. */
     perAntimissile: 0.2,
     maxChance: 0.85,
-    /** Efeito do impacto: tropas em casa do alvo e tropas engajadas na região/na base de partida. */
-    homeLoss: 0.06,
-    engagedLoss: 0.25,
   },
 };
 
@@ -274,13 +272,27 @@ export function attackOrigin(owned: string[], target: string, hasNavy: boolean):
 
 // ---------- mísseis ----------
 
-export function missileRange(siloLevel: number, research: Research): number {
-  const base = WAR.missile.rangeKm + WAR.missile.rangePerLevel * Math.max(0, siloLevel - 1);
-  return Math.round(base * (1 + TECHS.rocketry.effect.perLevel * Math.max(0, (research.rocketry ?? 0) - 1)));
+/**
+ * Armas do silo. Com o silo pronto, lança direto: sem pesquisa e sem estoque, pagando o custo de
+ * cada lançamento. A bomba pesada causa mais estrago, alcança menos e voa mais devagar.
+ */
+export type Weapon = 'missile' | 'bomb';
+export const WEAPONS: Record<
+  Weapon,
+  { name: string; short: string; cost: Cost; rangeFactor: number; speedKmPerMin: number; levels: number; homeLoss: number; engagedLoss: number }
+> = {
+  missile: { name: 'Míssil', short: 'Míssil', cost: { money: 500, oil: 80 }, rangeFactor: 1, speedKmPerMin: 1500, levels: 1, homeLoss: 0.06, engagedLoss: 0.25 },
+  bomb: { name: 'Bomba pesada', short: 'Bomba', cost: { money: 1000, metal: 150, oil: 150 }, rangeFactor: 0.6, speedKmPerMin: 900, levels: 2, homeLoss: 0.12, engagedLoss: 0.4 },
+};
+export const WEAPON_TYPES: Weapon[] = ['missile', 'bomb'];
+
+/** Alcance (km) do silo para a arma: 2.500 km + 750 km por nível acima do 1, × fator da arma. */
+export function missileRange(siloLevel: number, weapon: Weapon = 'missile'): number {
+  return Math.round((WAR.missile.rangeKm + WAR.missile.rangePerLevel * Math.max(0, siloLevel - 1)) * WEAPONS[weapon].rangeFactor);
 }
 
-export function missileSeconds(km: number, mode: GameMode = 'campaign'): number {
-  return Math.max(WAR.missile.minSeconds / MODE_SPEED[mode], Math.round(((km / WAR.missile.speedKmPerMin) * 60) / MODE_SPEED[mode]));
+export function missileSeconds(km: number, mode: GameMode = 'campaign', weapon: Weapon = 'missile'): number {
+  return Math.max(WAR.missile.minSeconds / MODE_SPEED[mode], Math.round(((km / WEAPONS[weapon].speedKmPerMin) * 60) / MODE_SPEED[mode]));
 }
 
 /** Chance de interceptação do defensor: 20% por nível de antimísseis + 10% por nível de pesquisa; sem antimísseis, 0. */

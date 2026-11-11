@@ -480,6 +480,18 @@ ALTER TABLE military ADD COLUMN troops INT NOT NULL DEFAULT 0;
 ALTER TABLE users ADD COLUMN unlimited BOOLEAN NOT NULL DEFAULT false;
 `,
   },
+  {
+    id: 9,
+    name: 'conquest_and_weapons',
+    sql: `
+-- Partida rápida sem relógio de fim: vence quem conquistar 100% da arena. started_at marca o início
+-- (fundação do jogador); ends_at deixa de ser usado como prazo.
+ALTER TABLE kingdoms ADD COLUMN started_at TIMESTAMPTZ;
+UPDATE kingdoms SET started_at = ends_at - interval '15 minutes', ends_at = NULL WHERE mode = 'quick' AND ends_at IS NOT NULL;
+-- Silo lança direto (sem pesquisa nem estoque): míssil ou bomba pesada.
+ALTER TABLE strikes ADD COLUMN weapon TEXT NOT NULL DEFAULT 'missile' CHECK (weapon IN ('missile', 'bomb'));
+`,
+  },
 ];
 
 export async function migrate(db: Db, log: (msg: string) => void = () => {}) {

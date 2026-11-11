@@ -48,7 +48,7 @@ export function TitleScreen({ busy, error, returning, onStart, onLogin }: { busy
 
 const MODES: { id: GameMode; name: string; text: string; icon: typeof IcGlobe }[] = [
   { id: 'campaign', name: 'Campanha', text: 'Um mundo persistente e compartilhado com outros jogadores. Sua nação continua lá quando você sai.', icon: IcGlobe },
-  { id: 'quick', name: 'Partida rápida', text: `Você contra ${QUICK.bots} nações do servidor numa arena de ${QUICK.arenaSize} regiões. ${QUICK.minutes} minutos, tudo acelerado.`, icon: IcBolt },
+  { id: 'quick', name: 'Partida rápida', text: `Você contra ${QUICK.bots} nações do servidor numa arena de ${QUICK.arenaSize} regiões, tudo acelerado. Vence quem conquistar 100% da arena.`, icon: IcBolt },
   { id: 'team', name: 'Equipe', text: 'Você entra numa equipe sorteada e conquista o mapa em conjunto.', icon: IcTeam },
 ];
 
@@ -57,9 +57,9 @@ export function ModeSelect({ seats, busy, error, onPick, onBack }: { seats: Worl
   const detail = (id: GameMode): string => {
     if (!MODES_AVAILABLE[id]) return 'Ainda não existe no servidor.';
     if (id === 'campaign') return 'A temporada de 10 dias com ranking final ainda será ligada.';
-    if (quick?.endsAt) return `Partida em andamento: ${fmtClock(quick.endsAt - serverNow())} restantes.`;
+    if (quick?.startedAt) return `Partida em andamento há ${fmtClock(serverNow() - quick.startedAt)}: continue de onde parou.`;
     if (quick) return 'Partida criada: falta fundar sua nação.';
-    return `Vence quem dominar mais da metade da arena, ou tiver mais regiões ao fim do tempo.`;
+    return 'Vence quem conquistar 100% da arena. Perde quem ficar sem nenhuma região.';
   };
   return (
     <div className="ku-panel-screen" data-testid="mode-select">

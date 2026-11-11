@@ -19,6 +19,7 @@ import {
   simulate,
   survivors,
   WAR,
+  WEAPONS,
 } from '../../shared/play/war.js';
 import { REGION_BY_ID } from '../../shared/world/regions.js';
 
@@ -39,8 +40,8 @@ const setup = (attacker: object, defender: object, extra: Partial<BattleSetup> =
 const finish = (s: BattleSetup) => simulate(s, predictEnd(s) + 1000);
 
 describe('seleção de tropas', () => {
-  it('envia a mesma porcentagem de cada tipo; navios só por mar; mísseis nunca', () => {
-    const army = { infantry: 101, armor: 10, navy: 4, missile: 3 };
+  it('envia a mesma porcentagem de cada tipo; navios só por mar', () => {
+    const army = { infantry: 101, armor: 10, navy: 4 };
     expect(share(army, 25)).toEqual({ infantry: 25, armor: 2 });
     expect(share(army, 100, true)).toEqual({ infantry: 101, armor: 10, navy: 4 });
     expect(WAR.percents[0]).toBe(25);
@@ -103,6 +104,12 @@ describe('combate', () => {
     expect(battleSeconds(GO, 'quick')).toBeLessThan(battleSeconds(GO));
   });
 
+  it('a capital pode ser tomada, mas defende 50% mais', () => {
+    const plain = finish(setup({ infantry: 100 }, { infantry: 40 }));
+    const capital = finish(setup({ infantry: 100 }, { infantry: 40 }, { defenderMultiplier: WAR.capitalBonus }));
+    expect(capital.endedAt! > plain.endedAt! || capital.status === 'failed').toBe(true);
+  });
+
   it('tropas engajadas: enviadas pelo atacante; guarnição e reforços pelo defensor', () => {
     const op = { attackerId: 1, defenderId: 2, setup: { attacker: { infantry: 10 }, defender: { infantry: 5 } }, events: [{ at: 1, kind: 'reinforce' as const, army: { infantry: 3 } }] };
     expect(engagedIn(op, 1)).toEqual({ infantry: 10 });
@@ -135,10 +142,12 @@ describe('inteligência e risco', () => {
 });
 
 describe('mísseis', () => {
-  it('alcance cresce com o nível do silo e a pesquisa; voo tem duração mínima', () => {
-    expect(missileRange(1, { rocketry: 1 })).toBe(WAR.missile.rangeKm);
-    expect(missileRange(2, { rocketry: 1 })).toBe(WAR.missile.rangeKm + WAR.missile.rangePerLevel);
-    expect(missileRange(1, { rocketry: 2 })).toBe(Math.round(WAR.missile.rangeKm * 1.2));
+  it('silo lança direto: alcance pelo nível do silo e pela arma; voo tem duração mínima', () => {
+    expect(missileRange(1)).toBe(WAR.missile.rangeKm);
+    expect(missileRange(2)).toBe(WAR.missile.rangeKm + WAR.missile.rangePerLevel);
+    // Bomba pesada: alcança 60% e voa mais devagar.
+    expect(missileRange(1, 'bomb')).toBe(Math.round(WAR.missile.rangeKm * WEAPONS.bomb.rangeFactor));
+    expect(missileSeconds(1500, 'campaign', 'bomb')).toBeGreaterThan(missileSeconds(1500));
     expect(missileSeconds(1500)).toBe(60);
     expect(missileSeconds(10)).toBe(WAR.missile.minSeconds);
   });

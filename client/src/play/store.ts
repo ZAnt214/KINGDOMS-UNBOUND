@@ -218,7 +218,6 @@ export function usePlayWorld(worldId: number | null, governorId: number | null, 
   const nextEnd = useMemo(() => {
     if (!state || state.world.finishedAt) return null;
     const ends = [...state.occupations.map((o) => o.endsAt), ...[...state.structures.values()].flatMap((s) => (s.building ? [s.building.endsAt] : []))];
-    if (state.world.endsAt) ends.push(state.world.endsAt);
     if (state.military?.training[0]) ends.push(state.military.training[0].endsAt);
     if (state.military?.researching) ends.push(state.military.researching.endsAt);
     for (const o of state.operations.values()) if (o.status === 'active') ends.push(o.endsAt);
@@ -308,8 +307,8 @@ export function usePlayWorld(worldId: number | null, governorId: number | null, 
     [upsertOperation],
   );
   const launch = useCallback(
-    async (siloId: number, region: string) => {
-      const { strike } = await api.post<{ strike: StrikeView }>('/play/launch', { siloId, region });
+    async (siloId: number, region: string, weapon: 'missile' | 'bomb' = 'missile') => {
+      const { strike } = await api.post<{ strike: StrikeView }>('/play/launch', { siloId, region, weapon });
       const prev = current.current;
       if (!prev || prev.strikes.has(strike.id)) return;
       const strikes = new Map(prev.strikes);
