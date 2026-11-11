@@ -115,3 +115,44 @@ Ambiente: contêiner sem acesso ao registro npm e sem PostgreSQL. `npm ci`, `npm
 O harness visual verifica: legenda igual ao estado recebido; clique no Brasil e na Rússia abre o território certo; ações bloqueadas explicam o motivo; zoom mantém o ponto sob o cursor; arraste leva o país junto; alistamento faz uma única chamada com o cabeçalho CSRF; os seis itens laterais, os cinco módulos e os botões da barra respondem; sem rolagem horizontal e com alvos ≥ 44 px em 1024×768, 390×844 e 844×390. Capturas em `docs/evidence/command-v1/`.
 
 O estado do mundo usado no harness é uma fixture montada a partir de `shared/world/scenario.json`; não prova persistência, isolamento por reino nem tempo real — isso é papel de `world.test.ts`.
+
+## 2026-11-11 — Nova visão, Fase A (fundar e expandir) — branch `claude/fase-a-capital-expansao`
+
+### Servidor real — CI do GitHub (Node 22, PostgreSQL 16)
+
+Run 43059823651, commit `32d77b0`: `npm run typecheck` PASS · `npm test` **68/68** PASS · `npm run build` PASS.
+
+Testes novos em `tests/integration/play.test.ts` (servidor real, Postgres real, 5 jogadores em 2 mundos, WebSocket):
+
+| Verificação | Resultado |
+|---|---|
+| estado exige sessão; mundo começa sem nações e sem controle | PASS |
+| nome, cor, bandeira e imagem inválidos são recusados sem criar nada | PASS |
+| fundação entrega a região inicial e avisa em tempo real só o mesmo mundo | PASS |
+| imagem de bandeira é servida com o tipo certo e só para o mesmo mundo | PASS |
+| uma nação por jogador; ponto, nome e cor vizinha exclusivos | PASS |
+| mesmo ponto pode ser fundado em outro mundo (isolamento) | PASS |
+| duas fundações simultâneas no mesmo ponto: uma vence (200 e 409) | PASS |
+| expansão recusa região desconhecida, própria, de outra nação e não vizinha | PASS |
+| duração vem do servidor; `seconds`, `endsAt` e `from` enviados pelo cliente são ignorados | PASS |
+| uma ocupação por nação e uma por região, com 5 pedidos paralelos | PASS |
+| ocupação vencida conclui pelo worker sem nenhuma requisição e avisa o mundo | PASS |
+| leitura do estado e novo pedido também concluem; concluir duas vezes não duplica | PASS |
+
+`tests/unit/play.test.ts` (14 testes): integridade das 1.589 regiões e 279 pontos (ids únicos, vizinhança simétrica, região exclusiva por ponto), funções territoriais, fórmula de expansão, nível e metas, validação de bandeiras e de imagens.
+
+Os 54 testes anteriores (Fase A clássica, mundo geopolítico, múltiplas instâncias, layout) continuam passando.
+
+### Interface — navegador automatizado com SERVIDOR FALSO
+
+`tests/e2e/play-visual.cjs`, Chromium headless (SwiftShader), 390×844 e 1280×800, dois navegadores independentes, contra `tests/e2e/fixtures/play-mock-server.ts` com durações divididas por 4. **14/14** verificações: tela inicial, modos bloqueados, nome obrigatório, cartão do ponto, fundação, segundo jogador vê a nação sem recarregar, ponto tomado não abre cartão, ocupação com progresso, conquista, recarregar mantém o estado, ranking, mudo, sem rolagem horizontal, sem erros de JavaScript. Capturas em `docs/evidence/play-a/`.
+
+Este passeio **não** prova persistência, concorrência nem tempo real do servidor de verdade: o servidor falso guarda tudo em memória. Essas garantias vêm da tabela acima.
+
+### Deploy de prévia (Vercel + banco real)
+
+`kingdoms-unbound-qg7pnw5ke-test11-1d8d.vercel.app`: `GET /api/meta` responde 200 com `mode` e `playRulesVersion` (migração 3 aplicada) e `/world/regions.topo.json` é servido. O fluxo completo no navegador contra esse deploy **não foi executado**: o ambiente de desenvolvimento não alcança `*.vercel.app`.
+
+### Não executado
+
+iPhone/Safari físico, PWA instalada, áudio em aparelho real (só a ausência de erros foi verificada), FPS e memória em aparelho, carga com muitos jogadores, passeio de dois navegadores contra o servidor real.
