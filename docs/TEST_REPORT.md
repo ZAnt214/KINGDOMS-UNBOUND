@@ -224,3 +224,6 @@ iPhone/Safari físico, som em aparelho, FPS e memória, carga, partida rápida i
 | Zoom por roda | ~281 ms (4 fps) | 27,6 ms médio (36 fps), p90 16,7 ms |
 
 Medido em máquina de nuvem sem GPU; um aparelho real pode ter números diferentes. **Não executado:** medição em iPhone/Android físico.
+
+### Prévia (Vercel + banco real)
+`kingdoms-unbound-g1e3xbxn3-test11-1d8d.vercel.app` (commit `157f516`): `GET /api/meta` 200. CI do mesmo commit: verde (typecheck + integração com PostgreSQL, incluindo a migração 5). Na primeira tentativa o CI pegou um erro real (parâmetro de longitude tipado como inteiro na busca de vizinhas), corrigido em `157f516`.
