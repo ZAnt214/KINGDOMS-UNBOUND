@@ -16,11 +16,14 @@ async function freePoint(s: any) {
   const taken = new Set(s.control.map((c: any) => c[0]));
   return arenaStartPoints(s.world.arena).find((p) => !taken.has(p.region))!;
 }
+/** Governador do jogador na partida (diferente do da campanha). */
+let qg = 0;
 async function newMatch(p: TestPlayer) {
   p.world = null;
   const r = await p.post('/quick/start');
   expect(r.status).toBe(200);
   p.world = r.data.worldId;
+  qg = (await p.get('/me')).data.worlds.find((w: any) => w.id === r.data.worldId).governorId;
   return r.data;
 }
 
@@ -79,7 +82,7 @@ describe('partida rápida', () => {
     expect(r.status).toBe(200);
     expect(r.data.world.endsAt - Date.now()).toBeGreaterThan((QUICK.minutes - 1) * 60_000);
     expect(r.data.world.endsAt - Date.now()).toBeLessThanOrEqual(QUICK.minutes * 60_000 + 2000);
-    const mine = r.data.control.find((c: any) => c[1] === Q.governor.id)?.[0] ?? null;
+    const mine = r.data.control.find((c: any) => c[1] === qg)?.[0] ?? null;
     expect(mine).toBe(pick.region);
     const outsideNeighbor = REGION_BY_ID[pick.region].neighbors.find((n) => !s.world.arena.includes(n));
     if (outsideNeighbor) expect((await Q.post('/play/expand', { region: outsideNeighbor })).data.error).toBe('outside_arena');
@@ -103,19 +106,19 @@ describe('partida rápida', () => {
     // Já tem 1 região: com mais `need` passa da metade.
     const need = Math.floor(QUICK.arenaSize * QUICK.majority);
     for (const r of free.slice(0, need)) {
-      await db.query('INSERT INTO region_control (kingdom_id, region_id, governor_id) VALUES ($1, $2, $3)', [world, r, Q.governor.id]);
+      await db.query('INSERT INTO region_control (kingdom_id, region_id, governor_id) VALUES ($1, $2, $3)', [world, r, qg]);
     }
     await srv.services.match.check(world);
     const ev = await Q.waitFor((e) => e.type === 'play.match' && e.world.finishedAt);
-    expect(ev.world).toMatchObject({ outcome: 'majority', winner: Q.governor.id });
-    expect(ev.world.results[0]).toMatchObject({ nationId: Q.governor.id, rank: 1 });
+    expect(ev.world).toMatchObject({ outcome: 'majority', winner: qg });
+    expect(ev.world.results[0]).toMatchObject({ nationId: qg, rank: 1 });
     expect(ev.world.results).toHaveLength(QUICK.bots + 1);
     expect(s.world.arena.length).toBe(QUICK.arenaSize);
   });
 
   it('depois do fim, nada mais muda', async () => {
     const s = await state(Q);
-    const mine = s.control.find((c: any) => c[1] === Q.governor.id)[0];
+    const mine = s.control.find((c: any) => c[1] === qg)[0];
     expect((await Q.post('/play/build', { region: mine, type: 'city' })).data.error).toBe('match_over');
     const target = REGION_BY_ID[mine].neighbors.find((n: string) => s.world.arena.includes(n) && !s.control.some((c: any) => c[0] === n));
     if (target) expect((await Q.post('/play/expand', { region: target })).data.error).toBe('match_over');
@@ -132,8 +135,8 @@ describe('partida rápida', () => {
     expect((await Q.post('/quick/leave')).status).toBe(200);
     const after = await state(Q);
     expect(after.world.outcome).toBe('abandoned');
-    expect(after.world.results.at(-1).nationId).toBe(Q.governor.id);
-    expect(after.world.winner).not.toBe(Q.governor.id);
+    expect(after.world.results.at(-1).nationId).toBe(qg);
+    expect(after.world.winner).not.toBe(qg);
   });
 
   it('fim do tempo decide pela maior quantidade de regiões; sem fundação, a partida expira', async () => {

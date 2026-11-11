@@ -56,8 +56,8 @@ export class AllianceService {
     // Isolamento por reino: alianças de outro reino não são visíveis.
     if (!a.rows[0] || a.rows[0].kingdom_id !== gov.kingdomId) throw notFound('Aliança não encontrada.');
     const members = await this.db.query(
-      `SELECT g.id AS governor_id, g.name, g.power, m.rank, m.joined_at, c.x, c.y
-         FROM alliance_members m JOIN governors g ON g.id = m.governor_id JOIN cities c ON c.governor_id = g.id
+      `SELECT g.id AS governor_id, g.name, g.power, m.rank, m.joined_at
+         FROM alliance_members m JOIN governors g ON g.id = m.governor_id
         WHERE m.alliance_id = $1 ORDER BY m.rank DESC, g.power DESC`,
       [allianceId],
     );
