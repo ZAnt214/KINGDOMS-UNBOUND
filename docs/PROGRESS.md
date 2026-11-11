@@ -217,3 +217,23 @@ Regras em `docs/PLAY_RULES.md` (seção Sistema militar); migração 6 (`militar
 - [x] Bots constroem instalações e treinam pelas mesmas regras.
 
 **Fora desta fase (Fase E):** ataques, escolha de porcentagem das tropas, batalhas, ocupação de território inimigo, mísseis e interceptação. Nenhum botão de ataque aparece.
+
+## 2026-11-11 — Fase E: Guerras
+
+Regras em `docs/PLAY_RULES.md` (seção Guerra); migração 7.
+
+- [x] Ataque terrestre a regiões inimigas com fronteira, e naval por mar com navios (até 700 km de litoral).
+- [x] Seleção de 25/50/75/100% das tropas; antes de confirmar, tropas e poder enviados, poder estimado do adversário, risco, duração e território disputado.
+- [x] Combate automático, determinístico e progressivo, com baixas dos dois lados; ocupação de 0 a 100% acompanhada no mapa (preenchimento na cor do atacante, seta animada e selo de batalha com anel de progresso).
+- [x] Conquista: região, bandeira e construções passam ao vencedor; sobreviventes voltam.
+- [x] Defesa: aviso ao atacado, reforço com 25–100% das tropas, contra-ataque e míssil contra a origem.
+- [x] Mísseis: silo, estoque, alcance, mira com círculo de alcance, confirmação, preparação, abertura do silo, lançamento, trajeto em arco com rastro, impacto com onda de choque, e sons próprios de cada fase.
+- [x] Interceptação por sistema antimísseis e pesquisa, com animação do interceptador e explosão ciano.
+- [x] Expansão por mar para regiões neutras com navios.
+- [x] Bots defendem e atacam pelas mesmas regras.
+
+**Decisões**
+- A região da capital não pode ser tomada por terra (evita eliminar uma nação de vez antes de existir a regra de derrota); mísseis podem atingi-la.
+- A interceptação é decidida no lançamento (sorteio reproduzível) e é pública desde então, para a animação do interceptador começar a tempo. Um antimíssil construído durante o voo não conta.
+
+**Fora desta fase:** pedir aliança e ajuda de aliados (Fase F, diplomacia); bots lançando mísseis.

@@ -1,3 +1,4 @@
+import { REGION_BY_ID } from '../../../shared/world/regions';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import type { GameMode } from '../../../shared/play/rules';
 import { START_POINTS } from '../../../shared/world/regions';
@@ -69,6 +70,11 @@ export function PlayApp({ me, enter, reloadMe, onLoginForm, onLogout }: Props) {
       },
       /** Construções desenhadas no mapa (posição exata vinda do servidor). */
       structures: () => e.structureList().map((s) => ({ id: s.id, lon: s.lon, lat: s.lat, own: s.own })),
+      /** Centro de uma região (para os testes tocarem nela). */
+      regionCenter: (id: string) => REGION_BY_ID[id]?.at ?? null,
+      /** Operações e mísseis desenhados no mapa. */
+      operations: () => e.operationList().map((o) => ({ id: o.id, own: !!o.own, against: !!o.against })),
+      missiles: () => e.missileList().map((m) => ({ id: m.id, intercepted: m.intercepted, impactAt: m.impactAt })),
       /** Trechos de ferrovia desenhados no mapa. */
       rails: () => e.railList().map((r) => ({ id: r.id, from: r.from, to: r.to, ally: !!r.ally, own: !!r.own })),
       get zoom() {
@@ -212,6 +218,9 @@ export function PlayApp({ me, enter, reloadMe, onLoginForm, onLogout }: Props) {
           upgrade={world.upgrade}
           train={world.train}
           research={world.research}
+          attack={world.attack}
+          reinforce={world.reinforce}
+          launch={world.launch}
           onEditIdentity={() => setStage('identity')}
           onSwitchMode={() => setStage('mode')}
           onLeave={leave}

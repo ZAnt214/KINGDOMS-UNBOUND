@@ -41,13 +41,34 @@ import {
   unitProblem,
   type UnitType,
 } from '../../../shared/play/military';
-import { inspectFlagImage, parseFlag } from '../../../shared/play/flags';
+import { FLAG_PRESETS, inspectFlagImage, parseFlag } from '../../../shared/play/flags';
 import { botIdentities, buildArena, matchOutcome, pickBotPoints, QUICK, rank, THEATERS } from '../../../shared/play/match';
 import { cleanNationName, COLOR_EXCLUSION_KM, expansionSeconds, type GameMode, MODES_AVAILABLE, NATION_COLOR_BY_HEX, nationNameProblem } from '../../../shared/play/rules';
-import type { EconomyView, MilitaryView, NationView, OccupationView, StructureView, WorldView } from '../../../shared/play/types';
-import { estimate } from '../../../shared/play/war';
+import type { EconomyView, MilitaryView, NationView, OccupationView, OperationView, StrikeView, StructureView, WorldView } from '../../../shared/play/types';
+import {
+  attackOrigin,
+  attackPower,
+  battleSeconds,
+  type BattleSetup,
+  defenseMultiplier,
+  engagedIn,
+  estimate,
+  garrison,
+  interceptChance,
+  interceptRoll,
+  losses,
+  missileRange,
+  missileSeconds,
+  predictEnd,
+  share,
+  simulate,
+  sumArmies,
+  survivors,
+  troops,
+  WAR,
+} from '../../../shared/play/war';
 import { freePointIn, regionAt } from '../../../server/src/geo';
-import { borderingRegion, distanceKm, expansionTargets, REGION_BY_ID, START_POINT_BY_ID, type StartPoint } from '../../../shared/world/regions';
+import { borderingRegion, distanceKm, expansionTargets, REGION_BY_ID, START_POINT_BY_ID, START_POINTS, type StartPoint } from '../../../shared/world/regions';
 
 const PORT = Number(process.env.PORT ?? 4173);
 const STATIC = process.env.STATIC_DIR ?? 'public';
@@ -63,6 +84,8 @@ interface World {
   wallet: Map<number, { amounts: ResourceMap; settledAt: number }>;
   bots: Set<number>;
   army: Map<number, MockArmy>;
+  ops: Map<number, { view: OperationView; setup: BattleSetup }>;
+  strikes: Map<number, StrikeView>;
 }
 interface MockArmy {
   recruits: number;
@@ -90,6 +113,8 @@ const newWorld = (wid: number, name: string, mode: GameMode, arena: string[] | n
   wallet: new Map(),
   bots: new Set(),
   army: new Map(),
+  ops: new Map(),
+  strikes: new Map(),
 });
 worlds.set(1, newWorld(1, 'Campanha · Mundo 1 (servidor falso)', 'campaign', null));
 const sessions = new Map<string, Session>();
@@ -133,6 +158,193 @@ function settle(w: World, gid: number, at = Date.now()) {
   return wal.amounts;
 }
 
+// ---------- guerra (mesmas regras de shared/play/war.ts) ----------
+
+const homeOf = (w: World, gid: number) => w.army.get(gid)!.units;
+function takeArmy(w: World, gid: number, a: Army) {
+  const u = homeOf(w, gid);
+  for (const [k, v] of Object.entries(a) as [UnitType, number][]) u[k] = (u[k] ?? 0) - v;
+}
+function giveArmy(w: World, gid: number, a: Army) {
+  const u = homeOf(w, gid);
+  for (const [k, v] of Object.entries(a) as [UnitType, number][]) u[k] = (u[k] ?? 0) + v;
+}
+function opView(w: World, id: number, viewer: number | null): OperationView {
+  const { view, setup } = w.ops.get(id)!;
+  const now = Date.now();
+  const at = view.status === 'active' ? Math.min(now, view.endsAt) : view.endsAt;
+  const sim = simulate(setup, at);
+  const out: OperationView = {
+    ...view,
+    progress: { at, value: view.status === 'won' ? 1 : sim.progress, rate: view.status === 'active' ? sim.rate : 0 },
+    attackerTroops: estimate(troops(survivors(sim.attacker))),
+    defenderTroops: estimate(troops(survivors(sim.defender))),
+  };
+  if (viewer === view.attackerId || viewer === view.defenderId) {
+    const side = viewer === view.attackerId ? 'attacker' : 'defender';
+    out.mine = { side, sent: engagedIn({ ...view, setup, events: setup.events }, viewer), remaining: survivors(side === 'attacker' ? sim.attacker : sim.defender) };
+  }
+  return out;
+}
+function announceOp(w: World, id: number) {
+  const v = w.ops.get(id)!.view;
+  send(w.view.id, { type: 'play.operation', operation: opView(w, id, null) });
+  for (const g of [v.attackerId, v.defenderId]) send(w.view.id, { type: 'play.operation', operation: opView(w, id, g) }, g);
+}
+function attackRegion(w: World, gid: number, region: string, percent: number) {
+  if (!(WAR.percents as readonly number[]).includes(percent)) throw new Fail(400, 'invalid_percent', 'Porcentagem inválida.');
+  const owner = w.control.get(region);
+  if (owner === undefined || owner === gid) throw new Fail(409, 'not_enemy', 'Escolha uma região de outra nação.');
+  if (START_POINT_BY_ID[w.nations.get(owner)!.capital].region === region) throw new Fail(409, 'capital', 'A região da capital não pode ser tomada por terra. Mísseis podem atingi-la.');
+  if ([...w.ops.values()].some((o) => o.view.status === 'active' && o.view.region === region)) throw new Fail(409, 'region_contested', 'Já há uma operação militar nesta região.');
+  const owned = [...w.control].filter(([, o]) => o === gid).map(([r]) => r);
+  const origin = attackOrigin(owned, region, (homeOf(w, gid).navy ?? 0) > 0);
+  if (!origin) throw new Fail(409, 'not_adjacent', 'Sem fronteira terrestre com o seu território.');
+  const a = w.army.get(gid)!;
+  const sent = share(a.units, percent, origin.naval);
+  if (attackPower(sent, a.research, origin.naval) <= 0) throw new Fail(409, 'no_troops', 'Não há tropas suficientes para esta porcentagem.');
+  const d = w.army.get(owner)!;
+  const defenders = garrison(d.units, [...w.control.values()].filter((o) => o === owner).length);
+  const setup: BattleSetup = {
+    startedAt: Date.now(),
+    base: battleSeconds(region, w.view.mode) / SPEED,
+    naval: origin.naval,
+    attacker: sent,
+    attackerResearch: a.research,
+    defender: defenders,
+    defenderResearch: d.research,
+    defenderMultiplier: defenseMultiplier(d.research, builtOf(w, owner)),
+    events: [],
+  };
+  takeArmy(w, gid, sent);
+  takeArmy(w, owner, defenders);
+  const id = nextId++;
+  const view: OperationView = {
+    id,
+    attackerId: gid,
+    defenderId: owner,
+    region,
+    from: origin.from,
+    naval: origin.naval,
+    startedAt: setup.startedAt,
+    endsAt: predictEnd(setup),
+    progress: { at: setup.startedAt, value: 0, rate: 0 },
+    attackerTroops: 0,
+    defenderTroops: 0,
+    status: 'active',
+  };
+  w.ops.set(id, { view, setup });
+  announceOp(w, id);
+  for (const g of [gid, owner]) send(w.view.id, { type: 'play.military', military: militaryView(w, g) }, g);
+  return opView(w, id, gid);
+}
+function finishOps(w: World, now: number) {
+  for (const [id, o] of w.ops) {
+    if (o.view.status !== 'active' || o.view.endsAt > now) continue;
+    const sim = simulate(o.setup, o.view.endsAt + 1000);
+    const won = sim.status === 'won';
+    const { attackerId: a, defenderId: d } = o.view;
+    settle(w, a, o.view.endsAt);
+    settle(w, d, o.view.endsAt);
+    const attBack = survivors(sim.attacker);
+    const defBack = survivors(sim.defender);
+    giveArmy(w, a, attBack);
+    giveArmy(w, d, defBack);
+    o.view = {
+      ...o.view,
+      status: won ? 'won' : 'failed',
+      result: { attackerLosses: troops(losses(o.setup.attacker, attBack)), defenderLosses: troops(losses(engagedIn({ ...o.view, setup: o.setup, events: o.setup.events }, d), defBack)) },
+    };
+    announceOp(w, id);
+    if (won) {
+      w.control.set(o.view.region, a);
+      send(w.view.id, { type: 'play.region', region: o.view.region, nationId: a, occupationId: -id, at: o.view.endsAt });
+      const moved = [...w.structures.values()].filter((x) => x.region === o.view.region && x.nationId === d).map((x) => ({ ...x, nationId: a }));
+      for (const x of moved) w.structures.set(x.id, x);
+      if (moved.length) send(w.view.id, { type: 'play.transfer', structures: moved });
+    }
+    for (const g of [a, d]) {
+      refreshPower(w, g);
+      announceEconomy(w, g);
+      send(w.view.id, { type: 'play.military', military: militaryView(w, g) }, g);
+    }
+    if (w.view.mode === 'quick') checkMatch(w);
+  }
+}
+
+function launchMissile(w: World, gid: number, siloId: number, region: string) {
+  const silo = w.structures.get(siloId);
+  if (!silo || silo.nationId !== gid || silo.type !== 'missile_silo' || silo.level < 1) throw new Fail(404, 'not_found', 'Silo não encontrado.');
+  const owner = w.control.get(region);
+  if (owner === undefined || owner === gid) throw new Fail(409, 'not_enemy', 'Escolha uma região de outra nação.');
+  const a = w.army.get(gid)!;
+  const km = distanceKm(silo.at, REGION_BY_ID[region].at);
+  const range = missileRange(silo.level, a.research);
+  if (km > range) throw new Fail(409, 'out_of_range', 'Fora do alcance.');
+  if ((a.units.missile ?? 0) < 1) throw new Fail(409, 'no_missile', 'Nenhum míssil disponível.');
+  if ([...w.strikes.values()].some((x) => x.status === 'flying' && x.from[0] === silo.at[0] && x.from[1] === silo.at[1])) throw new Fail(409, 'silo_busy', 'Este silo já tem um míssil em voo.');
+  spend(w, gid, WAR.missile.launchCost, 'o lançamento');
+  a.units.missile = (a.units.missile ?? 0) - 1;
+  const chance = interceptChance(builtOf(w, owner), w.army.get(owner)!.research);
+  const now = Date.now();
+  const flight = (missileSeconds(km, w.view.mode) * 1000) / SPEED;
+  const id = nextId++;
+  const strike: StrikeView = {
+    id,
+    attackerId: gid,
+    defenderId: owner,
+    from: silo.at,
+    region,
+    to: REGION_BY_ID[region].at,
+    launchedAt: now,
+    flightAt: now + 2200,
+    interceptAt: now + 2200 + flight * WAR.missile.interceptAt,
+    impactAt: now + 2200 + flight,
+    intercepted: interceptRoll(id) < chance,
+    status: 'flying',
+  };
+  w.strikes.set(id, strike);
+  send(w.view.id, { type: 'play.strike', strike });
+  announceEconomy(w, gid);
+  send(w.view.id, { type: 'play.military', military: militaryView(w, gid) }, gid);
+  return strike;
+}
+function finishStrikes(w: World, now: number) {
+  for (const x of w.strikes.values()) {
+    if (x.status !== 'flying' || x.impactAt > now) continue;
+    if (x.intercepted) {
+      x.status = 'intercepted';
+    } else {
+      x.status = 'impact';
+      settle(w, x.defenderId, x.impactAt);
+      const home = homeOf(w, x.defenderId);
+      let lost = 0;
+      for (const u of UNIT_TYPES) {
+        if (u === 'missile') continue;
+        const k = Math.floor((home[u] ?? 0) * WAR.missile.homeLoss);
+        home[u] = (home[u] ?? 0) - k;
+        lost += k;
+      }
+      const target = [...w.structures.values()].filter((s) => s.region === x.region && s.nationId === x.defenderId && s.level > 0 && !s.building).sort((a, b) => b.level - a.level)[0];
+      let structure: { type: StructureType; from: number; to: number } | null = null;
+      if (target) {
+        structure = { type: target.type, from: target.level, to: target.level - 1 };
+        if (target.level <= 1) {
+          w.structures.delete(target.id);
+          send(w.view.id, { type: 'play.structure.removed', structureId: target.id });
+        } else {
+          const up = { ...target, level: target.level - 1 };
+          w.structures.set(up.id, up);
+          send(w.view.id, { type: 'play.structure', structure: up, completed: false });
+        }
+      }
+      x.result = { troopsLost: estimate(lost), structure, engaged: false };
+      refreshPower(w, x.defenderId);
+    }
+    send(w.view.id, { type: 'play.strike', strike: x });
+  }
+}
+
 // ---------- exército (mesmas regras de shared/play/military.ts) ----------
 
 const builtOf = (w: World, gid: number) => [...w.structures.values()].filter((s) => s.nationId === gid && s.level > 0).map((s) => ({ type: s.type, level: s.level }));
@@ -147,7 +359,7 @@ function militaryView(w: World, gid: number): MilitaryView | null {
     research: { ...a.research },
     researching: a.researching,
     power: militaryPower(a.units, a.research, builtOf(w, gid)),
-    engaged: {},
+    engaged: sumArmies(...[...w.ops.values()].filter((o) => o.view.status === 'active').map((o) => engagedIn({ ...o.view, setup: o.setup, events: o.setup.events }, gid))),
   };
 }
 function refreshPower(w: World, gid: number) {
@@ -246,6 +458,8 @@ function tick() {
       if (STRUCTURES[s.type].military) refreshPower(w, s.nationId);
     }
     for (const gid of w.army.keys()) militaryTick(w, gid, now);
+    finishOps(w, now);
+    finishStrikes(w, now);
     if (w.view.mode === 'quick' && w.view.endsAt) {
       for (const b of w.bots) botStep(w, b);
       checkMatch(w);
@@ -390,6 +604,35 @@ function upgrade(w: World, gid: number, sid: number) {
   return up;
 }
 
+/**
+ * CENÁRIO DE TESTE (MOCK_WAR=1), só no servidor falso: ao fundar, cria uma nação rival vizinha com
+ * uma região de fronteira e dá ao jogador tropas, um silo pronto e mísseis, para o passeio visual
+ * da Fase E não precisar de horas de jogo. Não existe no servidor real.
+ */
+function seedWar(w: World, gid: number, point: StartPoint) {
+  if ([...w.nations.values()].some((n) => n.name === 'Rival (teste)')) return;
+  const capital = point.region;
+  const front = REGION_BY_ID[capital].neighbors.find((n) => !w.control.has(n))!;
+  const rivalCap = START_POINTS.find((p) => !w.control.has(p.region) && p.region !== front && REGION_BY_ID[p.region].neighbors.includes(front));
+  if (!rivalCap) return;
+  const rival = id();
+  createNation(w, rival, rivalCap, 'Rival (teste)', '#2fd6a8', FLAG_PRESETS[3 % FLAG_PRESETS.length].flag, undefined, false);
+  w.control.set(front, rival);
+  w.army.get(rival)!.units = { infantry: 40 };
+  w.army.get(gid)!.units = { infantry: 300, armor: 10, missile: 3 };
+  w.army.get(gid)!.research = { rocketry: 1 };
+  const at = freePointIn(capital, [...w.structures.values()].map((x) => x.at), 40)!;
+  w.structures.set(nextId, { id: nextId, nationId: gid, region: capital, type: 'missile_silo', at, level: 1, building: null });
+  nextId++;
+  // Longe do centro da região, para o toque no centro abrir o cartão da região e não o da construção.
+  const fat = freePointIn(front, [REGION_BY_ID[front].at], 150) ?? REGION_BY_ID[front].at;
+  w.structures.set(nextId, { id: nextId, nationId: rival, region: front, type: 'city', at: fat, level: 2, building: null });
+  nextId++;
+  refreshPower(w, gid);
+  refreshPower(w, rival);
+  send(w.view.id, { type: 'play.nation', nation: w.nations.get(rival), region: rivalCap.region });
+}
+
 const snapshot = (w: World, gid: number | null) => ({
   serverTime: Date.now(),
   world: w.view,
@@ -400,8 +643,8 @@ const snapshot = (w: World, gid: number | null) => ({
   structures: [...w.structures.values()],
   economy: gid !== null ? economyView(w, gid) : null,
   military: gid !== null ? militaryView(w, gid) : null,
-  operations: [],
-  strikes: [],
+  operations: [...w.ops.keys()].filter((id) => w.ops.get(id)!.view.status === 'active').map((id) => opView(w, id, gid)),
+  strikes: [...w.strikes.values()].filter((x) => x.status === 'flying'),
 });
 
 const seatsOf = (s: Session) =>
@@ -464,6 +707,7 @@ function route(method: string, url: URL, body: any, s: Session | null, worldHead
       image = { bytes, type: check.type };
     }
     const nation = createNation(w, gid, point, name, body.color, flag, image);
+    if (process.env.MOCK_WAR === '1' && w.view.mode === 'campaign') seedWar(w, gid, point);
     if (w.view.mode === 'quick' && !w.view.endsAt) w.view = { ...w.view, endsAt: Date.now() + QUICK.minutes * 60_000 };
     send(w.view.id, { type: 'play.nation', nation, region: point.region });
     send(w.view.id, { type: 'play.match', world: w.view });
@@ -471,6 +715,9 @@ function route(method: string, url: URL, body: any, s: Session | null, worldHead
   }
   if (p === '/play/expand' && method === 'POST') return expand(w, gid, body.region);
   if (p === '/play/build' && method === 'POST') return { structure: build(w, gid, body.at, body.type, body.region) };
+  if (p === '/play/launch' && method === 'POST') return { strike: launchMissile(w, gid, Number(body.siloId), String(body.region)) };
+  if (p === '/play/reinforce' && method === 'POST') throw new Fail(409, 'not_defender', 'Reforço não simulado no servidor falso.');
+  if (p === '/play/attack' && method === 'POST') return { operation: attackRegion(w, gid, String(body.region), Number(body.percent)) };
   if (p === '/play/train' && method === 'POST') return { military: train(w, gid, body.unit, Number(body.amount)) };
   if (p === '/play/research' && method === 'POST') return { military: startResearch(w, gid, body.tech) };
   if (p === '/play/upgrade' && method === 'POST') return { structure: upgrade(w, gid, Number(body.structureId)) };

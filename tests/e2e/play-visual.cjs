@@ -213,7 +213,7 @@ async function enter(page, name, color, flag) {
   await A.waitForSelector('[data-testid=army-research]');
   await A.waitForTimeout(200);
   await A.screenshot({ path: `${OUT}/25-pesquisa.png` });
-  check('pesquisa lista as tecnologias e exige centro tecnológico', (await A.locator('[data-testid=army-research] li').count()) === 10 && /centro tecnológico/.test(await A.locator('[data-testid=army-research]').innerText()));
+  check('pesquisa lista as tecnologias e exige centro tecnológico', (await A.locator('[data-testid=army-research] li').count()) === 12 && /centro tecnológico/.test(await A.locator('[data-testid=army-research]').innerText()));
   await A.keyboard.press('Escape');
 
   await A.click('[data-testid=dock-ranking]');

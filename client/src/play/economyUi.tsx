@@ -1,4 +1,4 @@
-import { useMemo } from 'react';
+import { type ReactNode, useMemo } from 'react';
 import {
   computeEconomy,
   type Cost,
@@ -129,6 +129,8 @@ interface PanelProps {
   error: string | null;
   onAct: () => void;
   onClose: () => void;
+  /** Ações extras da construção (ex.: lançar míssil do silo). */
+  children?: ReactNode;
 }
 
 /** Painel de uma construção: nome, ícone, nível, custo, tempo, produção, benefícios e CONSTRUIR/MELHORAR. */
@@ -181,6 +183,7 @@ export function StructurePanel(p: PanelProps) {
           )}
         </p>
       )}
+      {p.children}
       {!p.own && p.ownerName && <p className="ku-status other">Pertence a {p.ownerName}</p>}
       {building && (
         <div className="ku-meter">

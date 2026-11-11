@@ -3,6 +3,8 @@ import { buildProblem, type EconomyInput, ECONOMY, expansionCost, missing, STRUC
 import { LOGISTICS, previewLinks } from '../../../shared/play/logistics';
 import { type TechType, TECHS, type UnitType, UNITS } from '../../../shared/play/military';
 import { ArmySheet } from './armyUi';
+import { attackOrigin, missileRange, troops as troopsOf, WAR } from '../../../shared/play/war';
+import { AttackSheet, EnemyActions, MissileConfirm, OperationCapsules, OperationSheet, opProgress } from './warUi';
 import { QUICK } from '../../../shared/play/match';
 import { expansionSeconds, MILESTONES, milestoneProgress } from '../../../shared/play/rules';
 import type { NationView, StructureView } from '../../../shared/play/types';
@@ -23,6 +25,49 @@ import { regionsOf, structuresOf, type WorldMoment, type WorldState } from './st
 
 const LABELS: MapLabel[] = COUNTRIES.map((c) => ({ code: c.code, text: c.name, at: c.labelAt, rank: c.labelRank }));
 const BLOOM_MS = 2200;
+/** Silo próprio, concluído, e o alcance dele com a pesquisa atual. */
+function siloOf(s: WorldState, siloId: number) {
+  const silo = s.structures.get(siloId);
+  if (!silo || silo.nationId !== s.me || silo.type !== 'missile_silo' || silo.level < 1) return null;
+  return { silo, range: missileRange(silo.level, s.military?.research ?? {}) };
+}
+
+/** Mesmas regras do servidor para o alvo de um míssil (null = pode). */
+function missileProblem(s: WorldState, siloId: number, rid: string): string | null {
+  const info = siloOf(s, siloId);
+  if (!info) return 'Silo indisponível.';
+  const owner = s.control.get(rid);
+  if (owner === undefined || owner === s.me) return 'Escolha uma região de outra nação.';
+  const me = s.me !== null ? s.nations.get(s.me) : null;
+  if (me?.alliance !== null && me?.alliance === s.nations.get(owner)?.alliance) return 'Não é possível atacar um aliado.';
+  if (s.world.arena && !s.world.arena.includes(rid)) return 'Esta região fica fora da área da partida.';
+  const km = distanceKm(info.silo.at, REGION_BY_ID[rid].at);
+  if (km > info.range) return `Fora do alcance: ${Math.round(km).toLocaleString('pt-BR')} km (alcance de ${info.range.toLocaleString('pt-BR')} km).`;
+  return null;
+}
+
+/** Mesmas regras do servidor para um ataque (null = pode), e a origem por terra ou mar. */
+function attackCheck(s: WorldState, rid: string): { problem: string | null; origin: { from: string; naval: boolean } | null } {
+  const owner = s.control.get(rid);
+  if (s.me === null || owner === undefined || owner === s.me) return { problem: 'Região sem dono inimigo.', origin: null };
+  const me = s.nations.get(s.me);
+  const enemy = s.nations.get(owner);
+  if (enemy && START_POINT_BY_ID[enemy.capital]?.region === rid) return { problem: 'A região da capital não pode ser tomada por terra. Mísseis podem atingi-la.', origin: null };
+  if (me?.alliance !== null && me?.alliance === enemy?.alliance) return { problem: 'Não é possível atacar um aliado.', origin: null };
+  if (s.world.arena && !s.world.arena.includes(rid)) return { problem: 'Esta região fica fora da área da partida.', origin: null };
+  const origin = attackOrigin(regionsOf(s, s.me), rid, (s.military?.army.navy ?? 0) > 0);
+  if (!origin) {
+    return {
+      problem: REGION_BY_ID[rid].coast ? `Sem fronteira terrestre. Por mar, é preciso ter navios e litoral seu a até ${WAR.seaRangeKm} km.` : 'Sem fronteira terrestre com o seu território.',
+      origin: null,
+    };
+  }
+  const active = [...s.operations.values()].filter((o) => o.status === 'active');
+  if (active.some((o) => o.region === rid)) return { problem: 'Já há uma operação militar nesta região.', origin };
+  if (active.filter((o) => o.attackerId === s.me).length >= WAR.maxOperations) return { problem: `Sua nação já conduz ${WAR.maxOperations} operações. Aguarde uma terminar.`, origin };
+  return { problem: null, origin };
+}
+
 /** Concordância dos avisos: "Cidade concluída", "Porto concluído". */
 const FEMININE = new Set<StructureType>(['city', 'factory', 'refinery', 'power', 'military_base', 'arms_factory', 'air_base', 'naval_base']);
 
@@ -43,6 +88,9 @@ interface Props {
   upgrade: (structureId: number) => Promise<void>;
   train: (unit: UnitType, amount: number) => Promise<void>;
   research: (tech: TechType) => Promise<void>;
+  attack: (region: string, percent: number) => Promise<void>;
+  reinforce: (operationId: number, percent: number) => Promise<void>;
+  launch: (siloId: number, region: string) => Promise<void>;
   onEditIdentity: () => void;
   onSwitchMode: () => void;
   onLeave: () => Promise<void>;
@@ -65,7 +113,7 @@ const prefersReduced = () => typeof matchMedia === 'function' && matchMedia('(pr
  * mostra o HUD. Não decide regra nenhuma: tudo que muda o mundo passa por found, expand, build e upgrade.
  */
 export function MapStage(props: Props) {
-  const { engine, state, status, active, draft, onDraft, username, subscribe, found, expand, build, upgrade, train, research } = props;
+  const { engine, state, status, active, draft, onDraft, username, subscribe, found, expand, build, upgrade, train, research, attack, reinforce, launch } = props;
   const me = state.me !== null ? (state.nations.get(state.me) ?? null) : null;
   const quick = state.world.mode === 'quick';
   const arena = state.world.arena;
@@ -77,6 +125,11 @@ export function MapStage(props: Props) {
   const [buildOpen, setBuildOpen] = useState(false);
   const [placing, setPlacing] = useState<StructureType | null>(null);
   const [sheet, setSheet] = useState<Sheet>(null);
+  /** Fase E: região a atacar (folha de ataque), operação aberta, mira do silo e alvo escolhido. */
+  const [attackOn, setAttackOn] = useState<string | null>(null);
+  const [opOpen, setOpOpen] = useState<number | null>(null);
+  const [aiming, setAiming] = useState<{ siloId: number } | null>(null);
+  const [missileTarget, setMissileTarget] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [cardError, setCardError] = useState<string | null>(null);
   const [blocked, setBlocked] = useState<string[]>([]);
@@ -95,8 +148,8 @@ export function MapStage(props: Props) {
   const planted = useRef(new Map<string, number>());
   const completed = useRef(new Map<number, number>());
   const toastId = useRef(0);
-  const live = useRef({ state, me, active, placing });
-  live.current = { state, me, active, placing };
+  const live = useRef({ state, me, active, placing, aiming });
+  live.current = { state, me, active, placing, aiming };
 
   const toast = useCallback((text: string, tone: Toast['tone'] = 'info', flag?: string) => {
     const id = ++toastId.current;
@@ -114,6 +167,11 @@ export function MapStage(props: Props) {
     return arenaSet ? list.filter((r) => arenaSet.has(r)) : list;
   }, [state, stats, myOccupation, arenaSet]);
   const board = useMemo(() => ranking(state), [state]);
+  const myOps = useMemo(() => [...state.operations.values()].filter((o) => o.status === 'active' && (o.attackerId === state.me || o.defenderId === state.me)), [state]);
+  const mySilo = useMemo(
+    () => [...state.structures.values()].filter((x) => x.nationId === state.me && x.type === 'missile_silo' && x.level > 0).sort((a, b) => b.level - a.level)[0] ?? null,
+    [state],
+  );
   const econInput: EconomyInput | null = useMemo(() => {
     if (!stats || !me) return null;
     // Construções concluídas dos aliados: entram nas conexões logísticas (mesma regra do servidor).
@@ -184,8 +242,75 @@ export function MapStage(props: Props) {
       endAt: o.endsAt,
     }));
     for (const [rid, b] of Object.entries(blooms)) fills.push({ id: `b${rid}`, region: rid, color: b.color, origin: b.origin, startAt: b.startAt, endAt: b.endAt });
+    // Ocupação de guerra (Fase E): o preenchimento acompanha o progresso da batalha, que não é linear;
+    // o intervalo é recalculado a cada aviso do servidor a partir do valor e da variação atuais.
+    for (const o of state.operations.values()) {
+      if (o.status !== 'active') continue;
+      const v = o.progress.value;
+      const r = o.progress.rate;
+      const span = r > 1e-6 ? 1000 / r : 1e12;
+      const startAt = o.progress.at - v * span;
+      fills.push({
+        id: `w${o.id}`,
+        region: o.region,
+        color: state.nations.get(o.attackerId)?.color ?? '#8792a6',
+        ...(o.naval ? { origin: REGION_BY_ID[o.from]?.at } : { fromRegion: o.from }),
+        startAt,
+        endAt: Math.min(startAt + span, o.endsAt + 1),
+      });
+    }
     engine.setFills(fills);
   }, [engine, state, blooms]);
+
+  // Fase E: setas e selos das operações, e mísseis.
+  useEffect(() => {
+    engine.setOperations(
+      [...state.operations.values()]
+        .filter((o) => o.status === 'active')
+        .map((o) => ({
+          id: String(o.id),
+          from: REGION_BY_ID[o.from]?.at ?? [0, 0],
+          to: REGION_BY_ID[o.region]?.at ?? [0, 0],
+          color: state.nations.get(o.attackerId)?.color ?? '#8792a6',
+          naval: o.naval,
+          own: o.attackerId === state.me,
+          against: o.defenderId === state.me,
+          progress: o.progress,
+        })),
+    );
+    engine.setMissiles(
+      [...state.strikes.values()].map((x) => ({
+        id: String(x.id),
+        from: x.from,
+        to: x.to,
+        color: state.nations.get(x.attackerId)?.color ?? '#ff7a59',
+        launchedAt: x.launchedAt,
+        flightAt: x.flightAt,
+        interceptAt: x.interceptAt,
+        impactAt: x.impactAt,
+        intercepted: x.intercepted,
+      })),
+    );
+  }, [engine, state]);
+  useEffect(
+    () => () => {
+      engine.setOperations([]);
+      engine.setMissiles([]);
+      engine.setMissileRange(null);
+    },
+    [engine],
+  );
+  // Mira do silo: círculo de alcance e regiões inimigas atingíveis destacadas.
+  const aimTargets = useMemo(() => {
+    if (!aiming) return [];
+    const out: string[] = [];
+    for (const [rid] of state.control) if (!missileProblem(state, aiming.siloId, rid)) out.push(rid);
+    return out;
+  }, [aiming, state]);
+  useEffect(() => {
+    const info = aiming ? siloOf(state, aiming.siloId) : null;
+    engine.setMissileRange(info ? { center: info.silo.at, km: info.range, color: '#ff7a59' } : null);
+  }, [engine, aiming, state]);
 
   useEffect(() => {
     if (me) {
@@ -274,8 +399,9 @@ export function MapStage(props: Props) {
   useEffect(() => () => engine.setRails([]), [engine]);
 
   useEffect(() => {
-    engine.setExpansionHints(targets, me?.color ?? '#ffffff');
-  }, [engine, targets, me]);
+    if (aiming) engine.setExpansionHints(aimTargets, '#ff7a59');
+    else engine.setExpansionHints(targets, me?.color ?? '#ffffff');
+  }, [engine, targets, me, aiming, aimTargets]);
   useEffect(() => {
     engine.setPreview(!me && point ? [point.region] : null, draft.color);
   }, [engine, me, point, draft.color]);
@@ -384,9 +510,18 @@ export function MapStage(props: Props) {
 
   useEffect(() => {
     const onPick = (pick: MapPick | null) => {
-      const { state: s, me: mine, active: on, placing: type } = live.current;
+      const { state: s, me: mine, active: on, placing: type, aiming: aim } = live.current;
       if (!on) return;
       setCardError(null);
+      if (aim) {
+        // Mira do silo: só regiões inimigas no alcance.
+        const rid = pick?.kind === 'region' ? pick.id : pick?.kind === 'flag' && pick.id.startsWith('reg:') ? pick.id.slice(4) : null;
+        const why = rid ? missileProblem(s, aim.siloId, rid) : 'Toque numa região de outra nação.';
+        if (why) return void (audio.play('deny'), toast(why, 'bad'));
+        audio.play('select');
+        setMissileTarget(rid);
+        return;
+      }
       if (type) {
         if (pick?.kind === 'region') void place(type, pick.id, pick.at);
         else toast('Toque em terra, dentro do seu território.', 'bad');
@@ -498,7 +633,9 @@ export function MapStage(props: Props) {
           engine.playEffect({ kind: 'conquest', region: m.region, color: nation.color });
           if (m.nationId !== s.me) return;
           audio.play('conquest');
-          toast(`${REGION_BY_ID[m.region]?.name ?? 'Região'} ocupada. Sua bandeira está lá.`, 'good', nationFlagSrc(nation));
+          // Conquista de guerra tem o próprio aviso (com as baixas).
+          const byWar = [...s.operations.values()].some((o) => o.region === m.region && o.status === 'won');
+          if (!byWar) toast(`${REGION_BY_ID[m.region]?.name ?? 'Região'} ocupada. Sua bandeira está lá.`, 'good', nationFlagSrc(nation));
           const after = nationStats(s, nation);
           const before = { ...progressOf(after), regions: after.regions.length - 1 };
           const reached = MILESTONES.find((ms) => ms.kind === 'regions' && milestoneProgress(ms, progressOf(after)).done && !milestoneProgress(ms, before).done);
@@ -520,6 +657,76 @@ export function MapStage(props: Props) {
               if (reached) window.setTimeout(() => toast(`Meta cumprida: ${reached.title.toLowerCase()}.`, 'good'), 900);
             }
           } else audio.play('build');
+          return;
+        }
+        if (m.kind === 'operation') {
+          const o = m.operation;
+          const rn = REGION_BY_ID[o.region]?.name ?? 'Região';
+          const attacker = s.nations.get(o.attackerId);
+          const defender = s.nations.get(o.defenderId);
+          if (m.started) {
+            if (o.attackerId === s.me) {
+              // Momento especial: lançar uma operação militar.
+              audio.play('war');
+              engine.flyToRegions([o.from, o.region], 0.55, 10);
+              if (attacker) setBanner({ id: now, title: 'Operação iniciada', text: `Tropas a caminho de ${rn}.`, flag: nationFlagSrc(attacker) });
+            } else if (o.defenderId === s.me) {
+              audio.play('alarm');
+              toast(`Sob ataque! ${attacker?.name ?? 'Uma nação'} invadiu ${rn}. Toque no aviso vermelho para defender.`, 'bad', attacker ? nationFlagSrc(attacker) : undefined);
+            }
+            return;
+          }
+          const losses = o.result ? ` Baixas: ${o.result.attackerLosses} suas, ${o.result.defenderLosses} do inimigo.` : '';
+          if (o.attackerId === s.me) {
+            if (o.status === 'failed') {
+              audio.play('defeat');
+              toast(`A operação em ${rn} fracassou.${o.result ? ` Baixas: ${o.result.attackerLosses} suas, ${o.result.defenderLosses} de ${defender?.name ?? 'inimigo'}.` : ''}`, 'bad');
+            } else window.setTimeout(() => toast(`${rn} conquistada.${losses}`, 'good'), 1800);
+          } else if (o.defenderId === s.me) {
+            if (o.status === 'failed') {
+              audio.play('repelled');
+              toast(`Você repeliu o ataque em ${rn}.${o.result ? ` Baixas: ${o.result.defenderLosses} suas, ${o.result.attackerLosses} do atacante.` : ''}`, 'good');
+            } else {
+              audio.play('defeat');
+              toast(`${rn} foi tomada por ${attacker?.name ?? 'outra nação'}.`, 'bad');
+            }
+          }
+          return;
+        }
+        if (m.kind === 'strike') {
+          const x = m.strike;
+          const mineStrike = x.attackerId === s.me;
+          const target = x.defenderId === s.me;
+          const rn = REGION_BY_ID[x.region]?.name ?? 'Região';
+          if (m.launched) {
+            if (mineStrike || target) {
+              // Câmera enquadra o silo e o alvo para o voo inteiro ficar à vista.
+              const fromRegion = [...s.structures.values()].find((st) => st.type === 'missile_silo' && distanceKm(st.at, x.from) < 1)?.region;
+              engine.flyToRegions(fromRegion ? [fromRegion, x.region] : [x.region], 0.6, 9);
+              // Sons no tempo do servidor: preparação, ignição, voo e o desfecho.
+              const at = (ms: number) => Math.max(0, ms - serverNow());
+              if (mineStrike) audio.play('silo');
+              window.setTimeout(() => audio.play('launch'), at(x.flightAt));
+              window.setTimeout(() => audio.play('whoosh'), at(x.flightAt + 900));
+              window.setTimeout(() => audio.play(x.intercepted ? 'intercept' : 'boom'), at(x.intercepted ? x.interceptAt : x.impactAt));
+              if (target) {
+                audio.play('alarm');
+                const by = s.nations.get(x.attackerId);
+                toast(`Míssil a caminho de ${rn}! Lançado por ${by?.name ?? 'outra nação'}.`, 'bad', by ? nationFlagSrc(by) : undefined);
+              }
+            }
+            return;
+          }
+          if (!mineStrike && !target) return;
+          if (x.status === 'intercepted') toast(mineStrike ? `Seu míssil foi interceptado antes de ${rn}.` : `Míssil interceptado sobre ${rn}.`, mineStrike ? 'bad' : 'good');
+          else if (x.status === 'impact' && x.result) {
+            const st = x.result.structure;
+            const what = st ? (st.to === 0 ? `${STRUCTURES[st.type].name} destruída` : `${STRUCTURES[st.type].name} caiu para o nível ${st.to}`) : 'nenhuma construção atingida';
+            toast(
+              `${mineStrike ? 'Impacto em' : 'Míssil atingiu'} ${rn}: ${what}; ${x.result.troopsLost} ${x.result.troopsLost === 1 ? 'tropa perdida' : 'tropas perdidas'}${x.result.engaged ? '; tropas em combate atingidas' : ''}.`,
+              mineStrike ? 'good' : 'bad',
+            );
+          }
           return;
         }
         if (m.kind === 'military') {
@@ -660,6 +867,8 @@ export function MapStage(props: Props) {
 
   const goal = stats ? objective(stats) : null;
   const regionDef = region ? REGION_BY_ID[region] : null;
+  const enemyOwner = regionDef && me && state.control.has(regionDef.id) && state.control.get(regionDef.id) !== me.id ? (state.nations.get(state.control.get(regionDef.id)!) ?? null) : null;
+  const enemyCheck = enemyOwner && regionDef ? attackCheck(state, regionDef.id) : null;
   const panelStructure = panel ? (state.structures.get(panel.id) ?? null) : null;
   const panelType = panelStructure?.type ?? null;
   const panelRegion = panelStructure?.region ?? null;
@@ -729,6 +938,22 @@ export function MapStage(props: Props) {
               }}
             />
           )}
+          {me && myOps.length > 0 && !buildOpen && !aiming && <OperationCapsules ops={myOps} me={me.id} onOpen={(id) => (audio.play('tap'), setOpOpen(id))} />}
+          {aiming && (
+            <div className="ku-aim" data-testid="missile-aiming">
+              <span>Toque numa região inimiga dentro do círculo de alcance.</span>
+              <button
+                type="button"
+                className="ku-btn"
+                onClick={() => {
+                  setAiming(null);
+                  setMissileTarget(null);
+                }}
+              >
+                Cancelar
+              </button>
+            </div>
+          )}
           {myOccupation && !buildOpen && (
             <OccupationCapsule
               name={REGION_BY_ID[myOccupation.region]?.name ?? 'Região'}
@@ -737,7 +962,7 @@ export function MapStage(props: Props) {
               onFocus={() => engine.flyToRegions([myOccupation.region, myOccupation.from], 0.5, 12)}
             />
           )}
-          {!region && !panel && !buildOpen && (
+          {!region && !panel && !buildOpen && !aiming && (
             <Dock
               targets={targets.length}
               occupying={!!myOccupation}
@@ -797,6 +1022,24 @@ export function MapStage(props: Props) {
           onOccupy={() => occupy(regionDef.id)}
           onClose={() => setRegion(null)}
         >
+          {enemyOwner && (
+            <EnemyActions
+              owner={enemyOwner}
+              ownerRegions={regionsOf(state, enemyOwner.id).length}
+              capital={START_POINT_BY_ID[enemyOwner.capital]?.region === regionDef.id}
+              problem={enemyCheck?.problem ?? null}
+              naval={!!enemyCheck?.origin?.naval}
+              onAttack={() => {
+                audio.play('select');
+                setCardError(null);
+                setAttackOn(regionDef.id);
+              }}
+              onView={() => {
+                audio.play('tap');
+                engine.flyToRegions(regionsOf(state, enemyOwner.id), 0.5, 10);
+              }}
+            />
+          )}
           {state.control.get(regionDef.id) === me.id && (
             <RegionStructures
               structures={myStructures.filter((s) => s.region === regionDef.id)}
@@ -843,7 +1086,34 @@ export function MapStage(props: Props) {
             setPanel(null);
             setCardError(null);
           }}
-        />
+        >
+          {panelStructure?.type === 'missile_silo' && panelStructure.nationId === state.me && panelStructure.level > 0 && (
+            <div className="ku-silo" data-testid="silo-actions">
+              <p>
+                <b>{state.military?.army.missile ?? 0}</b> {(state.military?.army.missile ?? 0) === 1 ? 'míssil' : 'mísseis'} em estoque · alcance{' '}
+                <b>{missileRange(panelStructure.level, state.military?.research ?? {}).toLocaleString('pt-BR')} km</b>
+              </p>
+              {[...state.strikes.values()].some((x) => x.status === 'flying' && x.attackerId === state.me && distanceKm(x.from, panelStructure.at) < 1) ? (
+                <p className="ku-note">Míssil em voo. O silo recarrega quando ele chegar.</p>
+              ) : (
+                <button
+                  type="button"
+                  className="ku-cta"
+                  disabled={(state.military?.army.missile ?? 0) < 1}
+                  onClick={() => {
+                    audio.play('select');
+                    setPanel(null);
+                    setAiming({ siloId: panelStructure.id });
+                    setMissileTarget(null);
+                  }}
+                  data-testid="silo-aim"
+                >
+                  {(state.military?.army.missile ?? 0) < 1 ? 'Fabrique mísseis no Exército' : 'Escolher alvo'}
+                </button>
+              )}
+            </div>
+          )}
+        </StructurePanel>
       )}
 
       {sheet === 'nation' && me && stats && (
@@ -855,6 +1125,86 @@ export function MapStage(props: Props) {
         />
       )}
       {sheet === 'economy' && state.economy && <EconomySheet economy={state.economy} onClose={() => setSheet(null)} />}
+      {attackOn && me && state.military && state.nations.get(state.control.get(attackOn) ?? -1) && (() => {
+        const owner = state.nations.get(state.control.get(attackOn)!)!;
+        const check = attackCheck(state, attackOn);
+        return (
+          <AttackSheet
+            region={attackOn}
+            owner={owner}
+            ownerRegions={regionsOf(state, owner.id).length}
+            me={me}
+            home={state.military.army}
+            research={state.military.research}
+            origin={check.origin ?? { from: attackOn, naval: false }}
+            mode={state.world.mode}
+            busy={busy}
+            error={cardError ?? check.problem}
+            onConfirm={(percent) =>
+              void run(async () => {
+                await attack(attackOn, percent);
+                setAttackOn(null);
+                setRegion(null);
+              })
+            }
+            onClose={() => setAttackOn(null)}
+          />
+        );
+      })()}
+      {opOpen !== null && state.operations.get(opOpen) && (() => {
+        const o = state.operations.get(opOpen)!;
+        const counter = me && o.defenderId === me.id ? attackCheck(state, o.from) : null;
+        const silo = mySilo;
+        return (
+          <OperationSheet
+            op={o}
+            attacker={state.nations.get(o.attackerId)}
+            defender={state.nations.get(o.defenderId)}
+            me={state.me}
+            home={state.military?.army ?? {}}
+            canCounter={!!counter && !counter.problem}
+            canMissile={!!silo && (state.military?.army.missile ?? 0) > 0 && !missileProblem(state, silo.id, o.from)}
+            busy={busy}
+            error={cardError}
+            onReinforce={(percent) => void run(async () => (await reinforce(o.id, percent), audio.play('war')))}
+            onCounter={() => {
+              setOpOpen(null);
+              setAttackOn(o.from);
+            }}
+            onMissile={() => {
+              if (!silo) return;
+              setOpOpen(null);
+              setAiming({ siloId: silo.id });
+              setMissileTarget(o.from);
+            }}
+            onFocus={() => {
+              setOpOpen(null);
+              engine.flyToRegions([o.from, o.region], 0.55, 10);
+            }}
+            onClose={() => setOpOpen(null)}
+          />
+        );
+      })()}
+      {aiming && missileTarget && state.nations.get(state.control.get(missileTarget) ?? -1) && siloOf(state, aiming.siloId) && (
+        <MissileConfirm
+          from={siloOf(state, aiming.siloId)!.silo.at}
+          region={missileTarget}
+          owner={state.nations.get(state.control.get(missileTarget)!)!}
+          ownerStructures={structuresOf(state, state.control.get(missileTarget)!).filter((x) => x.level > 0)}
+          stock={state.military?.army.missile ?? 0}
+          mode={state.world.mode}
+          busy={busy}
+          error={cardError}
+          onConfirm={() =>
+            void run(async () => {
+              await launch(aiming.siloId, missileTarget);
+              setAiming(null);
+              setMissileTarget(null);
+            })
+          }
+          onCancel={() => setMissileTarget(null)}
+        />
+      )}
       {sheet === 'army' && state.military && state.economy && (
         <ArmySheet
           military={state.military}

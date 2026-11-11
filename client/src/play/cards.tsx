@@ -150,8 +150,7 @@ export function RegionCard(p: RegionProps) {
 
   let reason: string | null = null;
   if (p.outside) reason = 'Fora da área desta partida.';
-  else if (!mine && owner) reason = 'Ataques a outras nações chegam na próxima fase. Por enquanto, compare o poder militar.';
-  else if (!owner && !occupation && !p.adjacent) reason = 'Sem fronteira terrestre com o seu território.';
+  else if (!owner && !occupation && !p.adjacent && !p.canTarget) reason = region.coast ? 'Sem fronteira terrestre. Por mar, é preciso ter navios e litoral seu a até 700 km.' : 'Sem fronteira terrestre com o seu território.';
   else if (!owner && !occupation && p.slotBusy) reason = 'Aguarde a ocupação em andamento terminar.';
 
   return (

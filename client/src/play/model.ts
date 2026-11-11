@@ -1,6 +1,7 @@
 import { type Milestone, milestoneProgress, nationLevel, nationXp, nextMilestone } from '../../../shared/play/rules';
 import type { NationView } from '../../../shared/play/types';
-import { dominatedCountries, expansionTargets, REGION_BY_ID } from '../../../shared/world/regions';
+import { dominatedCountries, expansionTargets, REGION_BY_ID, REGIONS } from '../../../shared/world/regions';
+import { attackOrigin } from '../../../shared/play/war';
 import { type Link, type Logistics, logistics, type LogisticsNode } from '../../../shared/play/logistics';
 import { regionsOf, structuresOf, type WorldState } from './store';
 
@@ -69,7 +70,13 @@ export function ranking(state: WorldState): NationStats[] {
 /** Regiões neutras, vizinhas e sem ocupação em andamento: onde dá para expandir agora. */
 export function myTargets(state: WorldState, mine: string[]): string[] {
   const busy = new Set(state.occupations.map((o) => o.region));
-  return expansionTargets(mine, (id) => !state.control.has(id) && !busy.has(id));
+  const free = (id: string) => !state.control.has(id) && !busy.has(id);
+  const land = expansionTargets(mine, free);
+  // Com navios (Fase E), regiões litorâneas neutras a até 700 km de um litoral seu também.
+  if (!((state.military?.army.navy ?? 0) > 0)) return land;
+  const out = new Set(land);
+  for (const r of REGIONS) if (r.coast && free(r.id) && !out.has(r.id) && attackOrigin(mine, r.id, true)?.naval) out.add(r.id);
+  return [...out];
 }
 
 export function objective(stats: NationStats): { milestone: Milestone; value: number } | null {

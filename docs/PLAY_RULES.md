@@ -150,6 +150,41 @@ Regras em `shared/play/military.ts` (servidor aplica, cliente mostra). Combate �
 
 **Bots:** constroem base militar (a partir de 3 construções) e centro de defesa (a partir de 5) e treinam com os recrutas disponíveis, gastando até 40% do dinheiro por vez.
 
+### Guerra (Fase E)
+
+Regras em `shared/play/war.ts` (servidor aplica; a tela usa as mesmas funções para estimar). Migração 7 (`operations`, `strikes`, `military.troops`).
+
+**Ataque terrestre ou naval**
+- Alvo: região de outra nação, que não seja aliada nem a região da capital dela (a capital não pode ser tomada por terra; mísseis podem atingi-la).
+- Origem: região sua com fronteira terrestre; ou, com pelo menos 1 navio, região litorânea sua a até 700 km de um alvo litorâneo (ataque naval, que também leva os navios). Com navios, a expansão para regiões neutras litorâneas segue a mesma regra.
+- Porcentagem enviada: 25%, 50%, 75% ou 100% (nada abaixo de 25%), a mesma de cada tipo de unidade, arredondada para baixo. Mísseis nunca vão; navios só em operação naval.
+- Até 2 operações de ataque por nação e 1 operação por região.
+- Defesa automática: o defensor engaja 1/√(número de regiões dele) das tropas em casa (sem navios). Toda região tem ainda uma resistência local de 3.
+
+**Combate determinístico, passo de 1 segundo** (nenhum sorteio):
+- A = ataque das tropas restantes (com pesquisa); D = defesa das tropas restantes × (1 + fortificação + centros de defesa) + 3; r = A ÷ (A + D).
+- Ocupação += (2r − 1) ÷ tempo-base (mínimo 0). Tempo-base = 40 s + 1 s por 12.000 km² da região, entre 40 e 180 s, ÷ ritmo do modo.
+- Baixas por passo: atacante perde 0,9 × (1 − r)^1,5 ÷ tempo-base de cada tipo; defensor perde 0,9 × r^1,5 ÷ tempo-base. Sem resistência, as perdas são quase nulas.
+- Vitória ao chegar a 100%: a região, a bandeira e as construções dela passam ao atacante.
+- Fracasso se o ataque cair abaixo de 10% do inicial ou passar de 3× o tempo-base.
+- Sobreviventes dos dois lados voltam para casa ao fim. A manutenção das tropas enviadas continua até o fim da operação; o saldo dos dois lados é acertado no instante do fim, antes de as baixas pararem de custar.
+- O servidor guarda só o início e os acontecimentos (reforços, mísseis) e simula de novo quando precisa; o fim previsto (`ends_at`) é recalculado a cada acontecimento.
+
+**Defesa e contra-ataque:** o defensor é avisado (som e aviso vermelho com o progresso). Pode enviar 25–100% das tropas em casa para reforçar a região, contra-atacar a região de origem (se for atacável) e lançar míssil nela.
+
+**Inteligência (público):** poder militar e tropas estimadas (2 algarismos significativos) de cada nação; defesa estimada de uma região = poder do dono ÷ √(regiões do dono). Risco do ataque: baixo (ataque ≥ 3× defesa estimada), médio (≥ 1,5×), alto (abaixo).
+
+**Mísseis**
+- Silo de lançamento (custo $2.200, 1.000 materiais, 800 metal, 400 petróleo, 60 componentes; 150 s) e míssil como unidade (exige silo e a pesquisa Foguetes balísticos; $900, 300 metal, 200 petróleo, 40 componentes, 45 s cada).
+- Alcance: 2.500 km + 750 km por nível do silo; Foguetes balísticos dá +20% por nível a partir do 2.
+- Lançamento: 1 míssil + 60 de petróleo; um míssil em voo por silo; alvo de outra nação, não aliada (capital incluída).
+- Tempo: 2,2 s de preparação e abertura do silo, depois voo de 1.500 km/min (mínimo 20 s), ÷ ritmo do modo.
+- Interceptação: 20% por nível de sistema antimísseis do alvo + 10% por nível da pesquisa Interceptação, até 85%; sem antimísseis, 0. Decidida no lançamento com um sorteio reproduzível pelo id do lançamento (qualquer um pode conferir), e acontece a 85% do trajeto.
+- Impacto: a maior construção concluída da região perde 1 nível (no nível 1, é destruída); o alvo perde 6% de cada tipo de tropa em casa; tropas do alvo engajadas naquela região (ou que partiram dela para atacar) perdem 25%, e a batalha é recalculada.
+- Sistema antimísseis: $1.500, 600 materiais, 500 metal, 40 componentes; 100 s.
+
+**Bots:** reforçam uma vez cada região atacada (50% das tropas em casa) e, passados 4 minutos de partida, atacam com 50% a região inimiga vizinha mais fraca quando o ataque passa de 2,5× a defesa estimada. Bots não lançam mísseis.
+
 ### Autoridade do servidor
 
 O saldo é guardado como "valor num instante" (`nation_resources.settled_at`). Antes de qualquer mudança que altere a produção (região ganha, obra concluída) ou o saldo (gasto), o servidor acerta o saldo até aquele instante com a produção antiga. Obras e ocupações terminam pelo relógio do banco, por três caminhos equivalentes (worker, leitura, novo pedido), com `FOR UPDATE SKIP LOCKED`. O cliente nunca envia custo, nível, duração ou saldo; quando envia, é ignorado.

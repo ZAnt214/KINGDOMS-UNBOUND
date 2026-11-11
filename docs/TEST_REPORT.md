@@ -261,3 +261,19 @@ Parado 60 fps, arraste 60 fps, zoom por roda 41 fps (mesmo método): sem regress
 
 ### Resultado
 CI do commit `fc7e637`: verde — typecheck e **106/106** testes (12 arquivos), incluindo `tests/integration/military.test.ts` 6/6. Duas falhas reais pegas pelo CI antes disso e corrigidas: um tipo opcional no nome da instalação exigida, e treino/pesquisa que não concluíam antes as obras já vencidas (o centro tecnológico pronto não liberava a pesquisa no mesmo pedido). Prévia `kingdoms-unbound-9my943epz-test11-1d8d.vercel.app`: `GET /api/meta` 200 com `militaryRulesVersion: 1`.
+
+## 2026-11-11 — Fase E: Guerras
+
+### Unidade (local)
+`tests/unit/war.test.ts` **15/15**: porcentagens e divisão das tropas (navios só por mar, mísseis nunca), guarnição 1/√regiões, combate sem resistência quase sem perdas, com resistência baixas dos dois lados, forças iguais fracassam no tempo-limite, determinismo e progressão, reforço e míssil mudando o resultado, pesquisa e fortificação, tempo-base por área, tropas engajadas, origem por terra/mar, estimativas e risco, alcance e tempo de voo, chance de interceptação com teto, sorteio reproduzível e bem distribuído. Demais: military 13/13, economy 12/12, play 14/14, logistics 10/10, geo 2/2.
+
+### Integração (CI, PostgreSQL real)
+`tests/integration/war.test.ts`: recusa abaixo de 25%, a capital, regiões sem fronteira e as próprias; operação tira tropas dos dois lados e avisa o defensor com as tropas dele; uma operação por região; só o defensor reforça e o fim previsto muda; ao vencer, região, bandeira e construção passam ao atacante, sobreviventes voltam e as baixas ficam registradas; míssil exige estoque, alcance e alvo inimigo, um por silo; no impacto a fábrica cai de nível e o alvo perde 6% das tropas em casa; com antimísseis nível 4 e pesquisa 3, a chance é 85% e o resultado segue o sorteio reproduzível.
+
+### Interface — navegador automatizado com SERVIDOR FALSO
+- `tests/e2e/war-visual.cjs` (novo, `MOCK_WAR=1`: o servidor falso cria uma nação rival vizinha e dá tropas, silo e mísseis só para o passeio): **14/14** em 390×844 e **14/14** em 1280×800 — cartão da região inimiga com inteligência e ATACAR, seleção 25–100%, resumo antes de confirmar, seta e selo de batalha no mapa, acompanhamento com %, conquista com transferência, silo com estoque e alcance, mira com círculo, confirmação, sequência do míssil (preparação, abertura, lançamento, trajeto, impacto) e resultado.
+- `tests/e2e/play-visual.cjs`: 31/31 (pesquisa agora com 12 tecnologias).
+- O servidor falso reproduz as regras compartilhadas; persistência, concorrência e o reforço do defensor só são provados no teste de integração.
+
+### Desempenho
+Mapa sem guerra: 60 fps parado e arrastando, 41 fps no zoom por roda. **Não medido:** quadros por segundo com várias operações e mísseis ao mesmo tempo.

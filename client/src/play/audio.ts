@@ -2,7 +2,7 @@
 // Efeitos curtos e discretos para cada ação e uma trilha ambiente lenta. Volumes ficam salvos
 // no navegador; o áudio só começa depois do primeiro toque (exigência dos navegadores).
 
-export type SoundName = 'tap' | 'select' | 'confirm' | 'deny' | 'found' | 'expand' | 'conquest' | 'country' | 'level' | 'notify' | 'build' | 'built' | 'rail' | 'drill' | 'victory' | 'defeat';
+export type SoundName = 'tap' | 'select' | 'confirm' | 'deny' | 'found' | 'expand' | 'conquest' | 'country' | 'level' | 'notify' | 'build' | 'built' | 'rail' | 'drill' | 'victory' | 'defeat' | 'war' | 'alarm' | 'silo' | 'launch' | 'whoosh' | 'boom' | 'intercept' | 'repelled';
 
 export interface AudioSettings {
   music: number;
@@ -206,6 +206,55 @@ class GameAudio {
         // Obra pronta: base grave e acorde maior subindo.
         this.tone({ f: 130, to: 65, dur: 0.4, type: 'sine', gain: 0.22 });
         [64, 68, 71, 76].forEach((n, i) => this.tone({ f: midi(n), at: 0.04 + i * 0.07, dur: 0.45, type: 'triangle', gain: 0.11 }));
+        break;
+      case 'war':
+        // Operação lançada: tambores de guerra (graves em ritmo) e uma trompa em quinta.
+        [0, 0.18, 0.36, 0.62].forEach((at, i) => {
+          this.tone({ f: 70, to: 45, at, dur: 0.3, type: 'sine', gain: i === 3 ? 0.35 : 0.25 });
+          this.noise({ at, dur: 0.08, from: 600, to: 200, gain: 0.12, q: 0.8 });
+        });
+        this.tone({ f: midi(55), at: 0.62, dur: 0.9, type: 'sawtooth', gain: 0.05, attack: 0.08 });
+        this.tone({ f: midi(62), at: 0.62, dur: 0.9, type: 'sawtooth', gain: 0.04, attack: 0.08 });
+        this.tone({ f: midi(67), at: 0.8, dur: 0.8, type: 'triangle', gain: 0.07, attack: 0.05 });
+        break;
+      case 'alarm':
+        // Sob ataque: duas notas alternadas, como sirene curta.
+        [0, 0.32, 0.64].forEach((at) => {
+          this.tone({ f: midi(76), at, dur: 0.16, type: 'square', gain: 0.05 });
+          this.tone({ f: midi(71), at: at + 0.16, dur: 0.16, type: 'square', gain: 0.05 });
+        });
+        break;
+      case 'silo':
+        // Preparação: zumbido que sobe e o estalo das tampas.
+        this.tone({ f: 60, to: 140, dur: 1.2, type: 'sawtooth', gain: 0.05, attack: 0.3, lp: 600 });
+        this.noise({ at: 1.25, dur: 0.12, from: 1800, to: 500, gain: 0.12, q: 2 });
+        this.noise({ at: 1.4, dur: 0.6, from: 400, to: 1200, gain: 0.05, q: 0.7 });
+        break;
+      case 'launch':
+        // Ignição: estrondo grave e rugido que se afasta.
+        this.tone({ f: 55, to: 30, dur: 0.6, type: 'sine', gain: 0.4 });
+        this.noise({ dur: 1.6, from: 300, to: 2400, gain: 0.22, q: 0.5 });
+        this.noise({ at: 0.2, dur: 1.4, from: 2200, to: 600, gain: 0.08, q: 0.6 });
+        break;
+      case 'whoosh':
+        this.noise({ dur: 1.2, from: 500, to: 3000, gain: 0.05, q: 0.6 });
+        break;
+      case 'boom':
+        // Impacto: golpe grave, estalo e cauda de estilhaços.
+        this.tone({ f: 80, to: 28, dur: 0.9, type: 'sine', gain: 0.5 });
+        this.noise({ dur: 0.25, from: 2500, to: 400, gain: 0.3, q: 0.6 });
+        this.noise({ at: 0.15, dur: 1.4, from: 900, to: 150, gain: 0.12, q: 0.5 });
+        break;
+      case 'intercept':
+        // Interceptação: estalo agudo e um brilho metálico.
+        this.noise({ dur: 0.18, from: 4000, to: 1500, gain: 0.2, q: 1.5 });
+        this.tone({ f: midi(88), at: 0.05, dur: 0.5, type: 'triangle', gain: 0.08 });
+        this.tone({ f: midi(95), at: 0.1, dur: 0.6, type: 'sine', gain: 0.05 });
+        break;
+      case 'repelled':
+        this.tone({ f: midi(60), dur: 0.35, type: 'triangle', gain: 0.1 });
+        this.tone({ f: midi(67), at: 0.12, dur: 0.5, type: 'triangle', gain: 0.1 });
+        this.tone({ f: midi(72), at: 0.24, dur: 0.7, type: 'triangle', gain: 0.1 });
         break;
       case 'drill':
         // Tropas prontas: caixa clara em marcha (três batidas) e um acorde de metais curto.

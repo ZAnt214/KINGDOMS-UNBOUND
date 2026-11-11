@@ -882,9 +882,10 @@ export class WorldMapEngine {
         this.drawStructures(t);
       }
       this.drawRange();
+      if (!this.hidden.has('flags')) this.drawFlags(t);
+      // Guerra por cima das bandeiras: a batalha e o míssil nunca ficam escondidos.
       this.drawOperations(t);
       this.drawMissiles();
-      if (!this.hidden.has('flags')) this.drawFlags(t);
       if (this.placement) this.drawPlacement();
     }
   }
@@ -1448,7 +1449,7 @@ export class WorldMapEngine {
       const [x0, y0] = this.toScreen(m.from[0], m.from[1]);
       const [x1, y1] = this.toScreen(m.to[0], m.to[1]);
       const len = Math.hypot(x1 - x0, y1 - y0);
-      const P = this.curve(x0, y0, x1, y1, Math.min(0.45, 160 / Math.max(1, len) + 0.12));
+      const P = this.curve(x0, y0, x1, y1, Math.max(0.18, Math.min(0.6, 70 / Math.max(1, len))));
       const flight = Math.max(1, m.impactAt - m.flightAt);
       const stopU = m.intercepted ? (m.interceptAt - m.flightAt) / flight : 1;
       // Alvo marcado durante todo o voo.
@@ -1526,15 +1527,19 @@ export class WorldMapEngine {
           ctx.moveTo(px, py);
           ctx.lineTo(x, y);
           ctx.strokeStyle = `rgba(255, ${170 + i * 5}, 120, ${(i / 14) * 0.85})`;
-          ctx.lineWidth = 1 + (i / 14) * 2.2;
+          ctx.lineWidth = 1.2 + (i / 14) * 3;
           ctx.stroke();
           px = x;
           py = y;
         }
         const [hx, hy] = P(u);
         ctx.beginPath();
-        ctx.arc(hx, hy, 6, 0, TAU);
-        ctx.fillStyle = 'rgba(255, 190, 90, 0.35)';
+        ctx.arc(hx, hy, 9, 0, TAU);
+        ctx.fillStyle = 'rgba(255, 170, 70, 0.28)';
+        ctx.fill();
+        ctx.beginPath();
+        ctx.arc(hx, hy, 5, 0, TAU);
+        ctx.fillStyle = 'rgba(255, 210, 120, 0.6)';
         ctx.fill();
         ctx.beginPath();
         ctx.arc(hx, hy, 3, 0, TAU);
