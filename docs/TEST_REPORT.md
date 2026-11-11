@@ -258,3 +258,6 @@ CI do commit `e04337b`: verde — typecheck e **87/87** testes (10 arquivos), in
 
 ### Desempenho
 Parado 60 fps, arraste 60 fps, zoom por roda 41 fps (mesmo método): sem regressão.
+
+### Resultado
+CI do commit `fc7e637`: verde — typecheck e **106/106** testes (12 arquivos), incluindo `tests/integration/military.test.ts` 6/6. Duas falhas reais pegas pelo CI antes disso e corrigidas: um tipo opcional no nome da instalação exigida, e treino/pesquisa que não concluíam antes as obras já vencidas (o centro tecnológico pronto não liberava a pesquisa no mesmo pedido). Prévia `kingdoms-unbound-9my943epz-test11-1d8d.vercel.app`: `GET /api/meta` 200 com `militaryRulesVersion: 1`.
