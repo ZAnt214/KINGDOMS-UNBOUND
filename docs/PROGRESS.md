@@ -237,3 +237,8 @@ Regras em `docs/PLAY_RULES.md` (seção Guerra); migração 7.
 - A interceptação é decidida no lançamento (sorteio reproduzível) e é pública desde então, para a animação do interceptador começar a tempo. Um antimíssil construído durante o voo não conta.
 
 **Fora desta fase:** pedir aliança e ajuda de aliados (Fase F, diplomacia); bots lançando mísseis.
+
+## 2026-11-11 — Recursos infinitos para contas novas (fase de testes)
+
+- [x] `users.unlimited` (migração 8): com ela, gastos e recrutas não descontam; a tela mostra ∞.
+- [x] A pedido do dono do jogo, **toda conta criada a partir de agora nasce com recursos infinitos**. Para desligar sem mudar código: variável `KU_UNLIMITED_NEW_ACCOUNTS=0` na Vercel. Contas já existentes não foram alteradas. Bots não são afetados.
