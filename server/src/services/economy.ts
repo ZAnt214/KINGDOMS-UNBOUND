@@ -175,7 +175,7 @@ export class EconomyService {
       const regionId = regionAt(lon, lat, hint && owned.includes(hint) ? [hint, ...owned] : owned);
       if (!regionId || !owned.includes(regionId)) throw conflict('not_owner', 'Construa dentro do seu território.');
       const region = REGION_BY_ID[regionId];
-      const near = await client.query('SELECT region_id, lon, lat FROM structures WHERE kingdom_id = $1 AND (region_id = $2 OR lon BETWEEN $3 - 1 AND $3 + 1)', [g.kingdomId, regionId, lon]);
+      const near = await client.query('SELECT region_id, lon, lat FROM structures WHERE kingdom_id = $1 AND (region_id = $2 OR lon IS NULL OR lon BETWEEN $3::float8 AND $4::float8)', [g.kingdomId, regionId, lon - 3, lon + 3]);
       const others = near.rows.map((r) => (r.lon === null ? (REGION_BY_ID[r.region_id]?.at ?? [0, 0]) : [r.lon, r.lat]) as [number, number]);
       if (others.some((p) => distanceKm(p, at) < ECONOMY.minDistanceKm)) throw conflict('too_close', `Muito perto de outra construção. Deixe pelo menos ${ECONOMY.minDistanceKm} km.`);
       const capitalRegion = START_POINT_BY_ID[nation.rows[0].capital_point]?.region ?? null;
