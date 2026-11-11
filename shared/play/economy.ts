@@ -1,10 +1,11 @@
 // Economia e construções (Fase B). Todos os valores e fórmulas ficam aqui: o servidor aplica,
 // o cliente usa as mesmas funções para mostrar custos, tempos e a produção prevista.
 // Documentação em docs/PLAY_RULES.md.
+import { type LogisticsNode, LOGISTICS, logistics } from './logistics';
 import { REGION_BY_ID } from '../world/regions';
 import { ECONOMY_SPEED, type GameMode, MODE_SPEED } from './rules';
 
-export const ECONOMY_RULES_VERSION = 1;
+export const ECONOMY_RULES_VERSION = 2;
 
 export const RESOURCES = ['money', 'materials', 'metal', 'oil', 'tech', 'special'] as const;
 export type Resource = (typeof RESOURCES)[number];
@@ -224,7 +225,9 @@ export interface EconomyInput {
   regions: string[];
   capitalRegion: string | null;
   /** Só construções com nível ≥ 1 produzem (a obra do nível 1 ainda não conta). */
-  structures: { type: StructureType; level: number; region: string }[];
+  structures: { type: StructureType; level: number; region: string; id?: number; at?: [number, number] }[];
+  /** Construções concluídas das outras nações da mesma aliança (para as conexões entre aliados). */
+  allied?: LogisticsNode[];
 }
 
 export interface EconomyOutput {
@@ -236,6 +239,8 @@ export interface EconomyOutput {
   energy: { supply: number; demand: number };
   /** Multiplicador aplicado às construções: energia × (1 + bônus tecnológico). */
   efficiency: number;
+  /** Rede logística da nação: trechos próprios, conexões com aliados e bônus médio das construções ligadas. */
+  logistics: { links: number; allyLinks: number; connected: number; averageBonus: number };
 }
 
 const add = (into: ResourceMap, cost: Cost, k = 1) => {
@@ -248,6 +253,7 @@ const add = (into: ResourceMap, cost: Cost, k = 1) => {
  *   território = capital (3.600 dinheiro, 2.400 materiais) + 600/400 por região + jazidas
  *   construção = produção do nível 1 × nível^0,9 × (1,6 se estiver na jazida certa)
  *   eficiência = min(1, oferta ÷ demanda de energia) × (1 + min(15%, 3% × níveis de centro tecnológico))
+ *   ferrovia   = construção × (1 + bônus logístico da construção, ver logistics.ts)
  *   total/h    = (território + construções × eficiência) × ritmo econômico do modo
  */
 export function computeEconomy(input: EconomyInput, mode: GameMode = 'campaign'): EconomyOutput {
@@ -263,15 +269,18 @@ export function computeEconomy(input: EconomyInput, mode: GameMode = 'campaign')
   let capacity = ECONOMY.baseCapacity;
   let bonus = 0;
   const built = zero();
+  const net = networkOf(input);
   for (const s of input.structures) {
     if (s.level < 1) continue;
     const def = STRUCTURES[s.type];
+    const rail = s.id === undefined ? 0 : (net.bonus.get(s.id) ?? 0);
+    const linked = s.id !== undefined && net.connected.has(s.id);
     demand += def.energy * s.level;
     supply += (def.supply ?? 0) * s.level;
-    capacity += (def.capacity ?? 0) * s.level;
+    capacity += (def.capacity ?? 0) * s.level * (linked ? 1 + LOGISTICS.storageBonus : 1);
     bonus += (def.efficiency ?? 0) * s.level;
     const deposit = def.deposit && regionDeposit(s.region) === def.deposit ? 1 + ECONOMY.depositBonus : 1;
-    add(built, def.produces, s.level ** ECONOMY.levelExponent * deposit);
+    add(built, def.produces, s.level ** ECONOMY.levelExponent * deposit * (1 + rail));
   }
   const energyFactor = demand <= supply || demand === 0 ? 1 : supply / demand;
   const efficiency = energyFactor * (1 + Math.min(ECONOMY.maxEfficiencyBonus, bonus));
@@ -281,7 +290,26 @@ export function computeEconomy(input: EconomyInput, mode: GameMode = 'campaign')
     rates[r] = (territory[r] + built[r] * efficiency) * speed;
     territory[r] *= speed;
   }
-  return { rates, territory, capacity, energy: { supply, demand }, efficiency };
+  const ownIds = new Set(input.structures.map((s) => s.id));
+  const mineConnected = [...net.connected].filter((id) => ownIds.has(id));
+  const logisticsOut = {
+    links: net.links.filter((l) => !l.ally && ownIds.has(l.a)).length,
+    allyLinks: net.links.filter((l) => l.ally && (ownIds.has(l.a) || ownIds.has(l.b))).length,
+    connected: mineConnected.length,
+    averageBonus: mineConnected.length ? mineConnected.reduce((sum, id) => sum + (net.bonus.get(id) ?? 0), 0) / mineConnected.length : 0,
+  };
+  return { rates, territory, capacity, energy: { supply, demand }, efficiency, logistics: logisticsOut };
+}
+
+/** Nós da rede logística a partir da entrada da economia: a nação é 0, aliados mantêm o id da nação deles (todos na aliança 1). */
+export function networkOf(input: EconomyInput) {
+  const own: LogisticsNode[] = [];
+  for (const s of input.structures) {
+    if (s.id === undefined || !s.at || s.level < 1) continue;
+    own.push({ id: s.id, nation: 0, type: s.type, level: s.level, region: s.region, at: s.at });
+  }
+  const allied = (input.allied ?? []).filter((n) => n.level >= 1 && n.nation !== 0);
+  return logistics([...own, ...allied], () => 1);
 }
 
 /** Saldo projetado: cada recurso cresce linearmente até a capacidade (o que já passou dela fica). */

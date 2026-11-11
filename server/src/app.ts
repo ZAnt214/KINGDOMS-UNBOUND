@@ -40,9 +40,16 @@ export async function createGameServer(
   const hub = new Hub(db);
   hub.attach(server);
   await hub.startBus(directUrl);
-  const alliance = new AllianceService(db, hub);
   const chat = new ChatService(db, hub);
   const economy = new EconomyService(db, hub);
+  // Entrar ou sair de uma aliança muda as conexões logísticas entre aliados (Fase C).
+  const alliance = new AllianceService(db, hub, {
+    before: (client, ids) => economy.settleMany(client, ids, new Date()),
+    after: async (ids, changed) => {
+      hub.toKingdom(changed.kingdomId, { type: 'play.alliance', nationId: changed.governorId, alliance: changed.allianceId, serverTime: Date.now() });
+      for (const id of ids) await economy.announceEconomy(id);
+    },
+  });
   const territory = new TerritoryService(db, hub, economy);
   const nation = new NationService(db, hub, territory, economy);
   const match = new MatchService(db, hub, nation, territory, economy);

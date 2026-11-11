@@ -26,12 +26,14 @@ import type { Hub } from '../hub.js';
 
 type Queryable = Pick<Db, 'query'> | Pick<Tx, 'query'>;
 
+const pointOf = (r: any): [number, number] => (r.lon === null || r.lon === undefined ? (REGION_BY_ID[r.region_id]?.at ?? [0, 0]) : [r.lon, r.lat]);
+
 export const structureView = (r: any): StructureView => ({
   id: Number(r.id),
   nationId: Number(r.governor_id),
   region: r.region_id,
   type: r.type as StructureType,
-  at: r.lon === null || r.lon === undefined ? (REGION_BY_ID[r.region_id]?.at ?? [0, 0]) : [r.lon, r.lat],
+  at: pointOf(r),
   level: r.level,
   building: r.target_level === null ? null : { to: r.target_level, startedAt: new Date(r.started_at).getTime(), endsAt: new Date(r.ends_at).getTime() },
 });
@@ -54,16 +56,47 @@ export class EconomyService {
 
   /** Entradas do cálculo de produção, lidas do banco. */
   async inputs(q: Queryable, governorId: number): Promise<EconomyInput> {
-    const [regions, structures, nation] = await Promise.all([
+    const [regions, structures, nation, allied] = await Promise.all([
       q.query('SELECT region_id FROM region_control WHERE governor_id = $1', [governorId]),
-      q.query('SELECT type, level, region_id FROM structures WHERE governor_id = $1 AND level > 0', [governorId]),
+      q.query('SELECT id, type, level, region_id, lon, lat FROM structures WHERE governor_id = $1 AND level > 0', [governorId]),
       q.query('SELECT capital_point FROM nations WHERE governor_id = $1', [governorId]),
+      // Construções concluídas das outras nações da mesma aliança ativa (conexões entre aliados).
+      q.query(
+        `SELECT s.id, s.governor_id, s.type, s.level, s.region_id, s.lon, s.lat
+           FROM alliance_members me
+           JOIN alliances a ON a.id = me.alliance_id AND a.status = 'active'
+           JOIN alliance_members other ON other.alliance_id = me.alliance_id AND other.governor_id <> me.governor_id
+           JOIN structures s ON s.governor_id = other.governor_id AND s.level > 0
+          WHERE me.governor_id = $1`,
+        [governorId],
+      ),
     ]);
     return {
       regions: regions.rows.map((r) => r.region_id),
       capitalRegion: START_POINT_BY_ID[nation.rows[0]?.capital_point]?.region ?? null,
-      structures: structures.rows.map((r) => ({ type: r.type, level: r.level, region: r.region_id })),
+      structures: structures.rows.map((r) => ({ id: Number(r.id), type: r.type, level: r.level, region: r.region_id, at: pointOf(r) })),
+      allied: allied.rows.map((r) => ({ id: Number(r.id), nation: Number(r.governor_id), type: r.type, level: r.level, region: r.region_id, at: pointOf(r) })),
     };
+  }
+
+  /** Nação e os outros membros da aliança dela: quem tem a produção afetada por uma mudança na rede. */
+  async network(q: Queryable, governorId: number): Promise<number[]> {
+    const { rows } = await q.query(
+      `SELECT other.governor_id FROM alliance_members me
+         JOIN alliances a ON a.id = me.alliance_id AND a.status = 'active'
+         JOIN alliance_members other ON other.alliance_id = me.alliance_id
+        WHERE me.governor_id = $1`,
+      [governorId],
+    );
+    return [...new Set([governorId, ...rows.map((r) => Number(r.governor_id))])].sort((a, b) => a - b);
+  }
+
+  /**
+   * Acerta o saldo de várias nações (sempre em ordem crescente de id, a mesma em toda transação,
+   * para duas conclusões simultâneas não travarem uma à outra).
+   */
+  async settleMany(client: Tx, governorIds: number[], at: Date) {
+    for (const id of [...new Set(governorIds)].sort((a, b) => a - b)) await this.settle(client, id, at);
   }
 
   async modeOf(q: Queryable, governorId: number): Promise<GameMode> {
@@ -99,6 +132,7 @@ export class EconomyService {
    */
   async settle(client: Tx, governorId: number, at: Date): Promise<ResourceMap> {
     const { amounts, settledAt } = await this.lock(client, governorId);
+    if (!settledAt) return amounts; // sem nação fundada: nada a acertar
     const when = Math.max(at.getTime(), settledAt);
     if (when === settledAt) return amounts;
     const econ = computeEconomy(await this.inputs(client, governorId), await this.modeOf(client, governorId));
@@ -133,7 +167,7 @@ export class EconomyService {
       settledAt = Math.max(settledAt, new Date(r.settled_at).getTime());
     }
     const econ = computeEconomy(await this.inputs(q, governorId), await this.modeOf(q, governorId));
-    return { amounts, settledAt, rates: econ.rates, capacity: econ.capacity, energy: econ.energy, efficiency: econ.efficiency };
+    return { amounts, settledAt, rates: econ.rates, capacity: econ.capacity, energy: econ.energy, efficiency: econ.efficiency, logistics: econ.logistics };
   }
 
   async structures(kingdomId: number, q: Queryable = this.db): Promise<StructureView[]> {
@@ -246,17 +280,20 @@ export class EconomyService {
         );
         const s = rows[0];
         if (!s) return null;
-        await this.settle(client, Number(s.governor_id), new Date(s.ends_at));
+        // A obra concluída pode criar trechos de ferrovia ou conexões com aliados: acerta o saldo de
+        // todos que têm a produção afetada até o fim da obra, com a produção antiga.
+        const affected = s.level === 0 ? await this.network(client, Number(s.governor_id)) : [Number(s.governor_id)];
+        await this.settleMany(client, affected, new Date(s.ends_at));
         const up = await client.query(
           `UPDATE structures SET level = target_level, target_level = NULL, started_at = NULL, ends_at = NULL WHERE id = $1 RETURNING ${STRUCTURE_COLUMNS}`,
           [id],
         );
-        return { kingdomId: s.kingdom_id as number, structure: structureView(up.rows[0]) };
+        return { kingdomId: s.kingdom_id as number, structure: structureView(up.rows[0]), affected };
       });
       if (!done) continue;
       n++;
       this.hub.toKingdom(done.kingdomId, { type: 'play.structure', structure: done.structure, completed: true, serverTime: Date.now() });
-      await this.announceEconomy(done.structure.nationId);
+      for (const id of done.affected) await this.announceEconomy(id);
     }
     return n;
   }

@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { buildProblem, type EconomyInput, ECONOMY, expansionCost, missing, STRUCTURES, structureCost, type StructureType } from '../../../shared/play/economy';
+import { LOGISTICS, previewLinks } from '../../../shared/play/logistics';
 import { QUICK } from '../../../shared/play/match';
 import { expansionSeconds, MILESTONES, milestoneProgress } from '../../../shared/play/rules';
 import type { NationView, StructureView } from '../../../shared/play/types';
@@ -7,19 +8,21 @@ import { COUNTRIES, COUNTRY_BY_CODE } from '../../../shared/world';
 import { countryOccupation, distanceKm, dominatedCountries, landmassSize, REGION_BY_ID, REGIONS_BY_COUNTRY, START_POINT_BY_ID, START_POINTS, type StartPoint } from '../../../shared/world/regions';
 import { api, ApiError, serverNow } from '../api';
 import type { RealtimeStatus } from '../realtime';
-import type { MapFill, MapFlag, MapLabel, MapPick, MapPoint, MapStructure, WorldMapEngine } from '../worldmap/engine';
+import type { MapFill, MapFlag, MapLabel, MapPick, MapPoint, MapRail, MapStructure, WorldMapEngine } from '../worldmap/engine';
 import { audio } from './audio';
 import { PointCard, RegionCard } from './cards';
 import { amountsNow, BuildBar, EconomySheet, Glyph, ResourceStrip, StructurePanel } from './economyUi';
 import { STRUCTURE_GLYPH } from './glyphs';
 import { Banner, type BannerData, Dock, IdentityPill, MatchClock, ObjectiveChip, OccupationCapsule, StatChips, type Toast, Toasts, ZoomButtons } from './hud';
 import { draftFlagSrc, flagCanvasImage, type IdentityDraft, nationFlagSrc } from './identity';
-import { fmtArea, myTargets, nationStats, objective, progressOf, ranking } from './model';
+import { fmtArea, linkKey, myTargets, nationStats, objective, progressOf, ranking, worldNetwork } from './model';
 import { NationSheet, RankingSheet, SettingsSheet } from './sheets';
 import { regionsOf, structuresOf, type WorldMoment, type WorldState } from './store';
 
 const LABELS: MapLabel[] = COUNTRIES.map((c) => ({ code: c.code, text: c.name, at: c.labelAt, rank: c.labelRank }));
 const BLOOM_MS = 2200;
+/** Concordância dos avisos: "Cidade concluída", "Porto concluído". */
+const FEMININE = new Set<StructureType>(['city', 'factory', 'refinery', 'power']);
 
 interface Props {
   engine: WorldMapEngine;
@@ -107,10 +110,17 @@ export function MapStage(props: Props) {
     return arenaSet ? list.filter((r) => arenaSet.has(r)) : list;
   }, [state, stats, myOccupation, arenaSet]);
   const board = useMemo(() => ranking(state), [state]);
-  const econInput: EconomyInput | null = useMemo(
-    () => (stats ? { regions: stats.regions, capitalRegion, structures: myStructures.filter((s) => s.level > 0).map((s) => ({ type: s.type, level: s.level, region: s.region })) } : null),
-    [stats, capitalRegion, myStructures],
-  );
+  const econInput: EconomyInput | null = useMemo(() => {
+    if (!stats || !me) return null;
+    // Construções concluídas dos aliados: entram nas conexões logísticas (mesma regra do servidor).
+    const allied = me.alliance === null ? [] : [...worldNetwork(state).nodes.values()].filter((n) => n.nation !== me.id && state.nations.get(n.nation)?.alliance === me.alliance);
+    return {
+      regions: stats.regions,
+      capitalRegion,
+      structures: myStructures.filter((s) => s.level > 0).map((s) => ({ id: s.id, type: s.type, level: s.level, region: s.region, at: s.at })),
+      allied,
+    };
+  }, [state, stats, me, capitalRegion, myStructures]);
   const queue = myStructures.filter((s) => s.building).length;
 
   // ---------- motor: dados estáveis ----------
@@ -234,6 +244,31 @@ export function MapStage(props: Props) {
     engine.setStructures(list);
   }, [engine, state]);
 
+  /** Instante em que cada trecho de ferrovia surgiu nesta sessão (para desenhá-lo aos poucos). */
+  const railBorn = useRef(new Map<string, number>());
+  useEffect(() => {
+    const net = worldNetwork(state);
+    const rails: MapRail[] = [];
+    for (const l of net.links) {
+      const a = net.nodes.get(l.a);
+      const b = net.nodes.get(l.b);
+      if (!a || !b) continue;
+      const own = a.nation === state.me || b.nation === state.me;
+      rails.push({
+        id: linkKey(l),
+        from: a.at,
+        to: b.at,
+        color: state.nations.get(a.nation)?.color ?? '#8792a6',
+        ally: l.ally,
+        own,
+        appearAt: railBorn.current.get(linkKey(l)),
+        minZoom: own ? 1.6 : 2.8,
+      });
+    }
+    engine.setRails(rails);
+  }, [engine, state]);
+  useEffect(() => () => engine.setRails([]), [engine]);
+
   useEffect(() => {
     engine.setExpansionHints(targets, me?.color ?? '#ffffff');
   }, [engine, targets, me]);
@@ -275,6 +310,11 @@ export function MapStage(props: Props) {
             glyph: STRUCTURE_GLYPH[placing],
             color: me?.color ?? '#ffffff',
             accepts: (rid, at) => placeProblem(live.current.state, placing, rid, at) === null,
+            links: (rid, at) => {
+              const s = live.current.state;
+              const own = [...worldNetwork(s).nodes.values()].filter((n) => n.nation === s.me);
+              return previewLinks(own, { nation: s.me ?? 0, type: placing, level: 1, region: rid, at });
+            },
           }
         : null,
     );
@@ -468,7 +508,7 @@ export function MapStage(props: Props) {
           const where = REGION_BY_ID[m.structure.region]?.name ?? '';
           if (m.completed) {
             audio.play('built');
-            toast(m.structure.level === 1 ? `${def.name} concluída em ${where}.` : `${def.name} de ${where} chegou ao nível ${m.structure.level}.`, 'good');
+            toast(m.structure.level === 1 ? `${def.name} ${FEMININE.has(m.structure.type) ? 'concluída' : 'concluído'} em ${where}.` : `${def.name} de ${where} chegou ao nível ${m.structure.level}.`, 'good');
             const after = mine ? nationStats(s, mine) : null;
             if (after) {
               const before = { ...progressOf(after), structures: after.structures - (m.structure.level === 1 ? 1 : 0) };
@@ -476,6 +516,27 @@ export function MapStage(props: Props) {
               if (reached) window.setTimeout(() => toast(`Meta cumprida: ${reached.title.toLowerCase()}.`, 'good'), 900);
             }
           } else audio.play('build');
+          return;
+        }
+        if (m.kind === 'rail') {
+          // A obra que completa o trecho chega no mesmo instante: a linha começa depois do selo saltar.
+          railBorn.current.set(linkKey(m.link), now + 450);
+          const net = worldNetwork(s);
+          const a = net.nodes.get(m.link.a);
+          const b = net.nodes.get(m.link.b);
+          if (!a || !b || (a.nation !== s.me && b.nation !== s.me)) return;
+          window.setTimeout(() => audio.play('rail'), 500);
+          const pct = Math.round((m.link.ally ? LOGISTICS.allyBonus : LOGISTICS.linkBonus + LOGISTICS.qualityBonus * (m.link.quality - 1)) * 100);
+          const text = m.link.ally
+            ? `Conexão com aliado: ${STRUCTURES[a.type].name} ↔ ${STRUCTURES[b.type].name}, +${pct}% de produção.`
+            : `Ferrovia ligou ${STRUCTURES[a.type].name} e ${STRUCTURES[b.type].name}: +${pct}% de produção nas duas.`;
+          window.setTimeout(() => toast(text, 'good'), 1200);
+          if (!m.link.ally && mine) {
+            const after = nationStats(s, mine);
+            const before = { ...progressOf(after), links: after.links - 1 };
+            const reached = MILESTONES.find((ms) => ms.kind === 'links' && milestoneProgress(ms, progressOf(after)).done && !milestoneProgress(ms, before).done);
+            if (reached) window.setTimeout(() => toast(`Meta cumprida: ${reached.title.toLowerCase()}.`, 'good'), 2200);
+          }
           return;
         }
         if (m.kind === 'match') {
@@ -586,6 +647,12 @@ export function MapStage(props: Props) {
   const panelStructure = panel ? (state.structures.get(panel.id) ?? null) : null;
   const panelType = panelStructure?.type ?? null;
   const panelRegion = panelStructure?.region ?? null;
+  const panelRail = useMemo(() => {
+    if (!panelStructure || panelStructure.level < 1) return null;
+    const net = worldNetwork(state);
+    const mine = net.links.filter((l) => l.a === panelStructure.id || l.b === panelStructure.id);
+    return { links: mine.filter((l) => !l.ally).length, ally: mine.filter((l) => l.ally).length, bonus: net.bonus.get(panelStructure.id) ?? 0 };
+  }, [state, panelStructure]);
   const sameType = (t: StructureType) => myStructures.filter((s) => s.type === t).length;
   const arenaMine = arena && stats ? stats.regions.filter((r) => arenaSet!.has(r)).length : 0;
   const majority = Math.floor((arena?.length ?? 0) * QUICK.majority) + 1;
@@ -745,6 +812,7 @@ export function MapStage(props: Props) {
           mode={state.world.mode}
           economy={state.economy}
           sameType={sameType(panelType)}
+          rail={panelRail}
           problem={queue >= ECONOMY.buildQueue && !panelStructure?.building ? `Já há ${ECONOMY.buildQueue} obras em andamento. Aguarde uma terminar.` : null}
           busy={busy || !!state.world.finishedAt}
           error={cardError}

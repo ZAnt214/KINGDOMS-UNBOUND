@@ -12,6 +12,7 @@ import type {
   MapPick,
   MapPlacement,
   MapPoint,
+  MapRail,
   MapRoute,
   MapStructure,
   MapTerritory,
@@ -50,6 +51,8 @@ const OCEAN_TOP = '#0d3a78';
 const OCEAN_MID = '#0a2857';
 const OCEAN_BOTTOM = '#061634';
 const TAU = Math.PI * 2;
+/** Duração do desenho de um trecho novo de ferrovia (ms). */
+const RAIL_MS = 1400;
 /** A camada base cobre 1,8× a tela: arrastar até essa margem não exige redesenhar o mapa. */
 const BASE_MARGIN = 1.8;
 const FONT = 'system-ui, -apple-system, "Segoe UI", Roboto, sans-serif';
@@ -101,6 +104,7 @@ export class WorldMapEngine {
   private structures: MapStructure[] = [];
   private markers: MapMarker[] = [];
   private routes: MapRoute[] = [];
+  private rails: MapRail[] = [];
   private placement: MapPlacement | null = null;
   private hoveredRegion: string | null = null;
   private pointer: { x: number; y: number } | null = null;
@@ -249,6 +253,16 @@ export class WorldMapEngine {
     this.markers = markers;
     this.invalidate();
   }
+  railList(): readonly MapRail[] {
+    return this.rails;
+  }
+
+  /** Ferrovias entre construções (desenhadas por baixo dos selos). */
+  setRails(rails: MapRail[]) {
+    this.rails = rails;
+    this.invalidate();
+  }
+
   setRoutes(routes: MapRoute[]) {
     this.routes = routes;
     this.invalidate();
@@ -579,7 +593,8 @@ export class WorldMapEngine {
     const now = this.opts.now();
     const moving =
       this.flags.some((f) => f.plantedAt !== undefined && t - f.plantedAt < 700 && t - f.plantedAt > -3000) ||
-      this.structures.some((x) => (x.completedAt !== undefined && t - x.completedAt < 900) || (x.building && now < x.building.endAt + 300));
+      this.structures.some((x) => (x.completedAt !== undefined && t - x.completedAt < 900) || (x.building && now < x.building.endAt + 300)) ||
+      this.rails.some((r) => r.appearAt !== undefined && t - r.appearAt < RAIL_MS + 200 && t - r.appearAt > -4000);
     const filling = this.fills.some((f) => now < f.endAt + 400);
     const live = this.routes.length > 0 || this.pointsLive || this.preview !== null || filling || moving;
     if (this.anim || this.effects.length || (live && !this.opts.reducedMotion)) this.invalidate();
@@ -828,7 +843,10 @@ export class WorldMapEngine {
     if (this.geo) {
       this.drawEffects(t);
       if (!this.hidden.has('points')) this.drawPoints(t);
-      if (!this.hidden.has('structures')) this.drawStructures(t);
+      if (!this.hidden.has('structures')) {
+        this.drawRails(t);
+        this.drawStructures(t);
+      }
       if (!this.hidden.has('flags')) this.drawFlags(t);
       if (this.placement) this.drawPlacement();
     }
@@ -1179,6 +1197,73 @@ export class WorldMapEngine {
     }
   }
 
+  /**
+   * Ferrovias discretas: trilho escuro fino com dormentes na cor da nação. Conexão entre aliados em
+   * tracejado dourado. Trecho novo se desenha de uma ponta à outra com uma luz na frente.
+   */
+  private drawRails(t: number) {
+    if (!this.rails.length) return;
+    const { ctx } = this;
+    const z = this.zoom;
+    const width = Math.max(1, Math.min(2.2, 0.7 + z * 0.12));
+    ctx.save();
+    ctx.lineCap = 'round';
+    for (const r of this.rails) {
+      const age = r.appearAt === undefined ? Infinity : t - r.appearAt;
+      if (age < 0) continue;
+      const fresh = age < 5000;
+      if (r.minZoom !== undefined && z < r.minZoom && !fresh) continue;
+      const [x0, y0] = this.toScreen(r.from[0], r.from[1]);
+      const [x1, y1] = this.toScreen(r.to[0], r.to[1]);
+      if (Math.max(x0, x1) < -20 || Math.min(x0, x1) > this.w + 20 || Math.max(y0, y1) < -20 || Math.min(y0, y1) > this.h + 20) continue;
+      const p = this.opts.reducedMotion ? 1 : clamp01(age / RAIL_MS);
+      const e = easeOut(p);
+      const xe = x0 + (x1 - x0) * e;
+      const ye = y0 + (y1 - y0) * e;
+      ctx.beginPath();
+      ctx.moveTo(x0, y0);
+      ctx.lineTo(xe, ye);
+      if (r.ally) {
+        ctx.strokeStyle = 'rgba(6, 12, 26, 0.7)';
+        ctx.lineWidth = width + 2;
+        ctx.setLineDash([]);
+        ctx.stroke();
+        ctx.strokeStyle = '#f3c14b';
+        ctx.lineWidth = width;
+        ctx.setLineDash([5, 4]);
+        ctx.stroke();
+      } else {
+        ctx.setLineDash([]);
+        ctx.strokeStyle = 'rgba(6, 12, 26, 0.72)';
+        ctx.lineWidth = width + 2.4;
+        ctx.stroke();
+        // Trilho claro sobre base escura: legível sobre qualquer cor de território (inclusive a da própria nação).
+        ctx.strokeStyle = r.own ? 'rgba(246, 238, 220, 0.95)' : 'rgba(246, 238, 220, 0.6)';
+        ctx.lineWidth = width;
+        ctx.stroke();
+        if (z >= 3) {
+          // Dormentes: só de perto, para o mapa continuar limpo de longe.
+          ctx.strokeStyle = 'rgba(6, 12, 26, 0.75)';
+          ctx.lineWidth = width + 2.6;
+          ctx.setLineDash([1, 6]);
+          ctx.lineCap = 'butt';
+          ctx.stroke();
+          ctx.lineCap = 'round';
+        }
+      }
+      ctx.setLineDash([]);
+      if (p < 1) {
+        ctx.beginPath();
+        ctx.arc(xe, ye, 3 + width, 0, TAU);
+        ctx.fillStyle = r.ally ? '#ffe39a' : '#ffffff';
+        ctx.globalAlpha = 0.9;
+        ctx.fill();
+        ctx.globalAlpha = 1;
+      }
+    }
+    ctx.restore();
+  }
+
   private placementOk(): boolean {
     if (!this.placement || !this.pointer || !this.hoveredRegion) return false;
     const [wx, wy] = this.toWorld(this.pointer.x, this.pointer.y);
@@ -1193,6 +1278,23 @@ export class WorldMapEngine {
     const { x, y } = this.pointer;
     const ok = this.placementOk();
     const r = this.structureRadius() + 2;
+    if (ok && this.placement.links && this.hoveredRegion) {
+      // Prévia da rede: os trilhos que surgiriam se a construção ficasse aqui.
+      const [wx, wy] = this.toWorld(x, y);
+      const at = this.projection.unproject(wx, wy) as [number, number];
+      ctx.save();
+      ctx.strokeStyle = 'rgba(120, 255, 180, 0.85)';
+      ctx.lineWidth = 2;
+      ctx.setLineDash([6, 5]);
+      for (const to of this.placement.links(this.hoveredRegion, at)) {
+        const [tx, ty] = this.toScreen(to[0], to[1]);
+        ctx.beginPath();
+        ctx.moveTo(x, y);
+        ctx.lineTo(tx, ty);
+        ctx.stroke();
+      }
+      ctx.restore();
+    }
     ctx.beginPath();
     ctx.arc(x, y, r + 7, 0, TAU);
     ctx.strokeStyle = ok ? 'rgba(120, 255, 180, 0.9)' : 'rgba(255, 110, 110, 0.9)';

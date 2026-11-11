@@ -227,3 +227,17 @@ Medido em máquina de nuvem sem GPU; um aparelho real pode ter números diferent
 
 ### Prévia (Vercel + banco real)
 `kingdoms-unbound-g1e3xbxn3-test11-1d8d.vercel.app` (commit `157f516`): `GET /api/meta` 200. CI do mesmo commit: verde (typecheck + integração com PostgreSQL, incluindo a migração 5). Na primeira tentativa o CI pegou um erro real (parâmetro de longitude tipado como inteiro na busca de vizinhas), corrigido em `157f516`.
+
+## 2026-11-11 — Fase C: Logística
+
+### Unidade (local)
+`tests/unit/logistics.test.ts` **10/10**: alcance e vizinhança (não cruza região não vizinha), menor árvore, obras em andamento e nações diferentes fora da ferrovia, bônus com qualidade e teto, prévia de trechos, conexão entre aliados (mais próximo, tipos certos, sem aliança nada), produção com +4%, depósito ligado +50%, bônus de aliado na produção. `play.test.ts` 14/14 (metas de ferrovia), `economy.test.ts` 12/12, `geo.test.ts` 2/2.
+
+### Integração (CI, PostgreSQL real)
+`tests/integration/logistics.test.ts`: duas construções concluídas ligam sozinhas e a produção do servidor é igual à da função compartilhada (com bônus); aliança criada é avisada a todos; ao aprovar a entrada, o saldo dos dois é acertado no instante e a conexão com aliado aparece na produção; ao sair, a conexão some e o saldo é acertado antes. Resultado: ver o CI do commit.
+
+### Interface — navegador automatizado com SERVIDOR FALSO
+`tests/e2e/play-visual.cjs`: **25/25** em 390×844 e **25/25** em 1280×800. Novos: a ferrovia surge sozinha entre a cidade e o depósito e avisa o bônus; o mapa desenha o trecho; o painel de economia mostra "1 trecho de ferrovia … +4%". O servidor falso não tem alianças: a conexão entre aliados só é coberta pelo teste de integração.
+
+### Desempenho (mesmo método do relatório anterior)
+Parado 60 fps, arraste 60 fps, zoom por roda 37 fps — sem regressão com as ferrovias.

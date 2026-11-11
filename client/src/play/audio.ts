@@ -2,7 +2,7 @@
 // Efeitos curtos e discretos para cada ação e uma trilha ambiente lenta. Volumes ficam salvos
 // no navegador; o áudio só começa depois do primeiro toque (exigência dos navegadores).
 
-export type SoundName = 'tap' | 'select' | 'confirm' | 'deny' | 'found' | 'expand' | 'conquest' | 'country' | 'level' | 'notify' | 'build' | 'built' | 'victory' | 'defeat';
+export type SoundName = 'tap' | 'select' | 'confirm' | 'deny' | 'found' | 'expand' | 'conquest' | 'country' | 'level' | 'notify' | 'build' | 'built' | 'rail' | 'victory' | 'defeat';
 
 export interface AudioSettings {
   music: number;
@@ -206,6 +206,12 @@ class GameAudio {
         // Obra pronta: base grave e acorde maior subindo.
         this.tone({ f: 130, to: 65, dur: 0.4, type: 'sine', gain: 0.22 });
         [64, 68, 71, 76].forEach((n, i) => this.tone({ f: midi(n), at: 0.04 + i * 0.07, dur: 0.45, type: 'triangle', gain: 0.11 }));
+        break;
+      case 'rail':
+        // Ferrovia ligada: rodas sobre os trilhos (quatro batidas em ritmo de vagão) e um apito curto.
+        [0, 0.11, 0.36, 0.47].forEach((at) => this.noise({ at, dur: 0.06, from: 1800, to: 900, gain: 0.09, q: 3 }));
+        this.tone({ f: midi(79), at: 0.55, dur: 0.35, type: 'triangle', gain: 0.09 });
+        this.tone({ f: midi(84), at: 0.6, dur: 0.45, type: 'sine', gain: 0.07 });
         break;
       case 'victory':
         this.tone({ f: 98, to: 49, dur: 1.2, type: 'sine', gain: 0.3 });

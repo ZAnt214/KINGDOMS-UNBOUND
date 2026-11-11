@@ -69,6 +69,8 @@ export function PlayApp({ me, enter, reloadMe, onLoginForm, onLogout }: Props) {
       },
       /** Construções desenhadas no mapa (posição exata vinda do servidor). */
       structures: () => e.structureList().map((s) => ({ id: s.id, lon: s.lon, lat: s.lat, own: s.own })),
+      /** Trechos de ferrovia desenhados no mapa. */
+      rails: () => e.railList().map((r) => ({ id: r.id, from: r.from, to: r.to, ally: !!r.ally, own: !!r.own })),
       get zoom() {
         return e.zoom;
       },

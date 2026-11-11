@@ -186,3 +186,19 @@ Mesma branch (`claude/fase-a-capital-expansao`). Decisões em `docs/adr/0005-eco
 - [x] O mapa só redesenha quando algo muda ou há animação ativa.
 - [x] Interface React atualiza só os pequenos componentes com relógio (recursos, relógio da partida, obras), não a tela inteira.
 - [x] Medição no navegador automatizado (celular, DPR 3): de 3 fps para 60 fps parado e arrastando, 36 fps no zoom por roda (ver TEST_REPORT).
+
+## 2026-11-11 — Fase C: Logística
+
+Decisões em `docs/adr/0006-logistica-derivada.md`; regras em `docs/PLAY_RULES.md`.
+
+- [x] Ferrovias automáticas entre construções próprias a até 300 km, em regiões iguais ou vizinhas, pelo menor traçado (sem poluir o mapa).
+- [x] Bônus de produção por trecho (+4%, +1% por nível do lado mais fraco, teto de 15%) e +50% de estoque para depósito/porto ligado.
+- [x] Conexão entre aliados: fábrica ↔ cidade/porto aliado, +5% para os dois. Servidor acerta o saldo de todos os afetados antes de entrar/sair da aliança; testado com banco real.
+- [x] No mapa: trilho claro com dormentes (de perto), desenhado aos poucos com uma luz na ponta quando surge; conexão entre aliados em tracejado dourado; som de vagão.
+- [x] Prévia ao construir (mouse): linhas verdes mostram os trechos que vão surgir naquele ponto.
+- [x] Painel da construção mostra trechos e bônus; painel de economia mostra a rede logística.
+- [x] Metas de ferrovia; bots ligam suas construções pelas mesmas regras.
+
+**Pendências**
+- [ ] Botão de pedir aliança no jogo (Fase F). Até lá a conexão entre aliados existe e é testada no servidor, mas o jogador não tem como formar aliança pela tela.
+- [ ] Prévia de trechos no toque (celular): hoje o toque já constrói; a prévia aparece só com mouse.

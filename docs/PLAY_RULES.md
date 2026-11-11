@@ -95,11 +95,23 @@ Jazidas são uma regra do jogo, não dado geológico: sorteio determinístico pe
 - Espaços por região proporcionais à área: √(área / 25.000 km²), entre 2 e 6, +2 na região da capital. Pode repetir o tipo na mesma região. Até 2 obras ao mesmo tempo. Porto só em região litorânea.
 - Construção nova não produz até o nível 1 terminar; em melhoria, continua produzindo no nível atual.
 
+### Logística e ferrovias (Fase C)
+
+Regras em `shared/play/logistics.ts`, usadas pelo servidor (produção) e pelo cliente (mapa e painéis).
+
+- **Ferrovia automática, sem custo:** duas construções concluídas (nível ≥ 1) da mesma nação se ligam quando estão a até **300 km** e em regiões iguais ou vizinhas (a ferrovia não cruza o mar nem salta regiões).
+- **Traçado discreto:** a nação usa a menor árvore que liga tudo o que é alcançável (Kruskal; empates pelos ids). Três construções em linha têm dois trechos, não três.
+- **Bônus de produção:** cada trecho dá **+4%** às duas pontas, mais **+1% por nível** acima de 1 do lado mais fraco; teto de **+15%** por construção.
+- **Distribuição:** depósito ou porto ligado à rede guarda **+50%** da sua capacidade.
+- **Aliados:** cada fábrica concluída se liga à cidade ou porto concluído mais próximo de outra nação da mesma aliança (mesmas regras de alcance e vizinhança): **+5%** para as duas pontas, fora do teto.
+- A rede não é guardada no banco: é derivada das construções a cada cálculo. Antes de uma obra do nível 0→1 terminar, e antes de alguém entrar ou sair de uma aliança, o servidor acerta o saldo de todos os afetados (a nação e os membros da aliança, em ordem crescente de id) com a produção antiga.
+- Metas novas: "Ligar duas construções por ferrovia" e "Ter 6 trechos de ferrovia".
+
 ### Autoridade do servidor
 
 O saldo é guardado como "valor num instante" (`nation_resources.settled_at`). Antes de qualquer mudança que altere a produção (região ganha, obra concluída) ou o saldo (gasto), o servidor acerta o saldo até aquele instante com a produção antiga. Obras e ocupações terminam pelo relógio do banco, por três caminhos equivalentes (worker, leitura, novo pedido), com `FOR UPDATE SKIP LOCKED`. O cliente nunca envia custo, nível, duração ou saldo; quando envia, é ignorado.
 
-**Ainda não existe:** ferrovias e bônus de conexão (Fase C), manutenção de unidades (Fase D), centro de distribuição (Fase C).
+**Ainda não existe:** manutenção de unidades (Fase D), centro de distribuição (Fase C).
 
 ## Partida rápida
 

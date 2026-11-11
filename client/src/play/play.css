@@ -1964,3 +1964,30 @@
 .ku-toast.bad {
   background: rgba(60, 14, 22, 0.95);
 }
+
+/* Fase C: linha da rede logística nos painéis */
+.ku-rail {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  margin: 8px 0 0;
+  padding: 8px 10px;
+  border-radius: 10px;
+  background: rgba(150, 190, 255, 0.07);
+  color: var(--ink-dim);
+  font-size: 13px;
+  line-height: 1.35;
+}
+.ku-rail svg {
+  flex: none;
+  margin-top: 1px;
+}
+.ku-rail.on {
+  color: var(--ink-soft);
+}
+.ku-rail.on svg {
+  color: var(--gold);
+}
+.ku-rail b {
+  color: var(--good);
+}

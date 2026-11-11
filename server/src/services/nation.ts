@@ -13,7 +13,9 @@ import type { TerritoryService } from './territory.js';
 type Queryable = Pick<Db, 'query'> | Pick<Tx, 'query'>;
 
 const NATION_SQL = `SELECT n.governor_id, n.name, n.color, n.flag, n.flag_image_version, (n.flag_image IS NOT NULL) AS has_image,
-                           n.capital_point, n.founded_at, g.is_bot
+                           n.capital_point, n.founded_at, g.is_bot,
+                           (SELECT m.alliance_id FROM alliance_members m JOIN alliances a ON a.id = m.alliance_id AND a.status = 'active'
+                             WHERE m.governor_id = n.governor_id) AS alliance_id
                       FROM nations n JOIN governors g ON g.id = n.governor_id`;
 
 const nationView = (r: any): NationView => ({
@@ -25,6 +27,7 @@ const nationView = (r: any): NationView => ({
   capital: r.capital_point,
   foundedAt: new Date(r.founded_at).getTime(),
   bot: r.is_bot === true,
+  alliance: r.alliance_id === null || r.alliance_id === undefined ? null : Number(r.alliance_id),
 });
 
 export interface NewNation {

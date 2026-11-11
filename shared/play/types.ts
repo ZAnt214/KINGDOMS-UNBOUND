@@ -18,6 +18,8 @@ export interface NationView {
   foundedAt: number;
   /** Nação controlada pelo servidor (partida rápida). */
   bot: boolean;
+  /** Aliança ativa da nação (id), ou null. Define as conexões logísticas entre aliados. */
+  alliance: number | null;
 }
 
 export interface OccupationView {
@@ -52,6 +54,8 @@ export interface EconomyView {
   capacity: number;
   energy: { supply: number; demand: number };
   efficiency: number;
+  /** Rede logística (Fase C): trechos de ferrovia, conexões com aliados e bônus médio. */
+  logistics: { links: number; allyLinks: number; connected: number; averageBonus: number };
 }
 
 export interface ResultView {
@@ -96,6 +100,7 @@ export type PlayEvent =
   | { type: 'play.occupation.failed'; occupationId: number; region: string; nationId: number }
   | { type: 'play.structure'; structure: StructureView; completed: boolean }
   | { type: 'play.economy'; economy: EconomyView }
+  | { type: 'play.alliance'; nationId: number; alliance: number | null }
   | { type: 'play.match'; world: WorldView };
 
 export interface FoundInput {

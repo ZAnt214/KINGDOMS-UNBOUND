@@ -86,7 +86,7 @@ class Fail extends Error {
 const inputs = (w: World, gid: number) => ({
   regions: [...w.control].filter(([, o]) => o === gid).map(([r]) => r),
   capitalRegion: START_POINT_BY_ID[w.nations.get(gid)!.capital].region,
-  structures: [...w.structures.values()].filter((s) => s.nationId === gid && s.level > 0).map((s) => ({ type: s.type, level: s.level, region: s.region })),
+  structures: [...w.structures.values()].filter((s) => s.nationId === gid && s.level > 0).map((s) => ({ id: s.id, type: s.type, level: s.level, region: s.region, at: s.at })),
 });
 function settle(w: World, gid: number, at = Date.now()) {
   const wal = w.wallet.get(gid)!;
@@ -106,7 +106,7 @@ function economyView(w: World, gid: number): EconomyView | null {
   const wal = w.wallet.get(gid);
   if (!wal) return null;
   const e = computeEconomy(inputs(w, gid), w.view.mode);
-  return { amounts: { ...wal.amounts }, settledAt: wal.settledAt, rates: e.rates, capacity: e.capacity, energy: e.energy, efficiency: e.efficiency };
+  return { amounts: { ...wal.amounts }, settledAt: wal.settledAt, rates: e.rates, capacity: e.capacity, energy: e.energy, efficiency: e.efficiency, logistics: e.logistics };
 }
 const announceEconomy = (w: World, gid: number) => send(w.view.id, { type: 'play.economy', economy: economyView(w, gid) }, gid);
 
@@ -205,7 +205,7 @@ function createNation(w: World, gid: number, point: StartPoint, name: string, co
   if (w.control.has(point.region)) throw new Fail(409, 'region_taken', 'Esta região já pertence a outra nação. Escolha outro ponto.');
   if ([...w.nations.values()].some((n) => n.name.toLowerCase() === name.toLowerCase())) throw new Fail(409, 'name_taken', 'Já existe uma nação com este nome neste mundo.');
   if (blockedColors(w, point.id).includes(color)) throw new Fail(409, 'color_taken', 'Uma nação vizinha já usa esta cor. Escolha outra para que as fronteiras fiquem legíveis.');
-  const nation: NationView = { id: gid, name, color, flag, flagImage: image ? 1 : null, capital: point.id, foundedAt: Date.now(), bot };
+  const nation: NationView = { id: gid, name, color, flag, flagImage: image ? 1 : null, capital: point.id, foundedAt: Date.now(), bot, alliance: null };
   w.nations.set(gid, { ...nation, image });
   w.control.set(point.region, gid);
   w.wallet.set(gid, { amounts: { ...ECONOMY.starting }, settledAt: Date.now() });

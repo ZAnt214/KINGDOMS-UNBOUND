@@ -19,6 +19,7 @@ import {
   structureSeconds,
   type StructureType,
 } from '../../../shared/play/economy';
+import { LOGISTICS } from '../../../shared/play/logistics';
 import type { GameMode } from '../../../shared/play/rules';
 import type { EconomyView, StructureView } from '../../../shared/play/types';
 import { REGION_BY_ID, REGIONS } from '../../../shared/world/regions';
@@ -95,10 +96,11 @@ export function CostLine({ cost, have }: { cost: Cost; have: ResourceMap | null 
 }
 
 /** Quanto a produção muda se a construção passar do nível `from` ao `from + 1`. */
-function productionDelta(input: EconomyInput, mode: GameMode, type: StructureType, region: string, from: number) {
+function productionDelta(input: EconomyInput, mode: GameMode, structure: StructureView | null, type: StructureType, region: string, from: number) {
   const before = computeEconomy(input, mode);
-  const others = input.structures.filter((s) => !(s.type === type && s.region === region));
-  const after = computeEconomy({ ...input, structures: [...others, { type, level: from + 1, region }] }, mode);
+  const others = structure ? input.structures.filter((s) => s.id !== structure.id) : input.structures;
+  const next = structure ? { id: structure.id, at: structure.at, type, level: from + 1, region } : { type, level: from + 1, region };
+  const after = computeEconomy({ ...input, structures: [...others, next] }, mode);
   const delta: Partial<ResourceMap> = {};
   for (const r of RESOURCES) {
     const d = after.rates[r] - before.rates[r];
@@ -121,6 +123,8 @@ interface PanelProps {
   sameType: number;
   /** Motivo de bloqueio vindo das regras (null = pode). */
   problem: string | null;
+  /** Rede logística desta construção: trechos próprios, conexões com aliados e bônus atual. */
+  rail?: { links: number; ally: number; bonus: number } | null;
   busy: boolean;
   error: string | null;
   onAct: () => void;
@@ -137,7 +141,10 @@ export function StructurePanel(p: PanelProps) {
   const maxed = level >= ECONOMY.maxLevel;
   const cost = maxed ? {} : structureCost(p.type, level, p.structure ? 0 : p.sameType);
   const seconds = structureSeconds(p.type, level, p.mode);
-  const preview = useMemo(() => (p.input && !maxed ? productionDelta(p.input, p.mode, p.type, p.region, level) : null), [p.input, p.mode, p.type, p.region, level, maxed]);
+  const preview = useMemo(
+    () => (p.input && !maxed ? productionDelta(p.input, p.mode, p.structure, p.type, p.region, level) : null),
+    [p.input, p.mode, p.structure, p.type, p.region, level, maxed],
+  );
   const lack = have ? missing(have, cost) : {};
   const short = Object.keys(lack).length > 0;
   const now = serverNow();
@@ -160,6 +167,20 @@ export function StructurePanel(p: PanelProps) {
         </div>
       </header>
       <p className="ku-note">{def.role}</p>
+      {p.rail && level > 0 && (
+        <p className={`ku-rail ${p.rail.links + p.rail.ally ? 'on' : ''}`} data-testid="structure-rail">
+          <Glyph d={RAIL_GLYPH} size={16} />
+          {p.rail.links + p.rail.ally === 0 ? (
+            <span>Sem ferrovia. Construa a até {LOGISTICS.rangeKm} km, na mesma região ou numa vizinha, para ligar.</span>
+          ) : (
+            <span>
+              {p.rail.links > 0 && `${p.rail.links} ${p.rail.links === 1 ? 'trecho' : 'trechos'} de ferrovia`}
+              {p.rail.links > 0 && p.rail.ally > 0 && ' e '}
+              {p.rail.ally > 0 && `${p.rail.ally} ${p.rail.ally === 1 ? 'conexão' : 'conexões'} com aliado`}: <b>+{Math.round(p.rail.bonus * 100)}% de produção</b>
+            </span>
+          )}
+        </p>
+      )}
       {!p.own && p.ownerName && <p className="ku-status other">Pertence a {p.ownerName}</p>}
       {building && (
         <div className="ku-meter">
@@ -299,6 +320,9 @@ export function BuildBar(p: {
   );
 }
 
+/** Trilho com dormentes (grade 24×24), desenhado para o jogo. */
+export const RAIL_GLYPH = 'M8 2 L6 22 M16 2 L18 22 M5 6 H19 M4.6 11 H19.4 M4.2 16 H19.8 M3.8 21 H20.2';
+
 /** Painel de economia: saldo, produção, estoque, energia e eficiência. */
 export function EconomySheet({ economy, onClose }: { economy: EconomyView; onClose: () => void }) {
   const have = useAmounts(economy)!;
@@ -339,6 +363,18 @@ export function EconomySheet({ economy, onClose }: { economy: EconomyView; onClo
       <p className="ku-note">
         Estoque máximo de cada recurso: <b>{fmtAmount(economy.capacity)}</b>. Eficiência das construções: <b>{Math.round(economy.efficiency * 100)}%</b>.
         {short ? ' Construa uma usina de energia para voltar a 100%.' : ''}
+      </p>
+      <p className="ku-rail on" data-testid="economy-rail">
+        <Glyph d={RAIL_GLYPH} size={18} />
+        {economy.logistics.connected === 0 ? (
+          <span>Rede logística: nenhuma construção ligada. Construções a até {LOGISTICS.rangeKm} km, em regiões iguais ou vizinhas, se ligam sozinhas por ferrovia.</span>
+        ) : (
+          <span>
+            Rede logística: <b>{economy.logistics.links}</b> {economy.logistics.links === 1 ? 'trecho' : 'trechos'} de ferrovia
+            {economy.logistics.allyLinks > 0 && <>, <b>{economy.logistics.allyLinks}</b> com aliados</>}, {economy.logistics.connected} construções ligadas, bônus médio de{' '}
+            <b>+{Math.round(economy.logistics.averageBonus * 100)}%</b>.
+          </span>
+        )}
       </p>
     </Sheet>
   );

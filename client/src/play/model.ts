@@ -1,7 +1,39 @@
 import { type Milestone, milestoneProgress, nationLevel, nationXp, nextMilestone } from '../../../shared/play/rules';
 import type { NationView } from '../../../shared/play/types';
 import { dominatedCountries, expansionTargets, REGION_BY_ID } from '../../../shared/world/regions';
+import { type Link, type Logistics, logistics, type LogisticsNode } from '../../../shared/play/logistics';
 import { regionsOf, structuresOf, type WorldState } from './store';
+
+export interface WorldNetwork extends Logistics {
+  nodes: Map<number, LogisticsNode>;
+}
+
+const networkCache = new WeakMap<WorldState, WorldNetwork>();
+
+/**
+ * Ferrovias e conexões entre aliados do mundo inteiro, pela mesma regra que o servidor usa para a
+ * produção (shared/play/logistics.ts). Calculado uma vez por estado.
+ */
+export function worldNetwork(state: WorldState): WorldNetwork {
+  const hit = networkCache.get(state);
+  if (hit) return hit;
+  const nodes = new Map<number, LogisticsNode>();
+  for (const s of state.structures.values()) {
+    if (s.level < 1) continue;
+    nodes.set(s.id, { id: s.id, nation: s.nationId, type: s.type, level: s.level, region: s.region, at: s.at });
+  }
+  const net = { ...logistics([...nodes.values()], (n) => state.nations.get(n)?.alliance ?? null), nodes };
+  networkCache.set(state, net);
+  return net;
+}
+
+export const linkKey = (l: Link) => `${l.ally ? 'a' : 'r'}:${Math.min(l.a, l.b)}:${Math.max(l.a, l.b)}`;
+
+/** Trechos próprios de uma nação (sem as conexões com aliados). */
+export function railLinksOf(state: WorldState, nationId: number): Link[] {
+  const net = worldNetwork(state);
+  return net.links.filter((l) => !l.ally && net.nodes.get(l.a)?.nation === nationId);
+}
 
 export interface NationStats {
   nation: NationView;
@@ -11,6 +43,8 @@ export interface NationStats {
   /** Construções concluídas (nível ≥ 1). */
   structures: number;
   structureLevels: number;
+  /** Trechos de ferrovia próprios. */
+  links: number;
   xp: number;
   level: ReturnType<typeof nationLevel>;
 }
@@ -22,7 +56,7 @@ export function nationStats(state: WorldState, nation: NationView): NationStats 
   const built = structuresOf(state, nation.id).filter((x) => x.level > 0);
   const structureLevels = built.reduce((sum, x) => sum + x.level, 0);
   const xp = nationXp(regions.length, countries.length, structureLevels);
-  return { nation, regions, countries, area, structures: built.length, structureLevels, xp, level: nationLevel(xp) };
+  return { nation, regions, countries, area, structures: built.length, structureLevels, links: railLinksOf(state, nation.id).length, xp, level: nationLevel(xp) };
 }
 
 /** Todas as nações do mundo, da maior para a menor (regiões, depois área). */
@@ -44,7 +78,7 @@ export function objective(stats: NationStats): { milestone: Milestone; value: nu
   return m ? { milestone: m, value: milestoneProgress(m, p).value } : null;
 }
 
-export const progressOf = (s: NationStats) => ({ regions: s.regions.length, countries: s.countries.length, structures: s.structures });
+export const progressOf = (s: NationStats) => ({ regions: s.regions.length, countries: s.countries.length, structures: s.structures, links: s.links });
 
 /** Número compacto para o HUD: 950, 12,4 mil, 1,2 mi. */
 export function fmtAmount(n: number): string {

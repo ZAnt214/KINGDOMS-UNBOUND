@@ -151,7 +151,7 @@ async function enter(page, name, color, flag) {
   await A.screenshot({ path: `${OUT}/16-obra-no-mapa.png` });
   // Segundo toque, em outro ponto, ainda no modo de construção: ergue um depósito.
   await A.click('[data-testid=build-depot]');
-  await clickMap(A, -50.2, -14.2);
+  await clickMap(A, -49.6, -15.2);
   await A.waitForTimeout(600);
   await A.waitForFunction(() => /Cidade concluída/.test(document.body.textContent ?? ''), null, { timeout: 60000 }).then(
     () => check('dois toques, duas construções; a obra termina sozinha e avisa', true),
@@ -160,13 +160,32 @@ async function enter(page, name, color, flag) {
   await A.waitForTimeout(400);
   await A.screenshot({ path: `${OUT}/17-cidade-pronta.png` });
   const mine = await A.evaluate(() => window.__kuMap.structures().filter((x) => x.own));
-  check('as construções ficam no ponto tocado, não no centro da região', mine.some((x) => Math.hypot(x.lon + 48.6, x.lat + 16.4) < 0.5) && mine.some((x) => Math.hypot(x.lon + 50.2, x.lat + 14.2) < 0.5));
+  check('as construções ficam no ponto tocado, não no centro da região', mine.some((x) => Math.hypot(x.lon + 48.6, x.lat + 16.4) < 0.5) && mine.some((x) => Math.hypot(x.lon + 49.6, x.lat + 15.2) < 0.5));
+  // Fase C: as duas obras ficam prontas e uma ferrovia surge sozinha entre elas.
+  await A.waitForFunction(() => /Ferrovia ligou/.test(document.body.textContent ?? ''), null, { timeout: 60000 }).then(
+    () => check('ferrovia surge sozinha entre construções próximas e avisa o bônus', true),
+    () => check('ferrovia surge sozinha entre construções próximas e avisa o bônus', false),
+  );
+  await A.waitForTimeout(300);
+  await A.screenshot({ path: `${OUT}/18-ferrovia-surgindo.png` });
+  const rails = await A.evaluate(() => window.__kuMap.rails().filter((r) => r.own && !r.ally));
+  check('o mapa desenha o trecho entre as duas construções', rails.length >= 1);
   await A.click('[data-testid=build-close]');
+  // De perto: o trilho com dormentes entre a cidade e o depósito.
+  const [zx, zy] = await project(A, -49.1, -15.8);
+  await A.mouse.move(zx, zy);
+  for (let i = 0; i < 12; i++) {
+    await A.mouse.wheel(0, -350);
+    await A.waitForTimeout(120);
+  }
+  await A.waitForTimeout(1200);
+  await A.screenshot({ path: `${OUT}/19-ferrovia.png` });
   await A.click('[data-testid=resources]');
   await A.waitForSelector('[data-testid=economy-sheet]');
   await A.waitForTimeout(300);
   await A.screenshot({ path: `${OUT}/20-economia.png` });
   check('economia mostra os seis recursos e a energia', (await A.locator('[data-testid=economy-sheet] li').count()) === 7);
+  check('economia mostra a rede logística com o trecho e o bônus', /1 trecho de ferrovia.*\+4%/.test(await A.locator('[data-testid=economy-rail]').innerText()));
   await A.keyboard.press('Escape');
 
   await A.click('[data-testid=dock-ranking]');

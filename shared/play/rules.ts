@@ -113,7 +113,7 @@ export function nationLevel(xp: number): { level: number; progress: number; floo
 export interface Milestone {
   id: string;
   title: string;
-  kind: 'regions' | 'countries' | 'structures';
+  kind: 'regions' | 'countries' | 'structures' | 'links';
   target: number;
 }
 
@@ -122,10 +122,12 @@ export const MILESTONES: Milestone[] = [
   { id: 'r1', title: 'Fundar a nação', kind: 'regions', target: 1 },
   { id: 's1', title: 'Erguer a primeira construção', kind: 'structures', target: 1 },
   { id: 'r3', title: 'Ocupar 3 regiões', kind: 'regions', target: 3 },
+  { id: 'l1', title: 'Ligar duas construções por ferrovia', kind: 'links', target: 1 },
   { id: 's4', title: 'Ter 4 construções', kind: 'structures', target: 4 },
   { id: 'r6', title: 'Ocupar 6 regiões', kind: 'regions', target: 6 },
   { id: 'c1', title: 'Dominar um país inteiro', kind: 'countries', target: 1 },
   { id: 's10', title: 'Ter 10 construções', kind: 'structures', target: 10 },
+  { id: 'l6', title: 'Ter 6 trechos de ferrovia', kind: 'links', target: 6 },
   { id: 'r12', title: 'Ocupar 12 regiões', kind: 'regions', target: 12 },
   { id: 'r25', title: 'Ocupar 25 regiões', kind: 'regions', target: 25 },
   { id: 'c3', title: 'Dominar 3 países', kind: 'countries', target: 3 },
@@ -139,6 +141,8 @@ export interface Progress {
   countries: number;
   /** Construções concluídas (nível ≥ 1). */
   structures: number;
+  /** Trechos de ferrovia próprios (Fase C). */
+  links: number;
 }
 
 export function milestoneProgress(m: Milestone, p: Progress): { value: number; done: boolean } {

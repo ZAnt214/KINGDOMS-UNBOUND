@@ -1,7 +1,9 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { StructureType } from '../../../shared/play/economy';
 import type { EconomyView, FoundInput, NationView, OccupationView, PlayEvent, PlaySnapshot, StructureView, WorldView } from '../../../shared/play/types';
+import type { Link } from '../../../shared/play/logistics';
 import { dominatedCountries } from '../../../shared/world/regions';
+import { linkKey, worldNetwork } from './model';
 import { api, ApiError, serverNow } from '../api';
 import { Realtime, type RealtimeStatus } from '../realtime';
 
@@ -24,7 +26,8 @@ export type WorldMoment =
   | { kind: 'region'; region: string; nationId: number }
   | { kind: 'country'; country: string; nationId: number }
   | { kind: 'structure'; structure: StructureView; completed: boolean }
-  | { kind: 'match'; world: WorldView };
+  | { kind: 'match'; world: WorldView }
+  | { kind: 'rail'; link: Link; nationId: number };
 
 function fromSnapshot(s: PlaySnapshot): WorldState {
   return {
@@ -95,6 +98,14 @@ export function usePlayWorld(worldId: number | null, governorId: number | null, 
       else if (s.level > old.level) moment.current({ kind: 'structure', structure: s, completed: true }, next);
       else if (s.building && !old.building) moment.current({ kind: 'structure', structure: s, completed: false }, next);
     }
+    // Ferrovias novas (obra concluída perto de outra, ou aliança nova): a linha surge no mapa.
+    const before = new Set(worldNetwork(prev).links.map(linkKey));
+    const net = worldNetwork(next);
+    for (const link of net.links) {
+      if (before.has(linkKey(link))) continue;
+      const nationId = net.nodes.get(link.a)?.nation;
+      if (nationId !== undefined) moment.current({ kind: 'rail', link, nationId }, next);
+    }
     if (next.world.finishedAt && !prev.world.finishedAt) moment.current({ kind: 'match', world: next.world }, next);
   }, []);
 
@@ -136,6 +147,9 @@ export function usePlayWorld(worldId: number | null, governorId: number | null, 
         next.occupations = prev.occupations.filter((o) => o.id !== e.occupationId);
       } else if (e.type === 'play.structure') {
         next.structures.set(e.structure.id, e.structure);
+      } else if (e.type === 'play.alliance') {
+        const n = next.nations.get(e.nationId);
+        if (n) next.nations.set(e.nationId, { ...n, alliance: e.alliance });
       } else if (e.type === 'play.economy') {
         next.economy = e.economy;
       } else if (e.type === 'play.match') {

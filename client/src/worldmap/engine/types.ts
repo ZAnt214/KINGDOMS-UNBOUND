@@ -140,6 +140,22 @@ export interface MapPlacement {
   color: string;
   /** Diz se a região sob o ponteiro aceita a construção (cor do fantasma). */
   accepts?: (regionId: string, at: [number, number]) => boolean;
+  /** Pontas das ferrovias que surgiriam se a construção ficasse aqui (prévia). */
+  links?: (regionId: string, at: [number, number]) => [number, number][];
+}
+
+/** Trecho de ferrovia (ou conexão entre aliados) entre duas construções. */
+export interface MapRail {
+  id: string;
+  from: [number, number];
+  to: [number, number];
+  color: string;
+  /** Conexão compartilhada entre aliados: tracejado dourado. */
+  ally?: boolean;
+  own?: boolean;
+  /** Instante (performance.now) em que o trecho surgiu: a linha se desenha aos poucos. */
+  appearAt?: number;
+  minZoom?: number;
 }
 
 /** Efeitos de uma só vez. */
