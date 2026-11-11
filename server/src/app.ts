@@ -12,6 +12,7 @@ import { apiRouter } from './routes.js';
 import { AllianceService } from './services/alliance.js';
 import { ChatService } from './services/chat.js';
 import { CityService } from './services/city.js';
+import { seedGeopolitics, WorldService } from './services/world.js';
 
 export const log = (msg: string, extra: Record<string, unknown> = {}) =>
   console.log(JSON.stringify({ level: 'info', time: new Date().toISOString(), msg, ...extra }));
@@ -26,6 +27,7 @@ export async function createGameServer(
   try {
     await migrate(direct, log);
     await seedWorld(direct);
+    await seedGeopolitics(direct);
   } finally {
     await direct.end();
   }
@@ -40,6 +42,7 @@ export async function createGameServer(
   const city = new CityService(db, hub);
   const alliance = new AllianceService(db, hub);
   const chat = new ChatService(db, hub);
+  const world = new WorldService(db, hub);
 
   app.use((_req, res, next) => {
     res.setHeader('X-Content-Type-Options', 'nosniff');
@@ -57,7 +60,7 @@ export async function createGameServer(
       .catch(() => res.status(503).json({ ok: false }));
   });
 
-  app.use('/api', express.json({ limit: '16kb' }), csrfGuard, authMiddleware(db), apiRouter(db, hub, { city, alliance, chat }));
+  app.use('/api', express.json({ limit: '16kb' }), csrfGuard, authMiddleware(db), apiRouter(db, hub, { city, alliance, chat, world }));
   app.use('/api', errorMiddleware);
 
   if (opts.staticDir && fs.existsSync(opts.staticDir)) {
@@ -80,6 +83,7 @@ export async function createGameServer(
     app,
     server,
     hub,
+    services: { world },
     async close() {
       clearInterval(worker);
       hub.close();

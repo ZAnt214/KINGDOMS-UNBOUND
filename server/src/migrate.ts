@@ -182,6 +182,47 @@ CREATE TABLE audit_logs (
 );
 `,
   },
+  {
+    id: 2,
+    name: 'world_command',
+    sql: `
+CREATE TABLE world_blocs (
+  id SERIAL PRIMARY KEY,
+  kingdom_id INT NOT NULL REFERENCES kingdoms(id),
+  key TEXT NOT NULL,
+  name TEXT NOT NULL,
+  color TEXT NOT NULL CHECK (color ~ '^#[0-9a-fA-F]{6}$'),
+  position INT NOT NULL DEFAULT 0,
+  UNIQUE (kingdom_id, key)
+);
+
+CREATE TABLE world_territories (
+  kingdom_id INT NOT NULL REFERENCES kingdoms(id),
+  country_code TEXT NOT NULL,
+  bloc_id INT REFERENCES world_blocs(id) ON DELETE SET NULL,
+  version INT NOT NULL DEFAULT 1,
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  PRIMARY KEY (kingdom_id, country_code)
+);
+CREATE INDEX world_territories_bloc ON world_territories (bloc_id);
+
+CREATE TABLE world_wars (
+  id BIGSERIAL PRIMARY KEY,
+  kingdom_id INT NOT NULL REFERENCES kingdoms(id),
+  attacker_bloc_id INT NOT NULL REFERENCES world_blocs(id) ON DELETE CASCADE,
+  defender_bloc_id INT NOT NULL REFERENCES world_blocs(id) ON DELETE CASCADE,
+  theater TEXT NOT NULL,
+  country_code TEXT,
+  started_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  ended_at TIMESTAMPTZ,
+  CHECK (attacker_bloc_id <> defender_bloc_id)
+);
+CREATE INDEX world_wars_active ON world_wars (kingdom_id) WHERE ended_at IS NULL;
+
+ALTER TABLE governors ADD COLUMN bloc_id INT REFERENCES world_blocs(id) ON DELETE SET NULL;
+CREATE INDEX governors_bloc ON governors (bloc_id);
+`,
+  },
 ];
 
 export async function migrate(db: Db, log: (msg: string) => void = () => {}) {

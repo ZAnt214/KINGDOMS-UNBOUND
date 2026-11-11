@@ -557,7 +557,7 @@ textarea:focus {
   bottom: 0;
   z-index: 6;
   display: grid;
-  grid-template-columns: repeat(4, 1fr);
+  grid-template-columns: repeat(5, 1fr);
   gap: 4px;
   padding: 7px calc(10px + var(--sr)) calc(7px + var(--sb)) calc(10px + var(--sl));
   background: linear-gradient(rgba(20, 17, 14, 0.97), rgba(8, 7, 5, 0.99));

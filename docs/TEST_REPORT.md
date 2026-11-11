@@ -98,3 +98,20 @@ TypeScript e build cliente/servidor passaram; 9 testes unitários de layout pass
 Não houve teste em Safari físico nem nova sessão multiplayer de navegador; o teste visual intercepta APIs e WebSocket apenas no ambiente de QA. Não extrapolar resultados de SwiftShader para FPS/memória de iPhone.
 
 Resultado local v5: **PASS** no harness Chromium: atlas carregados, seleção da prefeitura, envio de intenção de melhoria, fila, controles de câmera, três estágios, limites nas duas orientações e fallback com imagens bloqueadas. Sem erros JavaScript.
+
+## 2026-11-11 — Centro de comando e mapa-múndi
+
+Ambiente: contêiner sem acesso ao registro npm e sem PostgreSQL. `npm ci`, `npm run typecheck`, `npm test` e `npm run build` **não foram executados**; o resultado abaixo é o que foi possível verificar.
+
+| Verificação | Como | Resultado |
+|---|---|---|
+| Motor do mapa e `shared/world` | `tsc --strict` (TypeScript 6 global) só nesses arquivos | sem erros |
+| Componentes React novos e `Game.tsx` | `tsc` com tipos mínimos de React escritos à mão | sem erros nos arquivos novos; **não substitui** o typecheck com `@types/react` |
+| Tela no navegador | cliente real empacotado com esbuild (PixiJS substituído por stub), Chromium headless, `tests/e2e/command-visual.cjs` com API/WebSocket interceptados | todas as verificações de comportamento passaram |
+| Erros de console | mesma execução | apenas o aviso "cena WebGL indisponível", causado pelo stub local do PixiJS |
+| Servidor (`world.ts`, migração 2, rotas) | — | **não executado**; coberto por `tests/integration/world.test.ts`, que precisa rodar na CI |
+| Regressão do que já existia | — | **não executado** (integração e E2E de dois jogadores dependem da CI) |
+
+O harness visual verifica: legenda igual ao estado recebido; clique no Brasil e na Rússia abre o território certo; ações bloqueadas explicam o motivo; zoom mantém o ponto sob o cursor; arraste leva o país junto; alistamento faz uma única chamada com o cabeçalho CSRF; os seis itens laterais, os cinco módulos e os botões da barra respondem; sem rolagem horizontal e com alvos ≥ 44 px em 1024×768, 390×844 e 844×390. Capturas em `docs/evidence/command-v1/`.
+
+O estado do mundo usado no harness é uma fixture montada a partir de `shared/world/scenario.json`; não prova persistência, isolamento por reino nem tempo real — isso é papel de `world.test.ts`.

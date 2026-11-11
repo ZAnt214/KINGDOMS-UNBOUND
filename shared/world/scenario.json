@@ -1,0 +1,29 @@
+{
+  "neutralColor": "#5d5a72",
+  "blocs": [
+    {
+      "key": "otan",
+      "name": "OTAN",
+      "color": "#2a63d4",
+      "countries": ["USA", "CAN", "GBR", "IRL", "FRA", "ESP", "PRT", "DEU", "ITA", "NLD", "BEL", "LUX", "DNK", "NOR", "SWE", "FIN", "ISL", "POL", "CZE", "SVK", "HUN", "ROU", "BGR", "GRC", "TUR", "EST", "LVA", "LTU", "HRV", "SVN", "ALB", "MNE", "MKD", "AUS", "NZL", "JPN", "KOR", "PHL", "ARG", "CHL", "URY"]
+    },
+    {
+      "key": "pacto",
+      "name": "Pacto Oriental",
+      "color": "#c8322b",
+      "countries": ["RUS", "CHN", "BLR", "PRK", "MNG", "IRN", "SYR", "DZA", "SAU", "YEM", "OMN", "ARE", "CUB", "VEN", "NIC", "MMR", "LAO", "KHM", "AGO", "ZWE", "MDG"]
+    },
+    {
+      "key": "liga",
+      "name": "Liga Global",
+      "color": "#2f9e3f",
+      "countries": ["BRA", "MEX", "IND", "KAZ", "UZB", "TKM", "EGY", "NGA", "GHA", "CIV", "SEN", "KEN", "TZA", "UGA", "ETH", "COL", "GUY", "SUR", "BGD", "LKA", "NPL"]
+    },
+    {
+      "key": "uniao",
+      "name": "União Militar",
+      "color": "#d9a520",
+      "countries": ["IDN", "MYS", "THA", "VNM", "SGP", "PER", "BOL", "ECU", "PRY", "ZAF", "NAM", "BWA", "MOZ", "ZMB"]
+    }
+  ]
+}

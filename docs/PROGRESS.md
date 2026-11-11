@@ -96,3 +96,23 @@ Integrados dois atlas originais com transparência: seis edifícios e seis eleme
 Fonte e briefings em `docs/ART_ASSETS_V5.md`; capturas em `docs/evidence/city-v5/`. Os níveis compartilham ilustrações e variam a pegada, não três modelos 3D diferentes. Não foi adicionada batalha nem nova construção funcional.
 
 A CI da v4 foi concluída com sucesso incluindo integração PostgreSQL: run 40141533430, commit f3f61d9. Esta continuação tem sua própria validação registrada no TEST_REPORT.
+
+## 2026-11-11 — Centro de comando e mapa-múndi (branch `work/world-map-command-center`)
+
+Baseada em `work/city-reference-art` (`c5f4751`). Decisão em `docs/adr/0003-mapa-mundial-motor-independente.md`.
+
+**Entregue em código**
+- Motor de mapa independente (`client/src/worldmap/engine/`): 242 países vetoriais reais, zoom (roda, pinça, botões, duplo clique), arraste, seleção por país, rótulos, cidades por nível de zoom, marcadores, rotas e camadas extras.
+- Tela de comando (`client/src/command/`) na aba **Comando**: barra superior, navegação lateral, legenda, painel do território, cinco módulos, painel de guerras, layouts para desktop, tablet e celular.
+- Servidor: migração 2 (`world_blocs`, `world_territories`, `world_wars`, `governors.bloc_id`), `GET /api/world`, `POST /api/world/enlist`, evento `world.updated`, cenário inicial por reino a partir de `shared/world/scenario.json`.
+
+**Ligado a sistemas que já existiam:** sessão/logout, governador, recursos da cidade (valores e produção reais), fila de obras, ranking por poder, não lidas do chat, abas de cidade e aliança.
+
+**Não existe no servidor e aparece como indisponível, sem dados inventados:** exércitos/aviação/marinha, pesquisa, construção em territórios, declaração de guerra, diplomacia, espionagem, missões, loja, posse de país por jogador, tropas e produção por território. Os recursos mostrados são os da economia atual (alimento, madeira, pedra, ouro), não ouro/dinheiro/petróleo/população do briefing.
+
+**Pendências**
+- [ ] CI (typecheck, integração com Postgres, build) — não executável no ambiente em que isto foi escrito; ver TEST_REPORT.
+- [ ] Decisão de produto: o jogo migra do tema medieval para o geopolítico? Blocos do cenário e alianças de jogadores viram um sistema só?
+- [ ] Nova economia (dinheiro, petróleo, população) se o tema migrar.
+- [ ] Tornar a aba Comando a tela de abertura (hoje a abertura continua sendo a cidade para não quebrar o E2E existente).
+- [ ] Teste em iPhone/Safari físico e medição de FPS.
