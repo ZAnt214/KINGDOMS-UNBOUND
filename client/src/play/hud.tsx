@@ -4,7 +4,7 @@ import { serverNow } from '../api';
 import { useTick } from '../hooks';
 import type { RealtimeStatus } from '../realtime';
 import { nationFlagSrc } from './identity';
-import { IcArmy, IcBuild, IcCapital, IcClock, IcExpand, IcGear, IcGlobe, IcMinus, IcPlus, IcRanking } from './icons';
+import { IcArmy, IcBuild, IcCapital, IcClock, IcExpand, IcGear, IcGlobe, IcMinus, IcPact, IcPlus, IcRanking } from './icons';
 import { fmtClock, type NationStats } from './model';
 
 export interface Toast {
@@ -114,6 +114,9 @@ export function Dock(p: {
   onBuild: () => void;
   onArmy: () => void;
   onRanking: () => void;
+  /** Fase F: pedidos de aliança esperando resposta. */
+  pacts: number;
+  onDiplomacy: () => void;
 }) {
   return (
     <nav className="ku-dock" aria-label="Ações">
@@ -135,6 +138,11 @@ export function Dock(p: {
         <IcArmy />
         <span>Exército</span>
         {p.training > 0 && <em className="soft">{p.training}</em>}
+      </button>
+      <button type="button" onClick={p.onDiplomacy} data-testid="dock-diplomacy">
+        <IcPact />
+        <span>Diplomacia</span>
+        {p.pacts > 0 && <em className="gold">{p.pacts}</em>}
       </button>
       <button type="button" onClick={p.onRanking} data-testid="dock-ranking">
         <IcRanking />

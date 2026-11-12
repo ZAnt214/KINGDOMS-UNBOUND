@@ -43,13 +43,15 @@ import {
 import { FLAG_PRESETS, inspectFlagImage, parseFlag } from '../../../shared/play/flags';
 import { botIdentities, buildArena, matchOutcome, pickBotPoints, QUICK, rank, THEATERS } from '../../../shared/play/match';
 import { cleanNationName, COLOR_EXCLUSION_KM, expansionSeconds, type GameMode, MODES_AVAILABLE, NATION_COLOR_BY_HEX, nationNameProblem } from '../../../shared/play/rules';
-import type { EconomyView, MilitaryView, NationView, OccupationView, OperationView, StrikeView, StructureView, WorldView } from '../../../shared/play/types';
+import type { AllianceRequestView, DiplomacyView, EconomyView, MilitaryView, NationView, OccupationView, OperationView, StrikeView, StructureView, WorldView } from '../../../shared/play/types';
+import { botAnswer, breakPenalty, deliverable, DIPLOMACY } from '../../../shared/play/diplomacy';
 import {
   attackOrigin,
   attackPower,
   battleSeconds,
   type BattleSetup,
   defenseMultiplier,
+  contributions,
   engagedIn,
   estimate,
   garrison,
@@ -61,6 +63,7 @@ import {
   predictEnd,
   share,
   simulate,
+  splitSurvivors,
   sumArmies,
   survivors,
   troops,
@@ -87,6 +90,10 @@ interface World {
   army: Map<number, MockArmy>;
   ops: Map<number, { view: OperationView; setup: BattleSetup }>;
   strikes: Map<number, StrikeView>;
+  /** Fase F: pedidos de aliança, nomes das alianças e quebras (bloqueios de 30 min). */
+  requests: (AllianceRequestView & { status: 'pending' | 'done' })[];
+  allianceNames: Map<number, string>;
+  breaks: { breaker: number; former: number; until: number }[];
 }
 interface MockArmy {
   recruits: number;
@@ -116,6 +123,9 @@ const newWorld = (wid: number, name: string, mode: GameMode, arena: string[] | n
   army: new Map(),
   ops: new Map(),
   strikes: new Map(),
+  requests: [],
+  allianceNames: new Map(),
+  breaks: [],
 });
 worlds.set(1, newWorld(1, 'Campanha · Mundo 1 (servidor falso)', 'campaign', null));
 const sessions = new Map<string, Session>();
@@ -181,22 +191,29 @@ function opView(w: World, id: number, viewer: number | null): OperationView {
     attackerTroops: estimate(troops(survivors(sim.attacker))),
     defenderTroops: estimate(troops(survivors(sim.defender))),
   };
-  if (viewer === view.attackerId || viewer === view.defenderId) {
-    const side = viewer === view.attackerId ? 'attacker' : 'defender';
-    out.mine = { side, sent: engagedIn({ ...view, setup, events: setup.events }, viewer), remaining: survivors(side === 'attacker' ? sim.attacker : sim.defender) };
+  const op = { ...view, setup, events: setup.events };
+  const sides = { attacker: contributions(op, 'attacker'), defender: contributions(op, 'defender') };
+  out.allies = [];
+  for (const side of ['attacker', 'defender'] as const) for (const g of sides[side].keys()) if (g !== view.attackerId && g !== view.defenderId) out.allies.push({ id: g, side });
+  const side = viewer === null ? null : sides.attacker.has(viewer) ? 'attacker' : sides.defender.has(viewer) ? 'defender' : null;
+  if (side && viewer !== null) {
+    out.mine = { side, sent: sides[side].get(viewer)!, remaining: splitSurvivors(sides[side], survivors(side === 'attacker' ? sim.attacker : sim.defender)).get(viewer) ?? {} };
   }
   return out;
 }
 function announceOp(w: World, id: number) {
-  const v = w.ops.get(id)!.view;
+  const o = w.ops.get(id)!;
   send(w.view.id, { type: 'play.operation', operation: opView(w, id, null) });
-  for (const g of [v.attackerId, v.defenderId]) send(w.view.id, { type: 'play.operation', operation: opView(w, id, g) }, g);
+  const op = { ...o.view, setup: o.setup, events: o.setup.events };
+  const everyone = new Set([...contributions(op, 'attacker').keys(), ...contributions(op, 'defender').keys()]);
+  for (const g of everyone) send(w.view.id, { type: 'play.operation', operation: opView(w, id, g) }, g);
 }
 function attackRegion(w: World, gid: number, region: string, percent: number) {
   if (!(WAR.percents as readonly number[]).includes(percent)) throw new Fail(400, 'invalid_percent', 'Porcentagem inválida.');
   const owner = w.control.get(region);
   if (owner === undefined || owner === gid) throw new Fail(409, 'not_enemy', 'Escolha uma região de outra nação.');
-  if (START_POINT_BY_ID[w.nations.get(owner)!.capital].region === region) throw new Fail(409, 'capital', 'A região da capital não pode ser tomada por terra. Mísseis podem atingi-la.');
+  // A capital pode ser tomada, mas defende 50% mais (como no servidor real).
+  const capitalBonus = START_POINT_BY_ID[w.nations.get(owner)!.capital].region === region ? WAR.capitalBonus : 1;
   if ([...w.ops.values()].some((o) => o.view.status === 'active' && o.view.region === region)) throw new Fail(409, 'region_contested', 'Já há uma operação militar nesta região.');
   const owned = [...w.control].filter(([, o]) => o === gid).map(([r]) => r);
   const origin = attackOrigin(owned, region, (homeOf(w, gid).navy ?? 0) > 0);
@@ -214,7 +231,7 @@ function attackRegion(w: World, gid: number, region: string, percent: number) {
     attackerResearch: a.research,
     defender: defenders,
     defenderResearch: d.research,
-    defenderMultiplier: defenseMultiplier(d.research, builtOf(w, owner)),
+    defenderMultiplier: defenseMultiplier(d.research, builtOf(w, owner)) * capitalBonus,
     events: [],
   };
   takeArmy(w, gid, sent);
@@ -233,6 +250,7 @@ function attackRegion(w: World, gid: number, region: string, percent: number) {
     attackerTroops: 0,
     defenderTroops: 0,
     status: 'active',
+    allies: [],
   };
   w.ops.set(id, { view, setup });
   announceOp(w, id);
@@ -249,13 +267,16 @@ function finishOps(w: World, now: number) {
     settle(w, d, o.view.endsAt);
     const attBack = survivors(sim.attacker);
     const defBack = survivors(sim.defender);
-    giveArmy(w, a, attBack);
-    giveArmy(w, d, defBack);
+    const op = { ...o.view, setup: o.setup, events: o.setup.events };
+    const sides = { attacker: contributions(op, 'attacker'), defender: contributions(op, 'defender') };
+    for (const [g, back] of splitSurvivors(sides.attacker, attBack)) giveArmy(w, g, back);
+    for (const [g, back] of splitSurvivors(sides.defender, defBack)) giveArmy(w, g, back);
     o.view = {
       ...o.view,
       status: won ? 'won' : 'failed',
-      result: { attackerLosses: troops(losses(o.setup.attacker, attBack)), defenderLosses: troops(losses(engagedIn({ ...o.view, setup: o.setup, events: o.setup.events }, d), defBack)) },
+      result: { attackerLosses: troops(losses(sumArmies(...sides.attacker.values()), attBack)), defenderLosses: troops(losses(sumArmies(...sides.defender.values()), defBack)) },
     };
+    for (const g of new Set([...sides.attacker.keys(), ...sides.defender.keys()])) if (g !== a && g !== d) send(w.view.id, { type: 'play.military', military: militaryView(w, g) }, g);
     announceOp(w, id);
     if (won) {
       w.control.set(o.view.region, a);
@@ -602,6 +623,132 @@ function upgrade(w: World, gid: number, sid: number) {
   return up;
 }
 
+// ---------- Fase F: diplomacia (mesmas regras de shared/play/diplomacy.ts) ----------
+const alliedIn = (w: World, a: number, b: number) => {
+  const x = w.nations.get(a)?.alliance ?? null;
+  return x !== null && x === (w.nations.get(b)?.alliance ?? null);
+};
+function diplomacyView(w: World, gid: number): DiplomacyView {
+  const now = Date.now();
+  const blocks = new Map<number, number>();
+  for (const b of w.breaks) if (b.breaker === gid && b.until > now) blocks.set(b.former, Math.max(blocks.get(b.former) ?? 0, b.until));
+  const a = w.nations.get(gid)?.alliance ?? null;
+  return {
+    requests: w.requests.filter((r) => r.status === 'pending' && r.expiresAt > now && (r.fromId === gid || r.toId === gid)).map(({ status: _s, ...r }) => r),
+    blocks: [...blocks].map(([nationId, until]) => ({ nationId, until })),
+    allianceName: a === null ? null : (w.allianceNames.get(a) ?? null),
+  };
+}
+const announceDiplomacy = (w: World, ...ids: number[]) => {
+  for (const g of new Set(ids)) send(w.view.id, { type: 'play.diplomacy', diplomacy: diplomacyView(w, g) }, g);
+};
+function setAlliance(w: World, gid: number, alliance: number | null) {
+  const n = w.nations.get(gid)!;
+  w.nations.set(gid, { ...n, alliance });
+  send(w.view.id, { type: 'play.alliance', nationId: gid, alliance });
+}
+const playerGovs = () => new Set([...sessions.values()].flatMap((s) => [...s.seats.values()]));
+function answerPact(w: World, gid: number, requestId: number, accept: boolean, reason?: string) {
+  const r = w.requests.find((x) => x.id === requestId && x.status === 'pending' && x.toId === gid);
+  if (!r) throw new Fail(404, 'not_found', 'Pedido não encontrado.');
+  r.status = 'done';
+  if (!accept) {
+    for (const g of [r.fromId, gid]) send(w.view.id, { type: 'play.pact', news: { kind: 'declined', requestId, from: r.fromId, to: gid, reason } }, g);
+    announceDiplomacy(w, r.fromId, gid);
+    return { allianceId: null };
+  }
+  const a = w.nations.get(r.fromId)!.alliance;
+  const b = w.nations.get(gid)!.alliance;
+  if (a !== null && b !== null) throw new Fail(409, 'other_alliance', 'Vocês estão em alianças diferentes.');
+  const allianceId = a ?? b ?? id();
+  if (a === null && b === null) w.allianceNames.set(allianceId, `${w.nations.get(r.fromId)!.name} e ${w.nations.get(gid)!.name}`);
+  for (const g of [r.fromId, gid]) if (w.nations.get(g)!.alliance !== allianceId) setAlliance(w, g, allianceId);
+  send(w.view.id, { type: 'play.pact', news: { kind: 'accepted', requestId, from: r.fromId, to: gid, allianceId } });
+  for (const g of [r.fromId, gid]) if (playerGovs().has(g)) announceEconomy(w, g);
+  announceDiplomacy(w, r.fromId, gid);
+  return { allianceId };
+}
+function requestPact(w: World, gid: number, target: number) {
+  if (target === gid) throw new Fail(400, 'self', 'Escolha outra nação.');
+  const t = w.nations.get(target);
+  if (!t) throw new Fail(404, 'not_found', 'Nação não encontrada.');
+  if (alliedIn(w, gid, target)) throw new Fail(409, 'already_allied', 'Vocês já são aliados.');
+  const now = Date.now();
+  const reverse = w.requests.find((r) => r.status === 'pending' && r.fromId === target && r.toId === gid && r.expiresAt > now);
+  if (reverse) return { accepted: true, ...answerPact(w, gid, reverse.id, true) };
+  const mineA = w.nations.get(gid)!.alliance;
+  if (mineA !== null && t.alliance !== null && mineA !== t.alliance) throw new Fail(409, 'other_alliance', `${t.name} já está em outra aliança.`);
+  if (w.requests.some((r) => r.status === 'pending' && r.fromId === gid && r.toId === target && r.expiresAt > now)) throw new Fail(409, 'already_requested', `Você já pediu aliança a ${t.name}.`);
+  const req = { id: id(), fromId: gid, toId: target, createdAt: now, expiresAt: now + DIPLOMACY.requestMinutes[w.view.mode] * 60_000, status: 'pending' as const };
+  w.requests.push(req);
+  for (const g of [gid, target]) send(w.view.id, { type: 'play.pact', news: { kind: 'request', requestId: req.id, from: gid, to: target, expiresAt: req.expiresAt } }, g);
+  announceDiplomacy(w, gid, target);
+  // Nações sem jogador (bots e as do cenário de teste) respondem pela regra pública dos bots.
+  if (t.bot || !playerGovs().has(target)) {
+    const atWar = [...w.ops.values()].some((o) => o.view.status === 'active' && [o.view.attackerId, o.view.defenderId].includes(gid) && [o.view.attackerId, o.view.defenderId].includes(target));
+    const powers = [...w.nations.values()].filter((n) => n.id !== gid).map((n) => n.power);
+    const ans = botAnswer({ atWar, brokeBefore: w.breaks.some((b) => b.breaker === gid && b.former === target), requesterPower: w.nations.get(gid)!.power, strongestOther: Math.max(0, ...powers) });
+    return { accepted: ans.accept, reason: ans.reason, requestId: req.id, ...answerPact(w, target, req.id, ans.accept, ans.reason) };
+  }
+  return { accepted: false, requestId: req.id };
+}
+function breakPact(w: World, gid: number) {
+  const a = w.nations.get(gid)?.alliance ?? null;
+  if (a === null) throw new Fail(400, 'not_member', 'Sua nação não está em uma aliança.');
+  const formers = [...w.nations.values()].filter((n) => n.id !== gid && n.alliance === a).map((n) => n.id);
+  const amounts = settle(w, gid);
+  const penalty = breakPenalty(homeOf(w, gid), amounts);
+  takeArmy(w, gid, penalty.troops);
+  const wal = w.wallet.get(gid)!;
+  for (const [r, v] of Object.entries(penalty.resources) as [keyof ResourceMap, number][]) wal.amounts[r] = Math.max(0, wal.amounts[r] - v);
+  const until = Date.now() + DIPLOMACY.breakBlockMinutes * 60_000;
+  for (const f of formers) w.breaks.push({ breaker: gid, former: f, until });
+  setAlliance(w, gid, null);
+  if (formers.length <= 1) for (const f of formers) setAlliance(w, f, null);
+  refreshPower(w, gid);
+  announceEconomy(w, gid);
+  send(w.view.id, { type: 'play.military', military: militaryView(w, gid) }, gid);
+  const lost: Partial<ResourceMap> = {};
+  for (const [r, v] of Object.entries(penalty.resources) as [keyof ResourceMap, number][]) if (v > 0) lost[r] = v;
+  send(w.view.id, { type: 'play.pact', news: { kind: 'broken', by: gid, formers, penalty: { troops: troops(penalty.troops), resources: lost }, until } });
+  announceDiplomacy(w, gid, ...formers);
+  return { ok: true, penalty, until };
+}
+function giftPact(w: World, gid: number, to: number, asked: Partial<ResourceMap>) {
+  if (!alliedIn(w, gid, to)) throw new Fail(409, 'not_allied', 'Só é possível enviar recursos a aliados.');
+  const recv = settle(w, to);
+  const out = deliverable(asked, recv, economyView(w, to)!.capacity);
+  if (!Object.keys(out).length) throw new Fail(409, 'storage_full', 'O armazém do aliado está cheio para esses recursos.');
+  spend(w, gid, out, 'o envio');
+  const wal = w.wallet.get(to)!;
+  for (const [r, v] of Object.entries(out) as [keyof ResourceMap, number][]) wal.amounts[r] += v;
+  announceEconomy(w, gid);
+  announceEconomy(w, to);
+  for (const g of [gid, to]) send(w.view.id, { type: 'play.pact', news: { kind: 'gift', from: gid, to, resources: out } }, g);
+  return { sent: out };
+}
+function reinforceOp(w: World, gid: number, opId: number, percent: number) {
+  const o = w.ops.get(opId);
+  if (!o || o.view.status !== 'active') throw new Fail(404, 'not_found', 'Operação não encontrada.');
+  let side: 'attacker' | 'defender' = 'defender';
+  let ally = false;
+  if (gid === o.view.defenderId) side = 'defender';
+  else if (alliedIn(w, gid, o.view.defenderId)) ally = true;
+  else if (alliedIn(w, gid, o.view.attackerId)) {
+    side = 'attacker';
+    ally = true;
+  } else throw new Fail(409, 'not_defender', 'Só o defensor e os aliados de um dos lados podem mandar tropas.');
+  const sent = share(homeOf(w, gid), percent, side === 'attacker' && o.view.naval);
+  if (!Object.keys(sent).length) throw new Fail(409, 'no_troops', 'Não há tropas em casa para enviar.');
+  takeArmy(w, gid, sent);
+  o.setup.events.push(ally ? { at: Date.now(), kind: 'reinforce', army: sent, side, by: gid } : { at: Date.now(), kind: 'reinforce', army: sent });
+  o.view = { ...o.view, endsAt: predictEnd(o.setup) };
+  announceOp(w, opId);
+  send(w.view.id, { type: 'play.military', military: militaryView(w, gid) }, gid);
+  if (ally) send(w.view.id, { type: 'play.pact', news: { kind: 'help', by: gid, operationId: opId, side, troops: estimate(troops(sent)) } });
+  return { operation: opView(w, opId, gid) };
+}
+
 /**
  * CENÁRIO DE TESTE (MOCK_WAR=1), só no servidor falso: ao fundar, cria uma nação rival vizinha com
  * uma região de fronteira e dá ao jogador tropas, um silo pronto e mísseis, para o passeio visual
@@ -631,6 +778,21 @@ function seedWar(w: World, gid: number, point: StartPoint) {
   refreshPower(w, gid);
   refreshPower(w, rival);
   send(w.view.id, { type: 'play.nation', nation: w.nations.get(rival), region: rivalCap.region });
+  if (process.env.MOCK_DIPLO === '1') {
+    // Fase F (só no passeio de diplomacia): uma terceira nação forte, vizinha do rival, que aceita
+    // aliança pela regra dos bots, e um pedido de aliança do rival esperando resposta.
+    const taken = new Set(w.control.keys());
+    const friendCap = START_POINTS.find((p) => !taken.has(p.region) && p.region !== capital && REGION_BY_ID[p.region].neighbors.some((n) => w.control.get(n) === rival));
+    if (friendCap) {
+      const friend = id();
+      createNation(w, friend, friendCap, 'Aliado (teste)', '#ffd04d', FLAG_PRESETS[5 % FLAG_PRESETS.length].flag, undefined, false);
+      w.army.get(friend)!.units = { infantry: 900 };
+      refreshPower(w, friend);
+      send(w.view.id, { type: 'play.nation', nation: w.nations.get(friend), region: friendCap.region });
+    }
+    const now = Date.now();
+    w.requests.push({ id: id(), fromId: rival, toId: gid, createdAt: now, expiresAt: now + DIPLOMACY.requestMinutes.campaign * 60_000, status: 'pending' });
+  }
 }
 
 const snapshot = (w: World, gid: number | null) => ({
@@ -644,6 +806,7 @@ const snapshot = (w: World, gid: number | null) => ({
   economy: gid !== null ? economyView(w, gid) : null,
   military: gid !== null ? militaryView(w, gid) : null,
   operations: [...w.ops.keys()].filter((id) => w.ops.get(id)!.view.status === 'active').map((id) => opView(w, id, gid)),
+  diplomacy: gid !== null && w.nations.has(gid) ? diplomacyView(w, gid) : null,
   strikes: [...w.strikes.values()].filter((x) => x.status === 'flying'),
 });
 
@@ -716,7 +879,20 @@ function route(method: string, url: URL, body: any, s: Session | null, worldHead
   if (p === '/play/expand' && method === 'POST') return expand(w, gid, body.region);
   if (p === '/play/build' && method === 'POST') return { structure: build(w, gid, body.at, body.type, body.region) };
   if (p === '/play/launch' && method === 'POST') return { strike: launchMissile(w, gid, Number(body.siloId), String(body.region), body.weapon === 'bomb' ? 'bomb' : 'missile') };
-  if (p === '/play/reinforce' && method === 'POST') throw new Fail(409, 'not_defender', 'Reforço não simulado no servidor falso.');
+  if (p === '/play/reinforce' && method === 'POST') return reinforceOp(w, gid, Number(body.operationId), Number(body.percent));
+  if (p === '/play/pact/request' && method === 'POST') return requestPact(w, gid, Number(body.nationId));
+  if (p === '/play/pact/answer' && method === 'POST') return answerPact(w, gid, Number(body.requestId), body.accept === true);
+  if (p === '/play/pact/cancel' && method === 'POST') {
+    const r = w.requests.find((x) => x.id === Number(body.requestId) && x.fromId === gid && x.status === 'pending');
+    if (!r) throw new Fail(404, 'not_found', 'Pedido não encontrado.');
+    r.status = 'done';
+    announceDiplomacy(w, gid, r.toId);
+    return { ok: true };
+  }
+  if (p === '/play/pact/break' && method === 'POST') return breakPact(w, gid);
+  if (p === '/play/pact/gift' && method === 'POST') return giftPact(w, gid, Number(body.nationId), body.resources ?? {});
+  // Só no servidor falso: faz uma nação atacar uma região (para o passeio mostrar a ajuda a aliados).
+  if (p === '/__mock/attack' && method === 'POST') return { operation: attackRegion(w, Number(body.attacker), String(body.region), 100) };
   if (p === '/play/attack' && method === 'POST') return { operation: attackRegion(w, gid, String(body.region), Number(body.percent)) };
   if (p === '/play/train' && method === 'POST') return { military: train(w, gid, body.unit, Number(body.amount)) };
   if (p === '/play/research' && method === 'POST') return { military: startResearch(w, gid, body.tech) };

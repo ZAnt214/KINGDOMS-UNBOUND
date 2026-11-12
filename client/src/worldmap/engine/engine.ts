@@ -13,6 +13,7 @@ import type {
   MapPlacement,
   MapPoint,
   MapMissile,
+  MapPact,
   MapOperation,
   MapRail,
   MapRoute,
@@ -53,6 +54,10 @@ const OCEAN_TOP = '#0d3a78';
 const OCEAN_MID = '#0a2857';
 const OCEAN_BOTTOM = '#061634';
 const TAU = Math.PI * 2;
+/** Duração da formação de uma aliança e da quebra (ms). */
+const PACT_MS = 2600;
+const PACT_BREAK_MS = 1600;
+
 /** Sorteio determinístico (FNV-1a) para partículas: o mesmo míssil desenha igual em toda tela. */
 function hash32(text: string): number {
   let h = 0x811c9dc5;
@@ -103,7 +108,7 @@ export class WorldMapEngine {
   private geo: RegionGeometry | null = null;
   // Dados estáticos (mudar = redesenhar a camada base).
   private labels: MapLabel[] = [];
-  private territories: { id: string; color: string; own: boolean; group: Group }[] = [];
+  private territories: { id: string; color: string; own: boolean; ally: boolean; group: Group }[] = [];
   private hints: { group: Group; color: string } | null = null;
   private arena: Group | null = null;
   private selectedRegion: string | null = null;
@@ -121,6 +126,7 @@ export class WorldMapEngine {
   private rails: MapRail[] = [];
   private operations: MapOperation[] = [];
   private missiles: MapMissile[] = [];
+  private pacts: MapPact[] = [];
   private missileRange: { center: [number, number]; km: number; color: string } | null = null;
   private placement: MapPlacement | null = null;
   private hoveredRegion: string | null = null;
@@ -213,7 +219,7 @@ export class WorldMapEngine {
         // Reaproveita os caminhos quando o conjunto de regiões não mudou.
         const prev = old.get(t.id);
         const same = prev && prev.group.regions.length === t.regions.length && prev.group.regions.every((r, i) => r === t.regions[i]);
-        return { id: t.id, color: t.color, own: !!t.own, group: same ? prev.group : this.geo!.group(t.regions) };
+        return { id: t.id, color: t.color, own: !!t.own, ally: !!t.ally, group: same ? prev.group : this.geo!.group(t.regions) };
       });
     this.dirty();
   }
@@ -288,6 +294,16 @@ export class WorldMapEngine {
 
   missileList(): readonly MapMissile[] {
     return this.missiles;
+  }
+
+  /** Alianças de quem está jogando (Fase F): arcos entre capitais, com animação de formação e quebra. */
+  setPacts(list: MapPact[]) {
+    this.pacts = list;
+    this.invalidate();
+  }
+
+  pactList(): readonly MapPact[] {
+    return this.pacts;
   }
 
   /** Círculo de alcance do silo durante a escolha do alvo. */
@@ -637,7 +653,8 @@ export class WorldMapEngine {
     const moving =
       this.flags.some((f) => f.plantedAt !== undefined && t - f.plantedAt < 700 && t - f.plantedAt > -3000) ||
       this.structures.some((x) => (x.completedAt !== undefined && t - x.completedAt < 900) || (x.building && now < x.building.endAt + 300)) ||
-      this.rails.some((r) => r.appearAt !== undefined && t - r.appearAt < RAIL_MS + 200 && t - r.appearAt > -4000);
+      this.rails.some((r) => r.appearAt !== undefined && t - r.appearAt < RAIL_MS + 200 && t - r.appearAt > -4000) ||
+      this.pacts.some((p) => (p.appearAt !== undefined && t - p.appearAt < PACT_MS) || (p.brokenAt !== undefined && t - p.brokenAt < PACT_BREAK_MS));
     const filling = this.fills.some((f) => now < f.endAt + 400);
     const war = this.operations.length > 0 || this.missiles.some((m) => now < m.impactAt + 4300);
     const live = this.routes.length > 0 || this.pointsLive || this.preview !== null || filling || moving || war;
@@ -822,6 +839,14 @@ export class WorldMapEngine {
         ctx.strokeStyle = mix(terr.color, 255, terr.own ? 0.5 : 0.25);
         ctx.lineWidth = (terr.own ? 1.7 : 1.2) * px;
         ctx.stroke(f);
+        if (terr.ally) {
+          // Aliado: linha dourada tracejada sobre a fronteira.
+          ctx.strokeStyle = 'rgba(243, 193, 75, 0.95)';
+          ctx.lineWidth = 1.4 * px;
+          ctx.setLineDash([6 * px, 5 * px]);
+          ctx.stroke(f);
+          ctx.setLineDash([]);
+        }
       }
 
       if (this.arena) {
@@ -893,6 +918,8 @@ export class WorldMapEngine {
       }
       this.drawRange();
       if (!this.hidden.has('flags')) this.drawFlags(t);
+      // Aliança por cima das bandeiras: o arco liga as capitais e o selo não fica escondido.
+      this.drawPacts(t);
       // Guerra por cima das bandeiras: a batalha e o míssil nunca ficam escondidos.
       this.drawOperations(t);
       this.drawMissiles();
@@ -1332,6 +1359,146 @@ export class WorldMapEngine {
       const c = u * u;
       return [a * x0 + b * cx + c * x1, a * y0 + b * cy + c * y1];
     };
+  }
+
+  /**
+   * Arcos de aliança entre capitais. Formação: o arco nasce das duas pontas e se encontra no meio,
+   * com um selo que pulsa e solta faíscas douradas. Quebra: o arco racha no meio, as metades recuam
+   * em vermelho e somem. Parado, fica um arco fino tracejado com o selo pequeno.
+   */
+  private drawPacts(t: number) {
+    if (!this.pacts.length) return;
+    const { ctx } = this;
+    const reduced = !!this.opts.reducedMotion;
+    ctx.save();
+    ctx.lineCap = 'round';
+    for (const p of this.pacts) {
+      const [x0, y0] = this.toScreen(p.from[0], p.from[1]);
+      const [x1, y1] = this.toScreen(p.to[0], p.to[1]);
+      const len = Math.hypot(x1 - x0, y1 - y0);
+      if (len < 2) continue;
+      const P = this.curve(x0, y0, x1, y1, Math.min(0.75, Math.max(0.25, 70 / len)));
+      const [mx, my] = P(0.5);
+      const age = p.appearAt === undefined ? Infinity : t - p.appearAt;
+      if (age < 0) continue;
+      const broke = p.brokenAt === undefined ? -1 : t - p.brokenAt;
+      if (broke > PACT_BREAK_MS) continue;
+      const stroke = (from: number, to: number, color: string, width: number, dash: number[] = []) => {
+        ctx.beginPath();
+        const steps = 28;
+        for (let i = 0; i <= steps; i++) {
+          const [x, y] = P(from + ((to - from) * i) / steps);
+          if (i) ctx.lineTo(x, y);
+          else ctx.moveTo(x, y);
+        }
+        ctx.setLineDash(dash);
+        ctx.strokeStyle = color;
+        ctx.lineWidth = width;
+        ctx.stroke();
+      };
+      if (broke >= 0) {
+        // Quebra: as metades recuam para as capitais, vermelhas.
+        const k = reduced ? 1 : clamp01(broke / PACT_BREAK_MS);
+        const reach = 0.5 * (1 - easeOut(k));
+        const a = 1 - k;
+        stroke(0, reach, `rgba(6, 12, 26, ${0.7 * a})`, 4);
+        stroke(0, reach, `rgba(255, 92, 76, ${a})`, 2);
+        stroke(1 - reach, 1, `rgba(6, 12, 26, ${0.7 * a})`, 4);
+        stroke(1 - reach, 1, `rgba(255, 92, 76, ${a})`, 2);
+        if (broke < 500) {
+          const f = broke / 500;
+          ctx.setLineDash([]);
+          ctx.beginPath();
+          ctx.arc(mx, my, 6 + f * 22, 0, TAU);
+          ctx.strokeStyle = `rgba(255, 120, 100, ${1 - f})`;
+          ctx.lineWidth = 3 * (1 - f) + 0.5;
+          ctx.stroke();
+          // Rachadura em zigue-zague no ponto da quebra.
+          ctx.beginPath();
+          ctx.moveTo(mx - 7, my - 9);
+          ctx.lineTo(mx + 2, my - 2);
+          ctx.lineTo(mx - 3, my + 2);
+          ctx.lineTo(mx + 6, my + 10);
+          ctx.strokeStyle = `rgba(255, 240, 230, ${1 - f})`;
+          ctx.lineWidth = 2;
+          ctx.stroke();
+        }
+        continue;
+      }
+      const grow = reduced ? 1 : clamp01(age / (PACT_MS * 0.45));
+      const half = 0.5 * easeOut(grow);
+      const settled = grow >= 1;
+      // Base escura e linha dourada; parado, tracejada e mais fina.
+      for (const [a, b] of [
+        [0, half],
+        [1 - half, 1],
+      ] as const) {
+        stroke(a, b, 'rgba(6, 12, 26, 0.6)', settled ? 3.2 : 4.5);
+        stroke(a, b, settled ? 'rgba(243, 193, 75, 0.9)' : '#ffd66b', settled ? 1.6 : 2.6, settled ? [6, 5] : []);
+      }
+      // Pontas brilhantes enquanto o arco cresce.
+      if (!settled) {
+        for (const u of [half, 1 - half]) {
+          const [hx, hy] = P(u);
+          const g = ctx.createRadialGradient(hx, hy, 0, hx, hy, 10);
+          g.addColorStop(0, 'rgba(255, 245, 200, 0.95)');
+          g.addColorStop(1, 'rgba(255, 214, 102, 0)');
+          ctx.fillStyle = g;
+          ctx.beginPath();
+          ctx.arc(hx, hy, 10, 0, TAU);
+          ctx.fill();
+        }
+      }
+      // Selo no meio: aparece quando as pontas se encontram, pulsa e solta faíscas.
+      const sealAge = age - PACT_MS * 0.45;
+      if (settled || sealAge >= 0) {
+        const pop = reduced || !Number.isFinite(sealAge) ? 1 : clamp01(sealAge / 350);
+        const big = Number.isFinite(sealAge) && sealAge < PACT_MS * 0.55 && !reduced;
+        if (big) {
+          const k = clamp01(sealAge / (PACT_MS * 0.55));
+          ctx.setLineDash([]);
+          for (const [delay, reach] of [
+            [0, 34],
+            [160, 22],
+          ] as const) {
+            const q = clamp01((sealAge - delay) / 900);
+            if (q <= 0 || q >= 1) continue;
+            ctx.beginPath();
+            ctx.arc(mx, my, 8 + q * reach, 0, TAU);
+            ctx.strokeStyle = `rgba(255, 214, 102, ${0.9 * (1 - q)})`;
+            ctx.lineWidth = 2.5 * (1 - q) + 0.5;
+            ctx.stroke();
+          }
+          for (let i = 0; i < 10; i++) {
+            const a = (i / 10) * TAU + 0.3;
+            const d = 10 + k * 26;
+            ctx.beginPath();
+            ctx.arc(mx + Math.cos(a) * d, my + Math.sin(a) * d + k * k * 10, 1.6 * (1 - k) + 0.3, 0, TAU);
+            ctx.fillStyle = `rgba(255, 236, 170, ${1 - k})`;
+            ctx.fill();
+          }
+        }
+        const r = (big ? 9 : 6.5) * (0.6 + 0.4 * easeOut(pop));
+        ctx.setLineDash([]);
+        ctx.beginPath();
+        ctx.arc(mx, my, r + 2, 0, TAU);
+        ctx.fillStyle = 'rgba(6, 12, 26, 0.85)';
+        ctx.fill();
+        ctx.beginPath();
+        ctx.arc(mx, my, r, 0, TAU);
+        ctx.fillStyle = '#f3c14b';
+        ctx.fill();
+        // Dois anéis entrelaçados (o selo da aliança).
+        ctx.strokeStyle = '#3a2a06';
+        ctx.lineWidth = Math.max(1, r * 0.22);
+        for (const dx of [-r * 0.28, r * 0.28]) {
+          ctx.beginPath();
+          ctx.arc(mx + dx, my, r * 0.42, 0, TAU);
+          ctx.stroke();
+        }
+      }
+    }
+    ctx.restore();
   }
 
   private drawRange() {

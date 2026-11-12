@@ -2590,3 +2590,365 @@
     animation: none;
   }
 }
+
+/* ───────── Fase F: diplomacia ───────── */
+.ku-cta.small {
+  width: auto;
+  min-height: 44px;
+  padding: 8px 16px;
+  font-size: 15px;
+  letter-spacing: 0.06em;
+}
+.ku-cta.danger {
+  color: #fff !important;
+  background: linear-gradient(180deg, #ff8a7a, #e0453a 60%, #b8281f);
+  box-shadow: 0 1px 0 rgba(255, 255, 255, 0.4) inset, 0 -3px 0 rgba(90, 0, 0, 0.35) inset, 0 10px 26px rgba(255, 70, 50, 0.25);
+}
+.ku-btn.danger-line {
+  margin-top: 6px;
+  color: #ffb0a8 !important;
+  border-color: rgba(255, 107, 107, 0.45) !important;
+  background: transparent !important;
+}
+.ku-btn.pact svg {
+  color: var(--gold);
+}
+.ku-btn.pact.hot {
+  border-color: var(--gold) !important;
+  background: rgba(255, 197, 61, 0.18) !important;
+  animation: ku-alert-pulse 1.6s ease-in-out infinite;
+}
+.ku-dock em.gold {
+  background: var(--gold);
+}
+.ku-op-cap.ally {
+  border-color: rgba(255, 197, 61, 0.85) !important;
+  background: rgba(54, 40, 6, 0.9) !important;
+}
+.ku-op-allies {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin: 2px 0 10px;
+}
+.ku-op-allies span {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 10px 4px 5px;
+  border-radius: 99px;
+  border: 1px solid rgba(255, 197, 61, 0.55);
+  background: rgba(255, 197, 61, 0.1);
+  font-size: 12.5px;
+  font-weight: 600;
+}
+.ku-op-allies img,
+.ku-pact-row img,
+.ku-pact-prompt img {
+  width: 30px;
+  height: 20px;
+  border-radius: 3px;
+  object-fit: cover;
+  box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.25);
+}
+.ku-op-allies img {
+  width: 22px;
+  height: 15px;
+}
+.ku-enemy.ally {
+  border-color: rgba(255, 197, 61, 0.5);
+}
+.ku-pact-tag {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  margin: 0 0 10px;
+  color: var(--gold);
+  font-weight: 700;
+}
+.ku-pact-sec {
+  margin-bottom: 16px;
+}
+.ku-pact-sec ul {
+  display: grid;
+  gap: 6px;
+  margin: 6px 0 0;
+  padding: 0;
+  list-style: none;
+}
+.ku-pact-row {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  align-items: center;
+  gap: 4px 12px;
+  padding: 10px 12px;
+  border-radius: 14px;
+  background: rgba(150, 190, 255, 0.07);
+}
+.ku-pact-row > span {
+  display: grid;
+  min-width: 0;
+}
+.ku-pact-row > span b {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.ku-pact-row > span small {
+  color: var(--ink-dim);
+  font-size: 12.5px;
+}
+.ku-pact-row .ku-row-actions {
+  grid-column: 1 / -1;
+  justify-content: flex-end;
+  margin: 4px 0 0;
+}
+@media (min-width: 560px) {
+  .ku-pact-row {
+    grid-template-columns: auto 1fr auto;
+  }
+  .ku-pact-row .ku-row-actions {
+    grid-column: auto;
+    margin: 0;
+  }
+}
+.ku-pact-block {
+  padding: 8px 12px;
+  border-radius: 12px;
+  background: rgba(255, 107, 107, 0.1);
+  font-size: 13.5px;
+}
+.ku-pact-break {
+  padding: 14px;
+  border-radius: 14px;
+  border: 1px solid rgba(255, 107, 107, 0.5);
+  background: rgba(70, 12, 20, 0.55);
+}
+.ku-pact-break p {
+  margin: 0 0 8px;
+}
+.ku-pact-break ul {
+  margin: 0 0 10px;
+  padding-left: 18px;
+  line-height: 1.55;
+}
+.ku-gift {
+  display: grid;
+  gap: 12px;
+  margin-bottom: 12px;
+}
+.ku-gift-row {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  align-items: center;
+  gap: 4px 12px;
+}
+.ku-gift-row span {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  font-weight: 600;
+}
+.ku-gift-row small {
+  margin-left: auto;
+  color: var(--ink-dim);
+  font-weight: 500;
+}
+.ku-gift-row input {
+  grid-column: 1;
+  width: 100%;
+  accent-color: var(--gold);
+}
+.ku-gift-row b {
+  grid-row: 1 / span 2;
+  grid-column: 2;
+  min-width: 64px;
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+
+/* Pedido recebido: cartão dourado sobre o dock. */
+.ku-pact-prompt {
+  position: absolute;
+  left: 50%;
+  bottom: calc(var(--safe-bottom) + 96px);
+  display: grid;
+  grid-template-columns: auto 1fr;
+  align-items: center;
+  gap: 8px 12px;
+  width: min(440px, calc(100% - 16px));
+  padding: 12px 14px;
+  border-radius: 18px;
+  border: 1px solid rgba(255, 197, 61, 0.75);
+  background: linear-gradient(180deg, rgba(54, 40, 6, 0.96), rgba(20, 18, 10, 0.96));
+  box-shadow: 0 14px 34px rgba(0, 0, 0, 0.5), 0 0 0 4px rgba(255, 197, 61, 0.12);
+  transform: translateX(-50%);
+  animation: ku-pact-in 0.5s var(--ease) both;
+  pointer-events: auto;
+  z-index: 6;
+}
+.ku-pact-prompt > div:first-of-type {
+  display: grid;
+  min-width: 0;
+}
+.ku-pact-prompt small {
+  color: #e8d9a8;
+}
+.ku-pact-prompt .ku-row-actions {
+  grid-column: 1 / -1;
+  justify-content: flex-end;
+  margin: 0;
+}
+@keyframes ku-pact-in {
+  from {
+    opacity: 0;
+    transform: translate(-50%, 18px) scale(0.96);
+  }
+}
+
+/* Cerimônia: bandeiras se encontram e o selo desce. */
+.ku-ceremony {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-content: center;
+  justify-items: center;
+  gap: 18px;
+  background: radial-gradient(circle at 50% 45%, rgba(255, 197, 61, 0.2), rgba(4, 10, 24, 0.55) 60%);
+  animation: ku-ceremony-fade 3.2s ease both;
+  pointer-events: auto;
+  z-index: 8;
+}
+.ku-ceremony.broken {
+  background: radial-gradient(circle at 50% 45%, rgba(255, 90, 76, 0.2), rgba(4, 10, 24, 0.55) 60%);
+}
+.ku-ceremony-stage {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.ku-ceremony-stage img {
+  width: 96px;
+  height: 64px;
+  border-radius: 6px;
+  object-fit: cover;
+  box-shadow: 0 10px 26px rgba(0, 0, 0, 0.5), 0 0 0 2px rgba(255, 255, 255, 0.3);
+}
+.ku-ceremony-stage .left {
+  animation: ku-flag-left 0.9s var(--ease) both;
+}
+.ku-ceremony-stage .right {
+  animation: ku-flag-right 0.9s var(--ease) both;
+}
+.ku-ceremony .seal {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  display: grid;
+  place-items: center;
+  width: 64px;
+  height: 64px;
+  margin: -32px 0 0 -32px;
+  z-index: 2;
+  border-radius: 50%;
+  color: #3a2a06;
+  background: radial-gradient(circle at 35% 30%, #fff1b8, #ffc53d 55%, #d18f00);
+  box-shadow: 0 0 0 4px rgba(6, 12, 26, 0.85), 0 0 34px rgba(255, 197, 61, 0.75);
+  animation: ku-seal 0.7s 0.75s cubic-bezier(0.3, 1.6, 0.5, 1) both;
+}
+.ku-ceremony.broken .seal {
+  color: #fff;
+  background: radial-gradient(circle at 35% 30%, #ffb3a8, #e0453a 60%, #8f1d16);
+  box-shadow: 0 0 0 4px rgba(6, 12, 26, 0.85), 0 0 34px rgba(255, 90, 76, 0.7);
+}
+.ku-ceremony.broken .left {
+  animation: ku-flag-apart-left 1s 0.4s var(--ease) both;
+}
+.ku-ceremony.broken .right {
+  animation: ku-flag-apart-right 1s 0.4s var(--ease) both;
+}
+.ku-ceremony.broken .seal {
+  animation: ku-seal-crack 0.9s 0.1s ease both;
+}
+.ku-ceremony p {
+  display: grid;
+  justify-items: center;
+  gap: 2px;
+  margin: 0;
+  text-align: center;
+  animation: ku-rise 0.5s 1s var(--ease) both;
+}
+.ku-ceremony p b {
+  font-family: var(--display);
+  font-size: 30px;
+  letter-spacing: 0.06em;
+  color: #ffe08a;
+  text-shadow: 0 2px 16px rgba(255, 180, 20, 0.5);
+}
+.ku-ceremony.broken p b {
+  color: #ffb0a8;
+  text-shadow: 0 2px 16px rgba(255, 70, 50, 0.5);
+}
+.ku-ceremony p span {
+  color: var(--ink-soft);
+  font-weight: 600;
+}
+@keyframes ku-ceremony-fade {
+  0% {
+    opacity: 0;
+  }
+  10%,
+  82% {
+    opacity: 1;
+  }
+  100% {
+    opacity: 0;
+  }
+}
+@keyframes ku-flag-left {
+  from {
+    opacity: 0;
+    transform: translateX(-46vw) rotate(-8deg);
+  }
+}
+@keyframes ku-flag-right {
+  from {
+    opacity: 0;
+    transform: translateX(46vw) rotate(8deg);
+  }
+}
+@keyframes ku-flag-apart-left {
+  to {
+    opacity: 0.35;
+    transform: translateX(-60px) rotate(-10deg);
+  }
+}
+@keyframes ku-flag-apart-right {
+  to {
+    opacity: 0.35;
+    transform: translateX(60px) rotate(10deg);
+  }
+}
+@keyframes ku-seal {
+  from {
+    opacity: 0;
+    transform: translateY(-90px) scale(2.2);
+  }
+}
+@keyframes ku-seal-crack {
+  40% {
+    transform: scale(1.15) rotate(-6deg);
+  }
+  to {
+    opacity: 0;
+    transform: scale(0.6) rotate(18deg);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .ku-ceremony,
+  .ku-ceremony * {
+    animation-duration: 0.01s !important;
+    animation-delay: 0s !important;
+  }
+}

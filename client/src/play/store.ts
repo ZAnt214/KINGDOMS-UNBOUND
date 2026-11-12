@@ -1,12 +1,15 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { StructureType } from '../../../shared/play/economy';
 import type { TechType, UnitType } from '../../../shared/play/military';
+import type { ResourceMap } from '../../../shared/play/economy';
 import type {
+  DiplomacyView,
   EconomyView,
   FoundInput,
   MilitaryDone,
   MilitaryView,
   NationView,
+  PactNews,
   OccupationView,
   OperationView,
   StrikeView,
@@ -36,6 +39,8 @@ export interface WorldState {
   /** Operações militares ativas e recém-terminadas, e mísseis (Fase E). */
   operations: Map<number, OperationView>;
   strikes: Map<number, StrikeView>;
+  /** Diplomacia própria (Fase F). */
+  diplomacy: DiplomacyView | null;
 }
 
 /** Acontecimentos que a interface anima (derivados de eventos do servidor ou da diferença entre estados). */
@@ -49,7 +54,8 @@ export type WorldMoment =
   | { kind: 'rail'; link: Link; nationId: number }
   | { kind: 'military'; done: MilitaryDone }
   | { kind: 'operation'; operation: OperationView; started: boolean }
-  | { kind: 'strike'; strike: StrikeView; launched: boolean };
+  | { kind: 'strike'; strike: StrikeView; launched: boolean }
+  | { kind: 'pact'; news: PactNews };
 
 function fromSnapshot(s: PlaySnapshot): WorldState {
   return {
@@ -63,6 +69,7 @@ function fromSnapshot(s: PlaySnapshot): WorldState {
     military: s.military ?? null,
     operations: new Map((s.operations ?? []).map((o) => [o.id, o])),
     strikes: new Map((s.strikes ?? []).map((x) => [x.id, x])),
+    diplomacy: s.diplomacy ?? null,
   };
 }
 
@@ -204,6 +211,10 @@ export function usePlayWorld(worldId: number | null, governorId: number | null, 
       } else if (e.type === 'play.match') {
         next.world = e.world;
         if (e.world.finishedAt) next.occupations = [];
+      } else if (e.type === 'play.diplomacy') {
+        next.diplomacy = e.diplomacy;
+      } else if (e.type === 'play.pact') {
+        after = { kind: 'pact', news: e.news };
       }
       commit(next, true);
       if (done) moment.current({ kind: 'military', done }, next);
@@ -320,5 +331,17 @@ export function usePlayWorld(worldId: number | null, governorId: number | null, 
     [commit],
   );
 
-  return { state, status, error, refresh, found, expand, build, upgrade, train, research, attack, reinforce, launch };
+  // Fase F: diplomacia. As respostas chegam também por evento (play.diplomacy / play.pact).
+  const pact = useMemo(
+    () => ({
+      request: (nationId: number) => api.post<{ accepted: boolean; reason?: string; allianceId?: number | null }>('/play/pact/request', { nationId }),
+      answer: (requestId: number, accept: boolean) => api.post<{ allianceId: number | null }>('/play/pact/answer', { requestId, accept }),
+      cancel: (requestId: number) => api.post('/play/pact/cancel', { requestId }),
+      breakAlliance: () => api.post<{ penalty: unknown; until: number | null }>('/play/pact/break', {}),
+      gift: (nationId: number, resources: Partial<ResourceMap>) => api.post<{ sent: Partial<ResourceMap> }>('/play/pact/gift', { nationId, resources }),
+    }),
+    [],
+  );
+
+  return { state, status, error, refresh, found, expand, build, upgrade, train, research, attack, reinforce, launch, pact };
 }

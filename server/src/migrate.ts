@@ -492,6 +492,48 @@ UPDATE kingdoms SET started_at = ends_at - interval '15 minutes', ends_at = NULL
 ALTER TABLE strikes ADD COLUMN weapon TEXT NOT NULL DEFAULT 'missile' CHECK (weapon IN ('missile', 'bomb'));
 `,
   },
+  {
+    id: 10,
+    name: 'diplomacy',
+    sql: `
+-- Fase F: pedidos de aliança entre nações (aceitos pelo outro lado), envio de recursos entre
+-- aliados, quebra de aliança com penalidade registrada e tropas de aliados nas operações.
+CREATE TABLE alliance_requests (
+  id BIGSERIAL PRIMARY KEY,
+  kingdom_id INT NOT NULL REFERENCES kingdoms(id),
+  from_id BIGINT NOT NULL REFERENCES governors(id) ON DELETE CASCADE,
+  to_id BIGINT NOT NULL REFERENCES governors(id) ON DELETE CASCADE,
+  status TEXT NOT NULL DEFAULT 'pending' CHECK (status IN ('pending', 'accepted', 'declined', 'cancelled')),
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  expires_at TIMESTAMPTZ NOT NULL,
+  decided_at TIMESTAMPTZ,
+  CHECK (from_id <> to_id)
+);
+CREATE UNIQUE INDEX alliance_requests_pending ON alliance_requests (from_id, to_id) WHERE status = 'pending';
+CREATE INDEX alliance_requests_to ON alliance_requests (to_id) WHERE status = 'pending';
+CREATE TABLE alliance_breaks (
+  id BIGSERIAL PRIMARY KEY,
+  kingdom_id INT NOT NULL REFERENCES kingdoms(id),
+  breaker_id BIGINT NOT NULL REFERENCES governors(id) ON DELETE CASCADE,
+  former_id BIGINT NOT NULL REFERENCES governors(id) ON DELETE CASCADE,
+  alliance_id BIGINT NOT NULL REFERENCES alliances(id),
+  at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  until TIMESTAMPTZ NOT NULL,
+  penalty JSONB NOT NULL
+);
+CREATE INDEX alliance_breaks_pair ON alliance_breaks (breaker_id, former_id);
+CREATE TABLE gifts (
+  id BIGSERIAL PRIMARY KEY,
+  kingdom_id INT NOT NULL REFERENCES kingdoms(id),
+  from_id BIGINT NOT NULL REFERENCES governors(id) ON DELETE CASCADE,
+  to_id BIGINT NOT NULL REFERENCES governors(id) ON DELETE CASCADE,
+  resources JSONB NOT NULL,
+  at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+-- Aliados que mandaram tropas para a operação (para devolver sobreviventes e cobrar manutenção).
+ALTER TABLE operations ADD COLUMN allies BIGINT[] NOT NULL DEFAULT '{}';
+`,
+  },
 ];
 
 export async function migrate(db: Db, log: (msg: string) => void = () => {}) {

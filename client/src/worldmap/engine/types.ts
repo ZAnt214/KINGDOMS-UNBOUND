@@ -75,6 +75,20 @@ export interface MapTerritory {
   regions: string[];
   /** Território de quem está jogando: fronteira mais forte. */
   own?: boolean;
+  /** Território de um aliado de quem está jogando (Fase F): contorno dourado tracejado por dentro. */
+  ally?: boolean;
+}
+
+/**
+ * Aliança entre duas capitais (Fase F): arco dourado. `appearAt` (relógio do motor) anima a formação;
+ * `brokenAt` anima a quebra (o arco se parte e some).
+ */
+export interface MapPact {
+  id: string;
+  from: [number, number];
+  to: [number, number];
+  appearAt?: number;
+  brokenAt?: number;
 }
 
 /** Preenchimento progressivo de uma região, do ponto de origem para fora, guiado pelo relógio do motor. */

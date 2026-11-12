@@ -14,6 +14,7 @@ import { ChatService } from './services/chat.js';
 import { STRUCTURES } from '../../shared/play/economy.js';
 import { MilitaryService } from './services/military.js';
 import { WarService } from './services/war.js';
+import { DiplomacyService } from './services/diplomacy.js';
 import { EconomyService } from './services/economy.js';
 import { MatchService } from './services/match.js';
 import { NationService } from './services/nation.js';
@@ -46,24 +47,30 @@ export async function createGameServer(
   const chat = new ChatService(db, hub);
   const economy = new EconomyService(db, hub);
   // Entrar ou sair de uma aliança muda as conexões logísticas entre aliados (Fase C).
+  const military = new MilitaryService(db, hub, economy);
+  const diplomacy = new DiplomacyService(db, hub, economy, military);
   const alliance = new AllianceService(db, hub, {
     before: (client, ids) => economy.settleMany(client, ids, new Date()),
+    // Sair pela rota antiga também é quebra de aliança, com a mesma penalidade (Fase F).
+    leaving: (client, id, formers, allianceId) => diplomacy.penalize(client, id, formers, allianceId),
+    left: (kingdomId, id, formers, result) => diplomacy.afterBreak(kingdomId, id, formers, result as Parameters<DiplomacyService['afterBreak']>[3]),
     after: async (ids, changed) => {
       hub.toKingdom(changed.kingdomId, { type: 'play.alliance', nationId: changed.governorId, alliance: changed.allianceId, serverTime: Date.now() });
       for (const id of ids) await economy.announceEconomy(id);
     },
   });
   const territory = new TerritoryService(db, hub, economy);
-  const military = new MilitaryService(db, hub, economy);
   // Instalações militares contam no poder militar: recalcula quando uma obra termina.
   economy.afterStructure = async (governorId, type) => {
     if (STRUCTURES[type]?.military) await military.refreshPower(governorId);
   };
   const war = new WarService(db, hub, economy, military);
   const nation = new NationService(db, hub, territory, economy, military, war);
+  nation.diplomacy = diplomacy;
   const match = new MatchService(db, hub, nation, territory, economy);
   match.military = military;
   match.war = war;
+  match.diplomacy = diplomacy;
   war.onRegion = (kingdomId) => match.check(kingdomId);
   // Toda região conquistada numa partida rápida pode decidir a partida.
   territory.onRegion = (kingdomId) => match.check(kingdomId);
@@ -84,7 +91,7 @@ export async function createGameServer(
       .catch(() => res.status(503).json({ ok: false }));
   });
 
-  app.use('/api', express.json({ limit: '16kb' }), csrfGuard, authMiddleware(db), apiRouter(db, hub, { alliance, chat, nation, territory, economy, match, military, war }));
+  app.use('/api', express.json({ limit: '16kb' }), csrfGuard, authMiddleware(db), apiRouter(db, hub, { alliance, chat, nation, territory, economy, match, military, war, diplomacy }));
   app.use('/api', errorMiddleware);
 
   if (opts.staticDir && fs.existsSync(opts.staticDir)) {

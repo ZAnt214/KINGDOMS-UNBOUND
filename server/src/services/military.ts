@@ -51,7 +51,7 @@ export class MilitaryService {
   /** Tropas em operações ativas (Fase E). */
   async engaged(q: Queryable, governorId: number): Promise<Army> {
     const { rows } = await q.query(
-      `SELECT attacker_id, defender_id, setup, events FROM operations WHERE status = 'active' AND (attacker_id = $1 OR defender_id = $1)`,
+      `SELECT attacker_id, defender_id, setup, events FROM operations WHERE status = 'active' AND (attacker_id = $1 OR defender_id = $1 OR $1 = ANY(allies))`,
       [governorId],
     );
     return sumArmies(...rows.map((r) => engagedIn({ attackerId: Number(r.attacker_id), defenderId: Number(r.defender_id), setup: r.setup, events: r.events }, governorId)));

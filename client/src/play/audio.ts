@@ -2,7 +2,7 @@
 // Efeitos curtos e discretos para cada ação e uma trilha ambiente lenta. Volumes ficam salvos
 // no navegador; o áudio só começa depois do primeiro toque (exigência dos navegadores).
 
-export type SoundName = 'tap' | 'select' | 'confirm' | 'deny' | 'found' | 'expand' | 'conquest' | 'country' | 'level' | 'notify' | 'build' | 'built' | 'rail' | 'drill' | 'victory' | 'defeat' | 'war' | 'alarm' | 'silo' | 'launch' | 'whoosh' | 'boom' | 'intercept' | 'repelled';
+export type SoundName = 'tap' | 'select' | 'confirm' | 'deny' | 'found' | 'expand' | 'conquest' | 'country' | 'level' | 'notify' | 'build' | 'built' | 'rail' | 'drill' | 'victory' | 'defeat' | 'war' | 'alarm' | 'silo' | 'launch' | 'whoosh' | 'boom' | 'intercept' | 'repelled' | 'pact' | 'pactBreak' | 'gift';
 
 export interface AudioSettings {
   music: number;
@@ -255,6 +255,23 @@ class GameAudio {
         this.tone({ f: midi(60), dur: 0.35, type: 'triangle', gain: 0.1 });
         this.tone({ f: midi(67), at: 0.12, dur: 0.5, type: 'triangle', gain: 0.1 });
         this.tone({ f: midi(72), at: 0.24, dur: 0.7, type: 'triangle', gain: 0.1 });
+        break;
+      case 'pact':
+        // Aliança formada: dois sinos que se respondem e um acorde maior que se abre.
+        this.tone({ f: midi(79), dur: 0.9, type: 'sine', gain: 0.12 });
+        this.tone({ f: midi(84), at: 0.18, dur: 1.1, type: 'sine', gain: 0.12 });
+        [60, 64, 67, 72].forEach((n, i) => this.tone({ f: midi(n), at: 0.42 + i * 0.05, dur: 1.6, type: 'triangle', gain: 0.08, attack: 0.08 }));
+        this.tone({ f: midi(91), at: 0.7, dur: 1.4, type: 'sine', gain: 0.05 });
+        break;
+      case 'pactBreak':
+        // Quebra: estalo seco e um acorde menor que desce.
+        this.noise({ dur: 0.16, from: 3200, to: 700, gain: 0.22, q: 1.2 });
+        this.tone({ f: 120, to: 50, dur: 0.5, type: 'sine', gain: 0.25 });
+        [67, 63, 60].forEach((n, i) => this.tone({ f: midi(n), at: 0.12 + i * 0.12, dur: 0.6, type: 'triangle', gain: 0.09, lp: 1400 }));
+        break;
+      case 'gift':
+        // Recursos chegando: moedas (notas curtas e brilhantes).
+        [88, 91, 95].forEach((n, i) => this.tone({ f: midi(n), at: i * 0.07, dur: 0.18, type: 'triangle', gain: 0.07 }));
         break;
       case 'drill':
         // Tropas prontas: caixa clara em marcha (três batidas) e um acorde de metais curto.

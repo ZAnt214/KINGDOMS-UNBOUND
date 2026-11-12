@@ -77,7 +77,7 @@ export class EconomyService {
         [governorId],
       ),
       q.query('SELECT unit, amount FROM army WHERE governor_id = $1', [governorId]),
-      q.query(`SELECT attacker_id, defender_id, setup, events FROM operations WHERE status = 'active' AND (attacker_id = $1 OR defender_id = $1)`, [governorId]),
+      q.query(`SELECT attacker_id, defender_id, setup, events FROM operations WHERE status = 'active' AND (attacker_id = $1 OR defender_id = $1 OR $1 = ANY(allies))`, [governorId]),
       q.query('SELECT tech, level FROM research WHERE governor_id = $1', [governorId]),
     ]);
     return {

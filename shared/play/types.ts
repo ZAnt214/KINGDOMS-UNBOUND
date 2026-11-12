@@ -85,8 +85,10 @@ export interface OperationView {
   attackerTroops: number;
   defenderTroops: number;
   status: 'active' | 'won' | 'failed';
-  /** Só para os dois lados: as próprias tropas enviadas e restantes. */
+  /** Só para quem tem tropas na operação (os dois lados e aliados): as próprias enviadas e restantes. */
   mine?: { side: 'attacker' | 'defender'; sent: Army; remaining: Army };
+  /** Aliados que mandaram tropas (Fase F). */
+  allies: { id: number; side: 'attacker' | 'defender' }[];
   /** Ao terminar: baixas de cada lado (total de unidades). */
   result?: { attackerLosses: number; defenderLosses: number };
 }
@@ -123,6 +125,34 @@ export interface MilitaryView {
   /** Tropas fora de casa, em operações (Fase E). */
   engaged: Army;
 }
+
+/** Pedido de aliança pendente (Fase F) envolvendo quem pergunta. */
+export interface AllianceRequestView {
+  id: number;
+  fromId: number;
+  toId: number;
+  createdAt: number;
+  expiresAt: number;
+}
+
+/** Diplomacia de quem pergunta (Fase F). */
+export interface DiplomacyView {
+  /** Pedidos pendentes enviados e recebidos. */
+  requests: AllianceRequestView[];
+  /** Nações que quem pergunta não pode atacar até `until`, por ter rompido a aliança com elas. */
+  blocks: { nationId: number; until: number }[];
+  /** Nome da aliança atual, ou null. */
+  allianceName: string | null;
+}
+
+/** Notícia diplomática (Fase F), para aviso, som e animação. */
+export type PactNews =
+  | { kind: 'request'; requestId: number; from: number; to: number; expiresAt: number }
+  | { kind: 'declined'; requestId: number; from: number; to: number; reason?: string }
+  | { kind: 'accepted'; requestId: number; from: number; to: number; allianceId: number }
+  | { kind: 'broken'; by: number; formers: number[]; penalty: { troops: number; resources: Partial<ResourceMap> }; until: number }
+  | { kind: 'gift'; from: number; to: number; resources: Partial<ResourceMap> }
+  | { kind: 'help'; by: number; operationId: number; side: 'attacker' | 'defender'; troops: number };
 
 export interface ResultView {
   nationId: number;
@@ -162,6 +192,8 @@ export interface PlaySnapshot {
   military: MilitaryView | null;
   operations: OperationView[];
   strikes: StrikeView[];
+  /** Diplomacia (Fase F), ou null se ainda não fundou. */
+  diplomacy: DiplomacyView | null;
 }
 
 /** O que acabou de terminar (para o aviso e o som). */
@@ -182,7 +214,9 @@ export type PlayEvent =
   | { type: 'play.strike'; strike: StrikeView }
   | { type: 'play.transfer'; structures: StructureView[] }
   | { type: 'play.structure.removed'; structureId: number }
-  | { type: 'play.match'; world: WorldView };
+  | { type: 'play.match'; world: WorldView }
+  | { type: 'play.diplomacy'; diplomacy: DiplomacyView }
+  | { type: 'play.pact'; news: PactNews };
 
 export interface FoundInput {
   pointId: string;

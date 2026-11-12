@@ -1,24 +1,25 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { buildProblem, type EconomyInput, ECONOMY, expansionCost, missing, STRUCTURES, structureCost, type StructureType } from '../../../shared/play/economy';
+import { buildProblem, type EconomyInput, ECONOMY, expansionCost, missing, type Resource, RESOURCE_INFO, type ResourceMap, STRUCTURES, structureCost, type StructureType } from '../../../shared/play/economy';
 import { LOGISTICS, previewLinks } from '../../../shared/play/logistics';
 import { type TechType, TECHS, type UnitType, UNITS } from '../../../shared/play/military';
 import { ArmySheet } from './armyUi';
 import { attackOrigin, missileRange, WAR, type Weapon } from '../../../shared/play/war';
 import { AttackSheet, EnemyActions, MissileConfirm, OperationCapsules, OperationSheet, opProgress } from './warUi';
+import { DiplomacySheet, GiftSheet, PactCeremony, PactMark, PactPrompt } from './diplomacyUi';
 import { expansionSeconds, MILESTONES, milestoneProgress } from '../../../shared/play/rules';
 import type { NationView, StructureView } from '../../../shared/play/types';
 import { COUNTRIES, COUNTRY_BY_CODE } from '../../../shared/world';
 import { countryOccupation, distanceKm, dominatedCountries, landmassSize, REGION_BY_ID, REGIONS_BY_COUNTRY, START_POINT_BY_ID, START_POINTS, type StartPoint } from '../../../shared/world/regions';
 import { api, ApiError, serverNow } from '../api';
 import type { RealtimeStatus } from '../realtime';
-import type { MapFill, MapFlag, MapLabel, MapPick, MapPoint, MapRail, MapStructure, WorldMapEngine } from '../worldmap/engine';
+import type { MapFill, MapFlag, MapLabel, MapPact, MapPick, MapPoint, MapRail, MapStructure, WorldMapEngine } from '../worldmap/engine';
 import { audio } from './audio';
 import { PointCard, RegionCard } from './cards';
 import { amountsNow, BuildBar, EconomySheet, Glyph, ResourceStrip, StructurePanel } from './economyUi';
 import { STRUCTURE_GLYPH } from './glyphs';
 import { Banner, type BannerData, Dock, IdentityPill, MatchClock, ObjectiveChip, OccupationCapsule, StatChips, type Toast, Toasts, ZoomButtons } from './hud';
 import { draftFlagSrc, flagCanvasImage, type IdentityDraft, nationFlagSrc } from './identity';
-import { fmtArea, linkKey, myTargets, nationStats, objective, progressOf, ranking, worldNetwork } from './model';
+import { fmtAmount, fmtArea, linkKey, myTargets, nationStats, objective, progressOf, ranking, worldNetwork } from './model';
 import { NationSheet, RankingSheet, SettingsSheet } from './sheets';
 import { regionsOf, structuresOf, type WorldMoment, type WorldState } from './store';
 
@@ -31,6 +32,13 @@ function siloOf(s: WorldState, siloId: number) {
   return { silo, range: missileRange(silo.level, 'missile') };
 }
 
+/** Quem rompeu uma aliança não ataca os antigos aliados por 30 minutos (Fase F). */
+function pactBlock(s: WorldState, owner: number): string | null {
+  const until = s.diplomacy?.blocks.find((b) => b.nationId === owner)?.until ?? 0;
+  const left = until - serverNow();
+  return left > 0 ? `Você rompeu a aliança com esta nação: ataques liberados em ${Math.max(1, Math.ceil(left / 60_000))} min.` : null;
+}
+
 /** Mesmas regras do servidor para o alvo de um míssil (null = pode). */
 function missileProblem(s: WorldState, siloId: number, rid: string): string | null {
   const info = siloOf(s, siloId);
@@ -39,6 +47,8 @@ function missileProblem(s: WorldState, siloId: number, rid: string): string | nu
   if (owner === undefined || owner === s.me) return 'Escolha uma região de outra nação.';
   const me = s.me !== null ? s.nations.get(s.me) : null;
   if (me?.alliance !== null && me?.alliance === s.nations.get(owner)?.alliance) return 'Não é possível atacar um aliado.';
+  const block = pactBlock(s, owner);
+  if (block) return block;
   if (s.world.arena && !s.world.arena.includes(rid)) return 'Esta região fica fora da área da partida.';
   const km = distanceKm(info.silo.at, REGION_BY_ID[rid].at);
   if (km > info.range) return `Fora do alcance: ${Math.round(km).toLocaleString('pt-BR')} km (alcance de ${info.range.toLocaleString('pt-BR')} km).`;
@@ -52,6 +62,8 @@ function attackCheck(s: WorldState, rid: string): { problem: string | null; orig
   const me = s.nations.get(s.me);
   const enemy = s.nations.get(owner);
   if (me?.alliance !== null && me?.alliance === enemy?.alliance) return { problem: 'Não é possível atacar um aliado.', origin: null };
+  const block = pactBlock(s, owner);
+  if (block) return { problem: block, origin: null };
   if (s.world.arena && !s.world.arena.includes(rid)) return { problem: 'Esta região fica fora da área da partida.', origin: null };
   const origin = attackOrigin(regionsOf(s, s.me), rid, (s.military?.army.navy ?? 0) > 0);
   if (!origin) {
@@ -89,13 +101,21 @@ interface Props {
   attack: (region: string, percent: number) => Promise<void>;
   reinforce: (operationId: number, percent: number) => Promise<void>;
   launch: (siloId: number, region: string, weapon: Weapon) => Promise<void>;
+  /** Fase F: diplomacia (pedido, resposta, cancelamento, quebra e envio de recursos). */
+  pact: {
+    request: (nationId: number) => Promise<{ accepted: boolean; reason?: string; allianceId?: number | null }>;
+    answer: (requestId: number, accept: boolean) => Promise<{ allianceId: number | null }>;
+    cancel: (requestId: number) => Promise<unknown>;
+    breakAlliance: () => Promise<unknown>;
+    gift: (nationId: number, resources: Partial<ResourceMap>) => Promise<{ sent: Partial<ResourceMap> }>;
+  };
   onEditIdentity: () => void;
   onSwitchMode: () => void;
   onLeave: () => Promise<void>;
   onLogout: () => void;
 }
 
-type Sheet = 'nation' | 'ranking' | 'settings' | 'economy' | 'army' | null;
+type Sheet = 'nation' | 'ranking' | 'settings' | 'economy' | 'army' | 'diplomacy' | null;
 type Panel = { kind: 'existing'; id: number } | null;
 interface Bloom {
   color: string;
@@ -111,7 +131,7 @@ const prefersReduced = () => typeof matchMedia === 'function' && matchMedia('(pr
  * mostra o HUD. Não decide regra nenhuma: tudo que muda o mundo passa por found, expand, build e upgrade.
  */
 export function MapStage(props: Props) {
-  const { engine, state, status, active, draft, onDraft, username, subscribe, found, expand, build, upgrade, train, research, attack, reinforce, launch } = props;
+  const { engine, state, status, active, draft, onDraft, username, subscribe, found, expand, build, upgrade, train, research, attack, reinforce, launch, pact } = props;
   const me = state.me !== null ? (state.nations.get(state.me) ?? null) : null;
   const quick = state.world.mode === 'quick';
   const arena = state.world.arena;
@@ -128,6 +148,13 @@ export function MapStage(props: Props) {
   const [opOpen, setOpOpen] = useState<number | null>(null);
   const [aiming, setAiming] = useState<{ siloId: number } | null>(null);
   const [missileTarget, setMissileTarget] = useState<string | null>(null);
+  /** Fase F: aliado escolhido para receber recursos, pedido adiado e cerimônia de aliança. */
+  const [giftTo, setGiftTo] = useState<number | null>(null);
+  const [later, setLater] = useState<Set<number>>(() => new Set());
+  const [ceremony, setCeremony] = useState<{ a: number; b: number; broken?: boolean; id: number } | null>(null);
+  const pactBorn = useRef(new Map<number, number>());
+  const closeCeremony = useCallback(() => setCeremony(null), []);
+  const pactBroken = useRef(new Map<number, { from: [number, number]; to: [number, number]; at: number }>());
   const [busy, setBusy] = useState(false);
   const [cardError, setCardError] = useState<string | null>(null);
   const [blocked, setBlocked] = useState<string[]>([]);
@@ -165,7 +192,18 @@ export function MapStage(props: Props) {
     return arenaSet ? list.filter((r) => arenaSet.has(r)) : list;
   }, [state, stats, myOccupation, arenaSet]);
   const board = useMemo(() => ranking(state), [state]);
-  const myOps = useMemo(() => [...state.operations.values()].filter((o) => o.status === 'active' && (o.attackerId === state.me || o.defenderId === state.me)), [state]);
+  const allies = useMemo(() => {
+    const out = new Set<number>();
+    if (!me || me.alliance === null) return out;
+    for (const n of state.nations.values()) if (n.id !== me.id && n.alliance === me.alliance) out.add(n.id);
+    return out;
+  }, [state, me]);
+  // Operações próprias e as de aliados (para ajudar).
+  const myOps = useMemo(
+    () => [...state.operations.values()].filter((o) => o.status === 'active' && (o.attackerId === state.me || o.defenderId === state.me || allies.has(o.defenderId) || allies.has(o.attackerId))),
+    [state, allies],
+  );
+  const received = useMemo(() => (state.diplomacy?.requests ?? []).filter((r) => r.toId === state.me && r.expiresAt > serverNow()), [state]);
   const mySilo = useMemo(
     () => [...state.structures.values()].filter((x) => x.nationId === state.me && x.type === 'missile_silo' && x.level > 0).sort((a, b) => b.level - a.level)[0] ?? null,
     [state],
@@ -227,8 +265,28 @@ export function MapStage(props: Props) {
       if (list) list.push(rid);
       else by.set(owner, [rid]);
     }
-    engine.setTerritories([...by].map(([id, regions]) => ({ id: String(id), color: state.nations.get(id)?.color ?? '#8792a6', regions, own: id === state.me })));
-  }, [engine, state, blooms]);
+    engine.setTerritories([...by].map(([id, regions]) => ({ id: String(id), color: state.nations.get(id)?.color ?? '#8792a6', regions, own: id === state.me, ally: allies.has(id) })));
+  }, [engine, state, blooms, allies]);
+
+  // Fase F: arcos de aliança entre a capital própria e as dos aliados (e a quebra animada).
+  useEffect(() => {
+    const capOf = (id: number) => START_POINT_BY_ID[state.nations.get(id)?.capital ?? '']?.at ?? null;
+    const mine = state.me !== null ? capOf(state.me) : null;
+    const list: MapPact[] = [];
+    if (mine) {
+      for (const id of allies) {
+        const to = capOf(id);
+        if (to) list.push({ id: `p${id}`, from: mine, to, appearAt: pactBorn.current.get(id) });
+      }
+    }
+    const t = performance.now();
+    for (const [id, b] of pactBroken.current) {
+      if (t - b.at > 2000 || allies.has(id)) pactBroken.current.delete(id);
+      else list.push({ id: `x${id}`, from: b.from, to: b.to, brokenAt: b.at });
+    }
+    engine.setPacts(list);
+  }, [engine, state, allies, ceremony]);
+  useEffect(() => () => engine.setPacts([]), [engine]);
 
   useEffect(() => {
     const fills: MapFill[] = state.occupations.map((o) => ({
@@ -660,6 +718,93 @@ export function MapStage(props: Props) {
           } else audio.play('build');
           return;
         }
+        if (m.kind === 'pact') {
+          const n = m.news;
+          const name = (id: number) => s.nations.get(id)?.name ?? 'Uma nação';
+          const flagOf = (id: number) => {
+            const x = s.nations.get(id);
+            return x ? nationFlagSrc(x) : undefined;
+          };
+          if (n.kind === 'request') {
+            if (n.to === s.me) {
+              audio.play('notify');
+              setLater((l) => {
+                const next = new Set(l);
+                next.delete(n.requestId);
+                return next;
+              });
+            } else if (n.from === s.me) toast(`Pedido de aliança enviado a ${name(n.to)}.`, 'info', flagOf(n.to));
+          } else if (n.kind === 'declined') {
+            if (n.from === s.me) {
+              audio.play('deny');
+              toast(`${name(n.to)} recusou a aliança${n.reason ? `: ${n.reason}` : ''}.`, 'bad', flagOf(n.to));
+            }
+          } else if (n.kind === 'accepted') {
+            const involved = n.from === s.me || n.to === s.me;
+            const other = n.from === s.me ? n.to : n.from;
+            if (involved) {
+              // Momento especial: a aliança se forma (arco dourado nasce no mapa e a cerimônia aparece).
+              pactBorn.current.set(other, now + 350);
+              audio.play('pact');
+              // A cerimônia e o arco aparecem sobre o mapa livre.
+              setSheet(null);
+              setRegion(null);
+              setCeremony({ a: n.from, b: n.to, id: now });
+              const a = START_POINT_BY_ID[s.nations.get(n.from)?.capital ?? '']?.region;
+              const b = START_POINT_BY_ID[s.nations.get(n.to)?.capital ?? '']?.region;
+              if (a && b) engine.flyToRegions([a, b], 0.5, 8);
+            } else if (mine && mine.alliance !== null && s.nations.get(other)?.alliance === mine.alliance && s.nations.get(n.from)?.alliance === mine.alliance) {
+              pactBorn.current.set(n.from === s.me ? n.to : n.from, now + 200);
+              toast(`${name(n.from)} e ${name(n.to)} agora fazem parte da sua aliança.`, 'good');
+            } else toast(`${name(n.from)} e ${name(n.to)} formaram uma aliança.`, 'info', flagOf(n.from));
+          } else if (n.kind === 'broken') {
+            const meBroke = n.by === s.me;
+            const hitMe = s.me !== null && n.formers.includes(s.me);
+            if (meBroke || hitMe) {
+              audio.play('pactBreak');
+              const capOf = (id: number) => START_POINT_BY_ID[s.nations.get(id)?.capital ?? '']?.at ?? null;
+              const myCap = s.me !== null ? capOf(s.me) : null;
+              for (const f of meBroke ? n.formers : [n.by]) {
+                const to = capOf(f);
+                if (myCap && to) pactBroken.current.set(f, { from: myCap, to, at: now });
+                pactBorn.current.delete(f);
+              }
+              setSheet(null);
+              setCeremony({ a: n.by, b: meBroke ? n.formers[0] : (s.me as number), broken: true, id: now });
+            }
+            if (meBroke) {
+              const lost = Object.entries(n.penalty.resources)
+                .filter(([, v]) => (v ?? 0) > 0)
+                .map(([r, v]) => `${fmtAmount(v as number)} de ${RESOURCE_INFO[r as Resource].short.toLowerCase()}`)
+                .slice(0, 3)
+                .join(', ');
+              toast(`Aliança rompida. Penalidade: ${n.penalty.troops} tropas${lost ? `, ${lost}` : ''}. Ataques contra ex-aliados liberados em 30 min.`, 'bad');
+            } else if (hitMe) toast(`${name(n.by)} rompeu a aliança com você e pagou a penalidade.`, 'bad', flagOf(n.by));
+            else toast(`${name(n.by)} rompeu uma aliança.`, 'info', flagOf(n.by));
+          } else if (n.kind === 'gift') {
+            if (n.to === s.me) {
+              audio.play('gift');
+              const what = Object.entries(n.resources)
+                .map(([r, v]) => `${fmtAmount(v as number)} de ${RESOURCE_INFO[r as Resource].short.toLowerCase()}`)
+                .join(', ');
+              toast(`${name(n.from)} enviou ${what}.`, 'good', flagOf(n.from));
+            } else if (n.from === s.me) {
+              audio.play('gift');
+              toast(`Recursos enviados a ${name(n.to)}.`, 'good', flagOf(n.to));
+            }
+          } else if (n.kind === 'help') {
+            const o = s.operations.get(n.operationId);
+            const rn = o ? (REGION_BY_ID[o.region]?.name ?? 'Região') : 'a batalha';
+            if (n.by === s.me) {
+              audio.play('war');
+              toast(`~${n.troops} tropas suas a caminho de ${rn}.`, 'good');
+            } else if (o && (o.defenderId === s.me || o.attackerId === s.me)) {
+              audio.play('confirm');
+              toast(`${name(n.by)} mandou ~${n.troops} tropas para ${n.side === 'defender' ? 'defender' : 'atacar'} ${rn}.`, 'good', flagOf(n.by));
+            }
+          }
+          return;
+        }
         if (m.kind === 'operation') {
           const o = m.operation;
           const rn = REGION_BY_ID[o.region]?.name ?? 'Região';
@@ -866,6 +1011,27 @@ export function MapStage(props: Props) {
     toast(`${targets.length} ${targets.length === 1 ? 'região vizinha livre' : 'regiões vizinhas livres'}. Toque em uma área tracejada.`);
   };
 
+  // ---------- diplomacia (Fase F) ----------
+  const pactState = (n: NationView): 'none' | 'sent' | 'received' | 'other-alliance' | 'blocked' => {
+    const d = state.diplomacy;
+    const now = serverNow();
+    if (d?.blocks.some((b) => b.nationId === n.id && b.until > now)) return 'blocked';
+    if (d?.requests.some((r) => r.toId === state.me && r.fromId === n.id && r.expiresAt > now)) return 'received';
+    if (d?.requests.some((r) => r.fromId === state.me && r.toId === n.id && r.expiresAt > now)) return 'sent';
+    if (me && me.alliance !== null && n.alliance !== null && n.alliance !== me.alliance) return 'other-alliance';
+    return 'none';
+  };
+  const requestPact = (id: number) =>
+    void run(async () => {
+      audio.play('select');
+      await pact.request(id);
+    });
+  const answerPact = (requestId: number, accept: boolean) =>
+    void run(async () => {
+      await pact.answer(requestId, accept);
+      if (!accept) audio.play('tap');
+    });
+
   const goal = stats ? objective(stats) : null;
   const regionDef = region ? REGION_BY_ID[region] : null;
   const enemyOwner = regionDef && me && state.control.has(regionDef.id) && state.control.get(regionDef.id) !== me.id ? (state.nations.get(state.control.get(regionDef.id)!) ?? null) : null;
@@ -938,7 +1104,7 @@ export function MapStage(props: Props) {
               }}
             />
           )}
-          {me && myOps.length > 0 && !buildOpen && !aiming && <OperationCapsules ops={myOps} me={me.id} onOpen={(id) => (audio.play('tap'), setOpOpen(id))} />}
+          {me && myOps.length > 0 && !buildOpen && !aiming && <OperationCapsules ops={myOps} me={me.id} allies={allies} onOpen={(id) => (audio.play('tap'), setOpOpen(id))} />}
           {aiming && (
             <div className="ku-aim" data-testid="missile-aiming">
               <span>Toque numa região inimiga dentro do círculo de alcance.</span>
@@ -975,6 +1141,12 @@ export function MapStage(props: Props) {
               }}
               onRanking={() => setSheet('ranking')}
               training={state.military?.training.length ?? 0}
+              pacts={received.length}
+              onDiplomacy={() => {
+                audio.play('tap');
+                setCardError(null);
+                setSheet('diplomacy');
+              }}
               onArmy={() => {
                 audio.play('tap');
                 setCardError(null);
@@ -1022,8 +1194,28 @@ export function MapStage(props: Props) {
           onOccupy={() => occupy(regionDef.id)}
           onClose={() => setRegion(null)}
         >
-          {enemyOwner && (
+          {enemyOwner && allies.has(enemyOwner.id) && (
+            <div className="ku-enemy ally" data-testid="ally-actions">
+              <p className="ku-pact-tag">
+                <PactMark size={15} /> Território aliado · poder {enemyOwner.power.toLocaleString('pt-BR')}
+              </p>
+              <div className="ku-row-actions">
+                <button type="button" className="ku-btn" onClick={() => (audio.play('tap'), engine.flyToRegions(regionsOf(state, enemyOwner.id), 0.5, 10))}>
+                  Ver território
+                </button>
+                <button type="button" className="ku-btn" onClick={() => (audio.play('tap'), setCardError(null), setGiftTo(enemyOwner.id))} data-testid="ally-gift">
+                  Enviar recursos
+                </button>
+                <button type="button" className="ku-cta small" onClick={() => (audio.play('tap'), setRegion(null), setSheet('diplomacy'))}>
+                  Diplomacia
+                </button>
+              </div>
+            </div>
+          )}
+          {enemyOwner && !allies.has(enemyOwner.id) && (
             <EnemyActions
+              pact={pactState(enemyOwner)}
+              onPact={() => requestPact(enemyOwner.id)}
               owner={enemyOwner}
               ownerRegions={regionsOf(state, enemyOwner.id).length}
               capital={START_POINT_BY_ID[enemyOwner.capital]?.region === regionDef.id}
@@ -1168,6 +1360,11 @@ export function MapStage(props: Props) {
             attacker={state.nations.get(o.attackerId)}
             defender={state.nations.get(o.defenderId)}
             me={state.me}
+            role={o.defenderId === state.me ? 'defender' : o.attackerId === state.me ? null : allies.has(o.defenderId) ? 'ally-defender' : allies.has(o.attackerId) ? 'ally-attacker' : null}
+            allies={o.allies.flatMap((a) => {
+              const n = state.nations.get(a.id);
+              return n ? [{ nation: n, side: a.side }] : [];
+            })}
             home={state.military?.army ?? {}}
             canCounter={!!counter && !counter.problem}
             canMissile={!!silo && !missileProblem(state, silo.id, o.from)}
@@ -1231,6 +1428,56 @@ export function MapStage(props: Props) {
           }}
           onClose={() => setSheet(null)}
         />
+      )}
+      {sheet === 'diplomacy' && me && (
+        <DiplomacySheet
+          me={me}
+          nations={state.nations}
+          regionsOf={(id) => regionsOf(state, id).length}
+          diplomacy={state.diplomacy}
+          economy={state.economy}
+          home={state.military?.army ?? {}}
+          busy={busy}
+          error={cardError}
+          onRequest={requestPact}
+          onAnswer={answerPact}
+          onCancel={(id) => void run(async () => void (await pact.cancel(id)))}
+          onGift={(n) => (audio.play('tap'), setCardError(null), setGiftTo(n.id))}
+          onView={(n) => {
+            setSheet(null);
+            engine.flyToRegions(regionsOf(state, n.id), 0.5, 10);
+          }}
+          onBreak={() => void run(async () => (await pact.breakAlliance(), setSheet(null)))}
+          onClose={() => setSheet(null)}
+        />
+      )}
+      {giftTo !== null && state.nations.get(giftTo) && (
+        <GiftSheet
+          ally={state.nations.get(giftTo)!}
+          economy={state.economy}
+          busy={busy}
+          error={cardError}
+          onSend={(r) => void run(async () => (await pact.gift(giftTo, r), setGiftTo(null)))}
+          onClose={() => setGiftTo(null)}
+        />
+      )}
+      {me && active && !sheet && giftTo === null && !ceremony && (() => {
+        const r = received.find((x) => !later.has(x.id));
+        const from = r ? state.nations.get(r.fromId) : null;
+        if (!r || !from) return null;
+        return (
+          <PactPrompt
+            from={from}
+            expiresAt={r.expiresAt}
+            busy={busy}
+            onAccept={() => answerPact(r.id, true)}
+            onDecline={() => answerPact(r.id, false)}
+            onLater={() => setLater((l) => new Set(l).add(r.id))}
+          />
+        );
+      })()}
+      {ceremony && state.nations.get(ceremony.a) && state.nations.get(ceremony.b) && (
+        <PactCeremony key={ceremony.id} a={state.nations.get(ceremony.a)!} b={state.nations.get(ceremony.b)!} broken={ceremony.broken} onDone={closeCeremony} />
       )}
       {sheet === 'ranking' && (
         <RankingSheet

@@ -75,6 +75,8 @@ export function PlayApp({ me, enter, reloadMe, onLoginForm, onLogout }: Props) {
       /** Operações e mísseis desenhados no mapa. */
       operations: () => e.operationList().map((o) => ({ id: o.id, own: !!o.own, against: !!o.against })),
       missiles: () => e.missileList().map((m) => ({ id: m.id, intercepted: m.intercepted, weapon: m.weapon ?? "missile", flightAt: m.flightAt, interceptAt: m.interceptAt, impactAt: m.impactAt })),
+      /** Arcos de aliança desenhados no mapa (Fase F). */
+      pacts: () => e.pactList().map((p) => ({ id: p.id, broken: p.brokenAt !== undefined })),
       /** Trechos de ferrovia desenhados no mapa. */
       rails: () => e.railList().map((r) => ({ id: r.id, from: r.from, to: r.to, ally: !!r.ally, own: !!r.own })),
       get zoom() {
@@ -221,6 +223,7 @@ export function PlayApp({ me, enter, reloadMe, onLoginForm, onLogout }: Props) {
           attack={world.attack}
           reinforce={world.reinforce}
           launch={world.launch}
+          pact={world.pact}
           onEditIdentity={() => setStage('identity')}
           onSwitchMode={() => setStage('mode')}
           onLeave={leave}

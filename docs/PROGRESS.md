@@ -256,3 +256,16 @@ Regras em `docs/PLAY_RULES.md` (seção Guerra); migração 7.
 - [x] Tropas criadas na hora: com a instalação e os recursos, sem fila, tempo, recrutas ou pesquisa obrigatória (a pesquisa vira só bônus).
 - [x] Bots parados na partida rápida: na Vercel, um passo dos bots podia ficar congelado no meio quando a função terminava, e a trava "já estou jogando" nunca soltava naquela instância. Agora a trava vence em 20 s e o passo pedido pela leitura do estado não depende do worker. Erros reais dos bots passam a ir para o log (antes eram engolidos).
 - Bots compram tropas com até 25% do dinheiro por vez.
+
+## 2026-11-12 — Fase F: Diplomacia
+
+- [x] Pedido de aliança no cartão do território de outra nação e no painel Diplomacia; aceitar/recusar pelo cartão dourado sobre o mapa ou pelo painel; pedido cruzado forma na hora; validade 24 h (campanha) / 10 min (partida rápida).
+- [x] Cerimônia de aliança (bandeiras se encontram, selo dourado, som próprio) e arco dourado entre as capitais no mapa; território aliado com contorno dourado tracejado.
+- [x] Painel Diplomacia (dock): aliados com poder e regiões, pedidos recebidos e enviados, bloqueios ativos e todas as outras nações com *Pedir aliança*.
+- [x] Envio de recursos a aliados (só o que cabe no armazém de quem recebe).
+- [x] Proteção e operações conjuntas: aliados mandam tropas para defender ou atacar; sobreviventes voltam a quem mandou; aviso dourado "Aliado sob ataque".
+- [x] Quebra com penalidade automática (−10% tropas, −20% recursos, 30 min sem atacar ex-aliados), confirmação mostrando a penalidade antes, animação de quebra e aviso aos ex-aliados. A rota antiga de sair da aliança aplica a mesma penalidade.
+- [x] Bots respondem pedidos por regra pública, não atacam aliados e ajudam a defender aliados.
+- Migração 10 (`alliance_requests`, `alliance_breaks`, `gifts`, `operations.allies`).
+
+**Fora desta fase:** chat de aliança dentro do jogo (existe na API antiga), alianças entre bots, vitória compartilhada por aliança (Fase G).

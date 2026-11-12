@@ -8,7 +8,7 @@ import {
   type BattleSetup,
   battleSeconds,
   defenseMultiplier,
-  engagedIn,
+  contributions,
   estimate,
   garrison,
   interceptChance,
@@ -19,6 +19,7 @@ import {
   predictEnd,
   share,
   simulate,
+  splitSurvivors,
   survivors,
   troops,
   WAR,
@@ -26,6 +27,7 @@ import {
   type Weapon,
   WEAPON_TYPES,
   WEAPONS,
+  sumArmies,
 } from '../../../shared/play/war.js';
 import { distanceKm, REGION_BY_ID, START_POINT_BY_ID } from '../../../shared/world/regions.js';
 import type { GovernorCtx } from '../auth.js';
@@ -41,7 +43,7 @@ type Queryable = Pick<Db, 'query'> | Pick<Tx, 'query'>;
 /** Tempo entre o lançamento e o início do voo: preparação e abertura do silo (animadas na tela). */
 const PREP_MS = 2200;
 
-const OP_COLUMNS = 'id, kingdom_id, attacker_id, defender_id, region_id, from_region, naval, started_at, ends_at, setup, events, status, result';
+const OP_COLUMNS = 'id, kingdom_id, attacker_id, defender_id, region_id, from_region, naval, started_at, ends_at, setup, events, status, result, allies';
 
 function setupOf(r: any): BattleSetup {
   return { ...r.setup, startedAt: new Date(r.started_at).getTime(), events: r.events as BattleEvent[] };
@@ -67,11 +69,20 @@ export function operationView(r: any, now: number, viewer: number | null = null)
     attackerTroops: estimate(troops(survivors(sim.attacker))),
     defenderTroops: estimate(troops(survivors(sim.defender))),
     status: r.status,
+    allies: [],
   };
   if (r.result) view.result = { attackerLosses: r.result.attackerLosses, defenderLosses: r.result.defenderLosses };
-  if (viewer === attackerId || viewer === defenderId) {
-    const side = viewer === attackerId ? 'attacker' : 'defender';
-    view.mine = { side, sent: engagedIn({ attackerId, defenderId, setup, events: setup.events }, viewer), remaining: survivors(side === 'attacker' ? sim.attacker : sim.defender) };
+  const op = { attackerId, defenderId, setup, events: setup.events };
+  const sides = { attacker: contributions(op, 'attacker'), defender: contributions(op, 'defender') };
+  for (const side of ['attacker', 'defender'] as const) {
+    for (const id of sides[side].keys()) if (id !== attackerId && id !== defenderId) view.allies.push({ id, side });
+  }
+  if (viewer !== null) {
+    const side = sides.attacker.has(viewer) ? 'attacker' : sides.defender.has(viewer) ? 'defender' : null;
+    if (side) {
+      const alive = survivors(side === 'attacker' ? sim.attacker : sim.defender);
+      view.mine = { side, sent: sides[side].get(viewer)!, remaining: splitSurvivors(sides[side], alive).get(viewer) ?? {} };
+    }
   }
   return view;
 }
@@ -130,7 +141,7 @@ export class WarService {
     const now = Date.now();
     const kingdomId = r.kingdom_id as number;
     this.hub.toKingdom(kingdomId, { type: 'play.operation', operation: operationView(r, now), serverTime: now });
-    for (const id of [Number(r.attacker_id), Number(r.defender_id)]) {
+    for (const id of [Number(r.attacker_id), Number(r.defender_id), ...((r.allies ?? []) as (string | number)[]).map(Number)]) {
       this.hub.toGovernor(id, { type: 'play.operation', operation: operationView(r, now, id), serverTime: now });
     }
   }
@@ -164,6 +175,17 @@ export class WarService {
       [a, b],
     );
     return (rowCount ?? 0) > 0;
+  }
+
+  /** Quem rompeu uma aliança não ataca os antigos aliados por 30 minutos (Fase F). */
+  private async blocked(q: Queryable, breaker: number, target: number) {
+    const { rows } = await q.query(
+      `SELECT max(until) AS until FROM alliance_breaks WHERE breaker_id = $1 AND former_id = $2 AND until > now()`,
+      [breaker, target],
+    );
+    if (!rows[0]?.until) return;
+    const min = Math.max(1, Math.ceil((new Date(rows[0].until).getTime() - Date.now()) / 60_000));
+    throw conflict('pact_block', `Você rompeu a aliança com esta nação: ataques liberados em ${min} min.`);
   }
 
   private async take(client: Tx, governorId: number, army: Army) {
@@ -218,6 +240,7 @@ export class WarService {
         const defCapital = START_POINT_BY_ID[both.rows.find((r) => Number(r.governor_id) === defenderId)?.capital_point]?.region;
         const capitalBonus = defCapital === regionId ? WAR.capitalBonus : 1;
         if (await this.allied(client, g.id, defenderId)) throw conflict('allied', 'Não é possível atacar um aliado.');
+        await this.blocked(client, g.id, defenderId);
         const busy = await client.query(`SELECT 1 FROM operations WHERE kingdom_id = $1 AND region_id = $2 AND status = 'active'`, [g.kingdomId, regionId]);
         if (busy.rowCount) throw conflict('region_contested', 'Já há uma operação militar nesta região.');
         const mine = await client.query(`SELECT COUNT(*)::int AS n FROM operations WHERE attacker_id = $1 AND status = 'active'`, [g.id]);
@@ -273,27 +296,60 @@ export class WarService {
     return operationView(row, Date.now(), g.id);
   }
 
-  /** O defensor manda mais tropas para a região atacada. */
+  /**
+   * Mais tropas para uma operação: o defensor reforça a própria região; aliados do defensor ajudam a
+   * defender e aliados do atacante entram no ataque (Fase F). Sobreviventes voltam a quem mandou.
+   */
   async reinforce(g: GovernorCtx, operationId: number, percent: number): Promise<OperationView> {
     if (!(WAR.percents as readonly number[]).includes(percent)) throw bad('invalid_percent', 'Porcentagem inválida.');
     await this.settleWorld(g.kingdomId);
+    let side: 'attacker' | 'defender' = 'defender';
+    let sentTroops = 0;
     const row = await tx(this.db, async (client) => {
       const { rows } = await client.query(`SELECT ${OP_COLUMNS} FROM operations WHERE id = $1 FOR UPDATE`, [operationId]);
       const r = rows[0];
       if (!r || r.kingdom_id !== g.kingdomId) throw notFound('Operação não encontrada.');
       if (r.status !== 'active') throw conflict('operation_over', 'Esta operação já terminou.');
-      if (Number(r.defender_id) !== g.id) throw conflict('not_defender', 'Só o defensor pode reforçar a região.');
-      const sent = share(await this.home(client, g.id), percent, false);
-      if (!Object.keys(sent).length) throw conflict('no_troops', 'Não há tropas em casa para enviar.');
+      const attackerId = Number(r.attacker_id);
+      const defenderId = Number(r.defender_id);
+      let ally = false;
+      if (g.id === defenderId) side = 'defender';
+      else if (g.id === attackerId) throw conflict('not_defender', 'Quem ataca não reforça a própria operação: abra outra ou aguarde.');
+      else if (await this.allied(client, g.id, defenderId)) {
+        side = 'defender';
+        ally = true;
+      } else if (await this.allied(client, g.id, attackerId)) {
+        side = 'attacker';
+        ally = true;
+      } else throw conflict('not_defender', 'Só o defensor e os aliados de um dos lados podem mandar tropas.');
+      if (ally) {
+        const nation = await client.query('SELECT 1 FROM nations WHERE governor_id = $1', [g.id]);
+        if (!nation.rowCount) throw new HttpError(409, 'no_nation', 'Funde sua nação antes de mandar tropas.');
+      }
+      const naval = side === 'attacker' && r.naval;
+      const sent = share(await this.home(client, g.id), percent, naval);
+      if (!Object.keys(sent).length) throw conflict('no_troops', naval ? 'Ataque naval: só navios podem entrar. Não há navios em casa.' : 'Não há tropas em casa para enviar.');
+      sentTroops = troops(sent);
+      await this.economy.settleMany(client, [g.id], new Date());
       await this.take(client, g.id, sent);
-      const events = [...(r.events as BattleEvent[]), { at: Date.now(), kind: 'reinforce', army: sent } as BattleEvent];
+      const event: BattleEvent = ally ? { at: Date.now(), kind: 'reinforce', army: sent, side, by: g.id } : { at: Date.now(), kind: 'reinforce', army: sent };
+      const events = [...(r.events as BattleEvent[]), event];
       const ends = predictEnd({ ...setupOf(r), events });
-      const up = await client.query(`UPDATE operations SET events = $2, ends_at = $3 WHERE id = $1 RETURNING ${OP_COLUMNS}`, [operationId, JSON.stringify(events), new Date(ends)]);
-      return up.rows[0];
+      const up = await client.query(
+        `UPDATE operations SET events = $2, ends_at = $3, allies = CASE WHEN $4::bigint IS NULL OR $4 = ANY(allies) THEN allies ELSE array_append(allies, $4::bigint) END
+          WHERE id = $1 RETURNING ${OP_COLUMNS}`,
+        [operationId, JSON.stringify(events), new Date(ends), ally ? g.id : null],
+      );
+      return { row: up.rows[0], ally };
     });
-    this.announceOperation(row);
+    this.announceOperation(row.row);
     await this.military.announce(g.id);
-    return operationView(row, Date.now(), g.id);
+    if (row.ally) {
+      await this.economy.announceEconomy(g.id);
+      const news = { kind: 'help' as const, by: g.id, operationId, side, troops: estimate(sentTroops) };
+      this.hub.toKingdom(g.kingdomId, { type: 'play.pact', news, serverTime: Date.now() });
+    }
+    return operationView(row.row, Date.now(), g.id);
   }
 
   /** Lança um míssil do silo contra uma região inimiga no alcance. */
@@ -316,6 +372,7 @@ export class WarService {
         if (!owner.rowCount || Number(owner.rows[0].governor_id) === g.id) throw conflict('not_enemy', 'Escolha uma região de outra nação.');
         const defenderId = Number(owner.rows[0].governor_id);
         if (await this.allied(client, g.id, defenderId)) throw conflict('allied', 'Não é possível atacar um aliado.');
+        await this.blocked(client, g.id, defenderId);
         const from: [number, number] = silo.lon === null ? REGION_BY_ID[silo.region_id].at : [silo.lon, silo.lat];
         const km = distanceKm(from, target.at);
         const range = missileRange(silo.level, weapon);
@@ -380,14 +437,18 @@ export class WarService {
       const status = sim.status === 'won' ? 'won' : 'failed';
       const attackerId = Number(r.attacker_id);
       const defenderId = Number(r.defender_id);
-      // Saldo dos dois lados acertado até o fim com a manutenção de antes das baixas.
-      await this.economy.settleMany(client, [attackerId, defenderId], new Date(end));
-      const attSent = setup.attacker;
-      const defSent = engagedIn({ attackerId, defenderId, setup, events: setup.events }, defenderId);
+      const op = { attackerId, defenderId, setup, events: setup.events };
+      const sides = { attacker: contributions(op, 'attacker'), defender: contributions(op, 'defender') };
+      const everyone = [...new Set([...sides.attacker.keys(), ...sides.defender.keys()])];
+      // Saldo de todos os envolvidos acertado até o fim com a manutenção de antes das baixas.
+      await this.economy.settleMany(client, everyone, new Date(end));
+      const attSent = sumArmies(...sides.attacker.values());
+      const defSent = sumArmies(...sides.defender.values());
       const attBack = survivors(sim.attacker);
       const defBack = survivors(sim.defender);
-      await this.give(client, attackerId, attBack);
-      await this.give(client, defenderId, defBack);
+      // Sobreviventes voltam a quem mandou, na proporção do que cada um mandou.
+      for (const [id, army] of splitSurvivors(sides.attacker, attBack)) await this.give(client, id, army);
+      for (const [id, army] of splitSurvivors(sides.defender, defBack)) await this.give(client, id, army);
       let transferred: StructureView[] = [];
       if (status === 'won') {
         await client.query('UPDATE region_control SET governor_id = $3, since = $4 WHERE kingdom_id = $1 AND region_id = $2', [r.kingdom_id, r.region_id, attackerId, new Date(end)]);
@@ -400,17 +461,17 @@ export class WarService {
       }
       const result = { attackerLosses: troops(losses(attSent, attBack)), defenderLosses: troops(losses(defSent, defBack)) };
       const up = await client.query(`UPDATE operations SET status = $2, finished_at = $3, result = $4 WHERE id = $1 RETURNING ${OP_COLUMNS}`, [id, status, new Date(end), JSON.stringify(result)]);
-      return { row: up.rows[0], status, end, attackerId, defenderId, transferred };
+      return { row: up.rows[0], status, end, attackerId, defenderId, transferred, everyone };
     });
     if (!done) return false;
-    const { row, attackerId, defenderId } = done;
+    const { row, attackerId } = done;
     const kingdomId = row.kingdom_id as number;
     this.announceOperation(row);
     if (done.status === 'won') {
       this.hub.toKingdom(kingdomId, { type: 'play.region', region: row.region_id, nationId: attackerId, occupationId: -row.id, at: done.end, serverTime: Date.now() });
       if (done.transferred.length) this.hub.toKingdom(kingdomId, { type: 'play.transfer', structures: done.transferred, serverTime: Date.now() });
     }
-    for (const id of [attackerId, defenderId]) {
+    for (const id of done.everyone) {
       await this.military.refreshPower(id);
       await this.economy.announceEconomy(id);
       await this.military.announce(id);

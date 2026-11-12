@@ -28,6 +28,7 @@ import { useTick } from '../hooks';
 import { amountsNow, CostLine, Glyph } from './economyUi';
 import { BATTLE_GLYPH, BOMB_GLYPH, MISSILE_GLYPH, POWER_GLYPH, UNIT_GLYPH } from './glyphs';
 import { nationFlagSrc } from './identity';
+import { PactMark } from './diplomacyUi';
 import { fmtClock, fmtSeconds } from './model';
 import { Sheet } from './sheets';
 
@@ -170,6 +171,10 @@ export function OperationSheet(p: {
   attacker: NationView | undefined;
   defender: NationView | undefined;
   me: number | null;
+  /** Papel de quem olha (Fase F): defensor, aliado de um dos lados, ou nenhum. */
+  role: 'defender' | 'ally-defender' | 'ally-attacker' | null;
+  /** Aliados que já mandaram tropas, com o lado. */
+  allies: { nation: NationView; side: 'attacker' | 'defender' }[];
   home: Army;
   canCounter: boolean;
   canMissile: boolean;
@@ -188,7 +193,8 @@ export function OperationSheet(p: {
   const v = opProgress(o, now);
   const region = REGION_BY_ID[o.region];
   const defending = p.me === o.defenderId;
-  const reinforcement = share(p.home, percent, false);
+  const helping = p.role === 'ally-defender' || p.role === 'ally-attacker';
+  const reinforcement = share(p.home, percent, p.role === 'ally-attacker' && o.naval);
   return (
     <Sheet title={o.naval ? 'Operação naval' : 'Operação terrestre'} onClose={p.onClose} testId="operation-sheet">
       <div className="ku-versus">
@@ -234,9 +240,21 @@ export function OperationSheet(p: {
           Baixas: {num(o.result.attackerLosses)} do atacante, {num(o.result.defenderLosses)} do defensor.
         </p>
       )}
-      {defending && o.status === 'active' && (
+      {p.allies.length > 0 && (
+        <div className="ku-op-allies" data-testid="operation-allies">
+          {p.allies.map((a) => (
+            <span key={a.nation.id} className={a.side}>
+              <img src={nationFlagSrc(a.nation)} alt="" />
+              {a.nation.name} {a.side === 'attacker' ? 'no ataque' : 'na defesa'}
+            </span>
+          ))}
+        </div>
+      )}
+      {(defending || helping) && o.status === 'active' && (
         <div className="ku-defend" data-testid="defend-actions">
-          <p className="ku-label">Enviar tropas para defender</p>
+          <p className="ku-label">
+            {p.role === 'ally-attacker' ? 'Mandar tropas para o ataque do aliado' : p.role === 'ally-defender' ? 'Mandar tropas para defender o aliado' : 'Enviar tropas para defender'}
+          </p>
           <div className="ku-amounts" role="group" aria-label="Porcentagem das tropas em casa">
             {WAR.percents.map((x) => (
               <button type="button" key={x} className={percent === x ? 'on' : ''} onClick={() => setPercent(x)} data-testid={`reinforce-${x}`}>
@@ -248,9 +266,18 @@ export function OperationSheet(p: {
             <ArmyLine army={reinforcement} />
           </p>
           <button type="button" className="ku-cta" disabled={p.busy || troops(reinforcement) === 0} onClick={() => p.onReinforce(percent)} data-testid="reinforce-go">
-            {troops(reinforcement) ? `Reforçar ${region?.name}` : 'Sem tropas em casa'}
+            {!troops(reinforcement)
+              ? p.role === 'ally-attacker' && o.naval
+                ? 'Ataque naval: sem navios em casa'
+                : 'Sem tropas em casa'
+              : p.role === 'ally-attacker'
+                ? `Entrar no ataque a ${region?.name}`
+                : p.role === 'ally-defender'
+                  ? `Ajudar a defender ${region?.name}`
+                  : `Reforçar ${region?.name}`}
           </button>
-          <div className="ku-row-actions">
+          {helping && <p className="ku-note">As tropas que sobreviverem voltam para você no fim da batalha.</p>}
+          {defending && <div className="ku-row-actions">
             {p.canCounter && (
               <button type="button" className="ku-btn" onClick={p.onCounter} data-testid="counter-attack">
                 <Glyph d={BATTLE_GLYPH} size={16} />
@@ -263,7 +290,7 @@ export function OperationSheet(p: {
                 Lançar míssil
               </button>
             )}
-          </div>
+          </div>}
         </div>
       )}
       {p.error && <p className="ku-error">{p.error}</p>}
@@ -351,18 +378,27 @@ export function MissileConfirm(p: {
 }
 
 /** Cápsulas das operações da própria nação: atacando (cor da nação) e sob ataque (vermelho). */
-export function OperationCapsules({ ops, me, onOpen }: { ops: OperationView[]; me: number; onOpen: (id: number) => void }) {
+export function OperationCapsules({ ops, me, allies, onOpen }: { ops: OperationView[]; me: number; allies: Set<number>; onOpen: (id: number) => void }) {
   useTick(500);
   const now = serverNow();
   return (
     <div className="ku-op-caps">
       {ops.map((o) => {
         const against = o.defenderId === me;
+        const ally = !against && o.attackerId !== me && allies.has(o.defenderId);
+        const allyAttack = !against && o.attackerId !== me && !ally && allies.has(o.attackerId);
+        const label = against ? 'Sob ataque' : ally ? 'Aliado sob ataque' : allyAttack ? 'Aliado atacando' : 'Atacando';
         return (
-          <button type="button" key={o.id} className={`ku-op-cap ${against ? 'against' : ''}`} onClick={() => onOpen(o.id)} data-testid={against ? 'op-under-attack' : 'op-attacking'}>
-            <Glyph d={against ? BATTLE_GLYPH : POWER_GLYPH} size={16} />
+          <button
+            type="button"
+            key={o.id}
+            className={`ku-op-cap ${against ? 'against' : ally || allyAttack ? 'ally' : ''}`}
+            onClick={() => onOpen(o.id)}
+            data-testid={against ? 'op-under-attack' : ally ? 'op-ally-defend' : allyAttack ? 'op-ally-attack' : 'op-attacking'}
+          >
+            <Glyph d={against || ally ? BATTLE_GLYPH : POWER_GLYPH} size={16} />
             <span>
-              {against ? 'Sob ataque' : 'Atacando'}: {REGION_BY_ID[o.region]?.name}
+              {label}: {REGION_BY_ID[o.region]?.name}
             </span>
             <b>{Math.floor(opProgress(o, now) * 100)}%</b>
           </button>
@@ -384,6 +420,9 @@ export function EnemyActions(p: {
   onStrike: () => void;
   onAttack: () => void;
   onView: () => void;
+  /** Fase F: situação do pedido de aliança com o dono da região. */
+  pact: 'none' | 'sent' | 'received' | 'other-alliance' | 'blocked';
+  onPact: () => void;
 }) {
   return (
     <div className="ku-enemy" data-testid="enemy-actions">
@@ -407,6 +446,19 @@ export function EnemyActions(p: {
         <button type="button" className="ku-btn" onClick={p.onView} data-testid="view-territory">
           Ver território
         </button>
+        {p.pact !== 'blocked' && (
+          <button
+            type="button"
+            className={`ku-btn pact ${p.pact === 'received' ? 'hot' : ''}`}
+            disabled={p.pact === 'sent' || p.pact === 'other-alliance'}
+            onClick={p.onPact}
+            data-testid="pact-request"
+            title={p.pact === 'other-alliance' ? 'Vocês estão em alianças diferentes' : undefined}
+          >
+            <PactMark />
+            {p.pact === 'sent' ? 'Pedido enviado' : p.pact === 'received' ? 'Aceitar aliança' : p.pact === 'other-alliance' ? 'Em outra aliança' : 'Solicitar aliança'}
+          </button>
+        )}
         {p.canStrike && (
           <button type="button" className="ku-btn" onClick={p.onStrike} data-testid="strike-here">
             <Glyph d={MISSILE_GLYPH} size={16} />

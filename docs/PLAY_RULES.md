@@ -204,3 +204,16 @@ O saldo é guardado como "valor num instante" (`nation_resources.settled_at`). A
 - **Abandono:** encerra a partida na hora e põe quem saiu em último. A partida nunca fica sem resolução: termina na conquista total, na derrota do jogador ou no abandono.
 - **Bots:** a cada 3–7 s, cada bot tenta construir (cidade na capital, usina se faltar energia, fábrica, cidades nas demais regiões, melhorias) e ocupar uma região vizinha neutra (prefere fechar o próprio território e regiões menores). Usam os mesmos serviços e regras de um jogador.
 - Resultado gravado em `match_results`.
+
+## Diplomacia (Fase F)
+
+Regras em `shared/play/diplomacy.ts`; o servidor (`server/src/services/diplomacy.ts`) decide tudo.
+
+- **Pedido de aliança:** no cartão do território de outra nação (ou no painel Diplomacia), *Solicitar aliança*. O outro lado aceita ou recusa; só depois de aceito a aliança vale. O pedido vence em 24 h na campanha e em 10 min na partida rápida. Se a outra nação já tinha pedido a você, pedir de volta forma a aliança na hora.
+- **Formação:** se nenhum dos dois tem aliança, nasce uma com o nome das duas nações (quem pediu lidera). Se um já tem, o outro entra nela. Nações em alianças diferentes não se aliam sem antes uma sair.
+- **Aliados:** não se atacam (terra e mísseis), ligam as ferrovias (Fase C), enviam recursos e mandam tropas para as batalhas um do outro.
+- **Envio de recursos:** dinheiro, materiais, metal e petróleo chegam na hora. Só chega (e só é cobrado) o que cabe no armazém de quem recebe.
+- **Ajuda nas batalhas:** um aliado do defensor manda 25–100% das tropas em casa para defender; um aliado do atacante entra no ataque (num ataque naval, só navios). As tropas de cada lado somam na batalha; no fim, os sobreviventes de cada lado voltam a quem mandou, na proporção do que cada um mandou de cada tipo. A manutenção das tropas enviadas segue com quem mandou até o fim.
+- **Quebra:** romper tem penalidade automática, registrada no servidor (`alliance_breaks` e `audit_logs`): −10% de cada tipo de tropa em casa, −20% de cada recurso e 30 minutos sem poder atacar os antigos aliados. Os antigos aliados são avisados. Com um só membro restante, a aliança é dissolvida. Sair pela rota antiga (`/alliance/leave`) também é quebra, com a mesma penalidade.
+- **Bots (partida rápida):** respondem na hora por regra fixa: recusam quem está em guerra com eles (operação ou míssil em andamento entre os dois), quem já rompeu uma aliança com eles na partida e a nação mais forte da partida (por poder); aceitam os demais. Bots não atacam aliados nem quem eles abandonaram há menos de 30 min, e ajudam uma vez (25% das tropas em casa) a defender um aliado atacado.
+- **Vitória na partida rápida:** continua sendo conquistar 100% da arena sozinho; aliados ocupando regiões impedem a vitória até a aliança acabar.

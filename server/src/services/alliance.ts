@@ -35,6 +35,10 @@ async function lockAlliance(client: Tx, allianceId: number) {
 export interface MembershipHooks {
   before(client: Tx, governorIds: number[]): Promise<void>;
   after(governorIds: number[], changed: { governorId: number; allianceId: number | null; kingdomId: number }): Promise<void>;
+  /** Quem sai de uma aliança com outros membros sofre a penalidade da quebra (Fase F). */
+  leaving?(client: Tx, governorId: number, formers: number[], allianceId: number): Promise<unknown>;
+  /** Avisos da penalidade, depois da transação. */
+  left?(kingdomId: number, governorId: number, formers: number[], result: unknown): Promise<void>;
 }
 
 async function membersOf(client: Tx, allianceId: number): Promise<number[]> {
@@ -226,6 +230,7 @@ export class AllianceService {
 
   async leave(gov: GovernorCtx) {
     let affected: number[] = [];
+    let penalty: { formers: number[]; result: unknown } | null = null;
     const result = await tx(this.db, async (client) => {
       const m = await lockMembership(client, gov.id);
       if (!m) throw bad('not_member', 'Você não está em uma aliança.');
@@ -237,6 +242,8 @@ export class AllianceService {
       const disband = others.rows[0].n === 0;
       if (m.rank === 5 && !disband) throw conflict('leader_must_transfer', 'Transfira a liderança antes de sair.');
       affected = await this.beforeChange(client, m.allianceId, gov.id);
+      const formers = affected.filter((id) => id !== gov.id);
+      penalty = this.hooks?.leaving ? { formers, result: await this.hooks.leaving(client, gov.id, formers, m.allianceId) } : null;
       await client.query('DELETE FROM alliance_members WHERE governor_id = $1', [gov.id]);
       if (disband) {
         await client.query(`UPDATE alliances SET status = 'disbanded' WHERE id = $1`, [m.allianceId]);
@@ -250,6 +257,8 @@ export class AllianceService {
     });
     await this.afterMembershipChange(gov.id, result, affected, null, gov.kingdomId);
     this.hub.toAlliance(result, { type: 'alliance.updated', allianceId: result });
+    const p = penalty as { formers: number[]; result: unknown } | null;
+    if (p?.result && this.hooks?.left) await this.hooks.left(gov.kingdomId, gov.id, p.formers, p.result);
     return { ok: true };
   }
 

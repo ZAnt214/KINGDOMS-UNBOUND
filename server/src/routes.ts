@@ -23,6 +23,7 @@ import { conflict, handler, HttpError, notFound, parse, RateLimiter } from './ht
 import type { FoundInput } from '../../shared/play/types.js';
 import type { Hub } from './hub.js';
 import { AllianceService } from './services/alliance.js';
+import type { DiplomacyService } from './services/diplomacy.js';
 import { ChatService } from './services/chat.js';
 import type { EconomyService } from './services/economy.js';
 import type { MatchService } from './services/match.js';
@@ -43,10 +44,10 @@ const credentials = z.object({
 export function apiRouter(
   db: Db,
   hub: Hub,
-  services: { alliance: AllianceService; chat: ChatService; nation: NationService; territory: TerritoryService; economy: EconomyService; match: MatchService; military: MilitaryService; war: WarService },
+  services: { alliance: AllianceService; chat: ChatService; nation: NationService; territory: TerritoryService; economy: EconomyService; match: MatchService; military: MilitaryService; war: WarService; diplomacy: DiplomacyService },
 ) {
   const r = Router();
-  const { alliance, chat, nation, territory, economy, match, military, war } = services;
+  const { alliance, chat, nation, territory, economy, match, military, war, diplomacy } = services;
   const authLimiter = new RateLimiter(config.authRatePerMinute, 60);
 
   r.get(
@@ -287,6 +288,31 @@ export function apiRouter(
     handler(async (req) => {
       const body = parse(z.object({ siloId: id, region: z.string().min(1).max(40), weapon: z.enum(['missile', 'bomb']).default('missile') }), req.body);
       return { strike: await war.launch(requireGovernor(req), body.siloId, body.region, body.weapon) };
+    }),
+  );
+  // Fase F: diplomacia.
+  r.post('/play/pact/request', handler(async (req) => diplomacy.request(requireGovernor(req), parse(z.object({ nationId: id }), req.body).nationId)));
+  r.post(
+    '/play/pact/answer',
+    handler(async (req) => {
+      const body = parse(z.object({ requestId: id, accept: z.boolean() }), req.body);
+      return diplomacy.answer(requireGovernor(req), body.requestId, body.accept);
+    }),
+  );
+  r.post('/play/pact/cancel', handler(async (req) => diplomacy.cancel(requireGovernor(req), parse(z.object({ requestId: id }), req.body).requestId)));
+  r.post('/play/pact/break', handler(async (req) => diplomacy.breakAlliance(requireGovernor(req))));
+  r.post(
+    '/play/pact/gift',
+    handler(async (req) => {
+      const amount = z.number().int().min(0).max(10_000_000).optional();
+      const body = parse(
+        z.object({
+          nationId: id,
+          resources: z.object({ money: amount, materials: amount, metal: amount, oil: amount, tech: amount, special: amount }).strict(),
+        }),
+        req.body,
+      );
+      return diplomacy.gift(requireGovernor(req), body.nationId, body.resources);
     }),
   );
   // Fase D: treinamento e pesquisa militar.

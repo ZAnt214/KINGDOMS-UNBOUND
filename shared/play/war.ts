@@ -112,7 +112,8 @@ export function battleSeconds(regionId: string, mode: GameMode = 'campaign'): nu
 }
 
 export type BattleEvent =
-  | { at: number; kind: 'reinforce'; army: Army }
+  /** Reforço: do defensor (sem `by`/`side`) ou de um aliado (`by`) de qualquer lado (Fase F). */
+  | { at: number; kind: 'reinforce'; army: Army; side?: 'attacker' | 'defender'; by?: number }
   | { at: number; kind: 'strike'; side: 'attacker' | 'defender'; fraction: number };
 
 export interface BattleSetup {
@@ -169,8 +170,10 @@ export function simulate(setup: BattleSetup, until: number): BattleState {
   const applyUntil = (t: number) => {
     while (ei < events.length && events[ei].at <= t) {
       const e = events[ei++];
-      if (e.kind === 'reinforce') def = add(def, e.army);
-      else if (e.side === 'attacker') att = scale(att, 1 - e.fraction);
+      if (e.kind === 'reinforce') {
+        if (e.side === 'attacker') att = add(att, e.army);
+        else def = add(def, e.army);
+      } else if (e.side === 'attacker') att = scale(att, 1 - e.fraction);
       else def = scale(def, 1 - e.fraction);
     }
   };
@@ -311,12 +314,50 @@ export function interceptRoll(strikeId: number): number {
   return (h >>> 0) / 0x1_0000_0000;
 }
 
+/**
+ * Quem pôs tropas de cada lado da operação e quanto (valores enviados). O dono do lado (atacante ou
+ * defensor) e os aliados que reforçaram (Fase F).
+ */
+export function contributions(
+  op: { attackerId: number; defenderId: number; setup: Pick<BattleSetup, 'attacker' | 'defender'>; events: BattleEvent[] },
+  side: 'attacker' | 'defender',
+): Map<number, Army> {
+  const out = new Map<number, Army>();
+  const owner = side === 'attacker' ? op.attackerId : op.defenderId;
+  out.set(owner, { ...(side === 'attacker' ? op.setup.attacker : op.setup.defender) });
+  for (const e of op.events) {
+    if (e.kind !== 'reinforce' || (e.side ?? 'defender') !== side) continue;
+    const by = e.by ?? owner;
+    out.set(by, add(out.get(by) ?? {}, e.army));
+  }
+  return out;
+}
+
 /** Tropas de uma nação presas numa operação (valores iniciais: a manutenção segue até o fim). */
 export function engagedIn(op: { attackerId: number; defenderId: number; setup: Pick<BattleSetup, 'attacker' | 'defender'>; events: BattleEvent[] }, governorId: number): Army {
-  if (op.attackerId === governorId) return { ...op.setup.attacker };
-  if (op.defenderId !== governorId) return {};
-  let out: Army = { ...op.setup.defender };
-  for (const e of op.events) if (e.kind === 'reinforce') out = add(out, e.army);
+  return add(contributions(op, 'attacker').get(governorId) ?? {}, contributions(op, 'defender').get(governorId) ?? {});
+}
+
+/**
+ * Divide os sobreviventes de um lado entre quem mandou tropas, proporcionalmente ao que cada um
+ * mandou de cada tipo (para baixo); a sobra de arredondamento fica com quem mandou mais.
+ */
+export function splitSurvivors(contribs: Map<number, Army>, alive: Army): Map<number, Army> {
+  const out = new Map<number, Army>([...contribs.keys()].map((id) => [id, {} as Army]));
+  for (const u of UNIT_TYPES) {
+    const total = [...contribs.values()].reduce((n, a) => n + (a[u] ?? 0), 0);
+    const left = Math.min(alive[u] ?? 0, total);
+    if (!total || !left) continue;
+    let given = 0;
+    let top: number | null = null;
+    for (const [id, a] of contribs) {
+      const n = Math.floor((left * (a[u] ?? 0)) / total);
+      if (n > 0) out.get(id)![u] = n;
+      given += n;
+      if (top === null || (a[u] ?? 0) > (contribs.get(top)![u] ?? 0)) top = id;
+    }
+    if (left > given && top !== null) out.get(top)![u] = (out.get(top)![u] ?? 0) + left - given;
+  }
   return out;
 }
 

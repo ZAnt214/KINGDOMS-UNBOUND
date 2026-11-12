@@ -40,6 +40,13 @@ export const IcRanking = (p: SVGProps<SVGSVGElement>) => (
     <path d="M3 20h18" />
   </Icon>
 );
+/** Diplomacia: dois anéis entrelaçados (o selo da aliança). */
+export const IcPact = (p: SVGProps<SVGSVGElement>) => (
+  <Icon {...p}>
+    <circle cx="9" cy="12" r="5.2" />
+    <circle cx="15" cy="12" r="5.2" />
+  </Icon>
+);
 export const IcGear = (p: SVGProps<SVGSVGElement>) => (
   <Icon {...p}>
     <circle cx="12" cy="12" r="3" />

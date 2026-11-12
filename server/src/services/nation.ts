@@ -9,6 +9,7 @@ import { bad, conflict, notFound } from '../http.js';
 import type { Hub } from '../hub.js';
 import type { MilitaryService } from './military.js';
 import type { WarService } from './war.js';
+import type { DiplomacyService } from './diplomacy.js';
 import type { EconomyService } from './economy.js';
 import type { TerritoryService } from './territory.js';
 
@@ -52,6 +53,9 @@ export interface NewNation {
  * e abre o saldo inicial.
  */
 export class NationService {
+  /** Diplomacia (Fase F), ligada em app.ts. */
+  diplomacy: DiplomacyService | null = null;
+
   constructor(
     private db: Db,
     private hub: Hub,
@@ -114,6 +118,7 @@ export class NationService {
       military: mine && this.military ? await this.military.view(this.db, g.id) : null,
       operations: this.war ? await this.war.operations(g.kingdomId, mine ? g.id : null) : [],
       strikes: this.war ? await this.war.strikes(g.kingdomId) : [],
+      diplomacy: mine && this.diplomacy ? await this.diplomacy.view(this.db, g.id) : null,
     };
   }
 

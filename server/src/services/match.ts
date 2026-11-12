@@ -9,6 +9,7 @@ import type { Hub } from '../hub.js';
 import { MILITARY, UNITS, unitProblem, type UnitType } from '../../../shared/play/military.js';
 import type { MilitaryService } from './military.js';
 import type { WarService } from './war.js';
+import type { DiplomacyService } from './diplomacy.js';
 import { attackPower, estimatedDefense, share, WAR } from '../../../shared/play/war.js';
 import type { EconomyService } from './economy.js';
 import type { NationService } from './nation.js';
@@ -47,6 +48,8 @@ export class MatchService {
   military: MilitaryService | null = null;
   /** Guerra dos bots (Fase E). Definido em app.ts. */
   war: WarService | null = null;
+  /** Diplomacia (Fase F): bots não atacam aliados e ajudam a defender. */
+  diplomacy: DiplomacyService | null = null;
 
   /** Entra na partida rápida em andamento do usuário ou cria uma nova. */
   async start(userId: number): Promise<{ worldId: number; created: boolean }> {
@@ -247,9 +250,25 @@ export class MatchService {
   private async botWar(g: GovernorCtx, startedAt: number | null) {
     if (!this.war) return;
     const ops = await this.db.query(`SELECT id, attacker_id, defender_id, region_id, events FROM operations WHERE kingdom_id = $1 AND status = 'active'`, [g.kingdomId]);
+    // Aliados (Fase F) e nações com quem o bot rompeu há menos de 30 min ficam fora dos alvos.
+    const friends = new Set(
+      (
+        await this.db.query(
+          `SELECT other.governor_id FROM alliance_members me JOIN alliances a ON a.id = me.alliance_id AND a.status = 'active'
+             JOIN alliance_members other ON other.alliance_id = me.alliance_id AND other.governor_id <> me.governor_id WHERE me.governor_id = $1
+           UNION SELECT former_id FROM alliance_breaks WHERE breaker_id = $1 AND until > now()`,
+          [g.id],
+        )
+      ).rows.map((r) => Number(r.governor_id)),
+    );
     for (const o of ops.rows) {
-      if (Number(o.defender_id) === g.id && !(o.events as { kind: string }[]).some((e) => e.kind === 'reinforce')) {
+      const events = o.events as { kind: string; by?: number }[];
+      if (Number(o.defender_id) === g.id && !events.some((e) => e.kind === 'reinforce' && e.by === undefined)) {
         await this.war.reinforce(g, Number(o.id), 50).catch(() => {});
+      }
+      // Ajuda um aliado atacado uma vez, com 25% das tropas em casa.
+      if (friends.has(Number(o.defender_id)) && !events.some((e) => e.kind === 'reinforce' && e.by === g.id)) {
+        await this.war.reinforce(g, Number(o.id), 25).catch(() => {});
       }
     }
     if (!startedAt || Date.now() - startedAt < QUICK.botWarAfterMinutes * 60_000) return;
@@ -275,7 +294,7 @@ export class MatchService {
     for (const r of mine) {
       for (const n of REGION_BY_ID[r].neighbors) {
         const o = owner.get(n);
-        if (o === undefined || o === g.id || busy.has(n)) continue;
+        if (o === undefined || o === g.id || busy.has(n) || friends.has(o)) continue;
         const capital = info.get(o)?.capital === n ? WAR.capitalBonus : 1;
         const def = estimatedDefense(info.get(o)?.power ?? 0, regionsOf(o)) * capital + WAR.militia;
         if (!best || def < best.def) best = { region: n, def };
