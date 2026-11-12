@@ -284,3 +284,21 @@ CI do commit `c0d2cea`: verde — typecheck e **128/128** testes (14 arquivos), 
 ## Animação de mísseis e bombas
 - `tests/e2e/war-visual.cjs` **16/16** (390×844, servidor falso): acrescenta o lançamento de uma bomba com fotos de ignição, voo, clarão, bola de fogo e fumaça (15–19), e verifica que a bomba é desenhada como bomba. `play-visual.cjs` 32/32. Unitários war 16/16, play 14/14, economy 12/12.
 - Revisão visual das fotos: sequência legível no zoom da partida. **Não medido:** fps com vários mísseis simultâneos (as partículas são poucas e só existem durante o ataque).
+
+## Fase F — Diplomacia (2026-11-12)
+
+### Unitários
+`tests/unit/diplomacy.test.ts` **7/7**: penalidade da quebra (10% das tropas e 20% dos recursos, para baixo), envio limitado ao armazém de quem recebe, regra de resposta dos bots, tropas de aliados de cada lado, aliado do atacante acelera a conquista, aliado do defensor vira a batalha, divisão dos sobreviventes sem perder unidade. Demais: war 16/16, play 14/14, economy 12/12, military 12/12, logistics 10/10, geo 2/2.
+
+### Integração (CI, PostgreSQL real)
+`tests/integration/diplomacy.test.ts` **8/8**: pedido avisa o outro lado; repetido, a si mesmo e resposta de quem não recebeu são recusados; recusa avisa quem pediu; aceite deixa as duas nações na mesma aliança, avisa o mundo e impede ataques entre elas; envio de recursos (armazém cheio não cobra; só a aliados); aliado ajuda a defender, a operação registra o aliado e os sobreviventes voltam a ele; quebra com −10% das tropas, −20% dos recursos, bloqueio de 30 min só para quem rompeu, registro em `audit_logs`; pedido cruzado forma na hora; sair pela rota antiga também aplica a penalidade; bot aceita pela regra e recusa quem já rompeu com ele.
+
+### Interface — navegador automatizado com SERVIDOR FALSO
+- `tests/e2e/diplomacy-visual.cjs` (novo, `MOCK_WAR=1 MOCK_DIPLO=1`): **23/23** em 390×844 — cartão de pedido recebido e recusa, contador no dock, painel com as nações, aceite com cerimônia, arco de aliança no mapa, cartão do território aliado, envio de recursos, aviso de aliado sob ataque, ajuda enviada registrada, confirmação mostrando a penalidade, animação de quebra, penalidade e bloqueio aplicados, sem erros de JavaScript.
+- `war-visual.cjs` 16/16 e `play-visual.cjs` 32/32 continuam passando.
+
+### Resultado
+CI do commit `1ed5693`: verde — typecheck e **147/147** testes (16 arquivos). Prévia `kingdoms-unbound-e0zcbm6w8-test11-1d8d.vercel.app`: `GET /api/meta` 200; migração 10 (`diplomacy`) aplicada no banco compartilhado.
+
+### Bots em produção (verificação pendente da rodada anterior)
+Partidas rápidas 1008–1010 no banco: bots com 26–28 regiões e 15–33 construções cada partida — os bots voltaram a progredir.
