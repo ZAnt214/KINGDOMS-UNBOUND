@@ -1,5 +1,8 @@
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import type { Db } from '../../server/src/db.js';
+import { DEFAULT_FLAG } from '../../shared/play/flags.js';
+import { NATION_COLORS } from '../../shared/play/rules.js';
+import { START_POINTS } from '../../shared/world/regions.js';
 import { Player, resetDb, startServer, type TestPlayer } from './helpers.js';
 
 // Simula várias instâncias (funções Vercel ou réplicas Railway) sobre o mesmo banco:
@@ -52,19 +55,19 @@ describe('tempo real entre instâncias', () => {
   });
 
   it('obra concluída por um worker notifica jogador em outra instância, uma única vez', async () => {
-    const k = `k-${Date.now()}`;
-    expect((await B.post('/city/upgrade', { building: 'town_hall', idempotencyKey: k })).status).toBe(200);
+    const point = START_POINTS.find((p) => p.id === 'cap-bra-brasilia')!;
+    expect((await B.post('/play/found', { pointId: point.id, name: 'Ponte Sul', color: NATION_COLORS[2].hex, flag: DEFAULT_FLAG })).status).toBe(200);
+    const built = await B.post('/play/build', { at: point.at, type: 'city' });
+    expect(built.status).toBe(200);
     A.events.length = 0;
     B.events.length = 0;
-    await db.query(`UPDATE building_queues SET ends_at = now() - interval '1 second' WHERE city_id = $1 AND status = 'active'`, [
-      B.governor.cityId,
-    ]);
-    await B.waitFor((e) => e.type === 'city.updated' && e.state.levels.town_hall === 2, 4000);
-    await A.waitFor((e) => e.type === 'map.city' && e.city.cityId === B.governor.cityId && e.city.hallLevel === 2);
+    await db.query(`UPDATE structures SET started_at = started_at - interval '1 hour', ends_at = now() - interval '1 second' WHERE id = $1`, [built.data.structure.id]);
+    await A.waitFor((e) => e.type === 'play.structure' && e.completed && e.structure.id === built.data.structure.id, 4000);
+    await B.waitFor((e) => e.type === 'play.economy', 4000);
     // Os dois workers competem pela mesma obra: o lock garante uma conclusão só.
     await new Promise((res) => setTimeout(res, 1500));
-    const done = await db.query(`SELECT COUNT(*)::int AS n FROM audit_logs WHERE action = 'building.completed'`);
-    expect(done.rows[0].n).toBe(1);
-    expect(B.events.filter((e) => e.type === 'city.updated' && e.state.levels.town_hall === 2)).toHaveLength(1);
+    expect(A.events.filter((e) => e.type === 'play.structure' && e.completed)).toHaveLength(1);
+    const { rows } = await db.query('SELECT level, target_level FROM structures WHERE id = $1', [built.data.structure.id]);
+    expect(rows[0]).toEqual({ level: 1, target_level: null });
   });
 });

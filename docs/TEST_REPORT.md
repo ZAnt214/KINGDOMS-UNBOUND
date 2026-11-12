@@ -115,3 +115,190 @@ Ambiente: contêiner sem acesso ao registro npm e sem PostgreSQL. `npm ci`, `npm
 O harness visual verifica: legenda igual ao estado recebido; clique no Brasil e na Rússia abre o território certo; ações bloqueadas explicam o motivo; zoom mantém o ponto sob o cursor; arraste leva o país junto; alistamento faz uma única chamada com o cabeçalho CSRF; os seis itens laterais, os cinco módulos e os botões da barra respondem; sem rolagem horizontal e com alvos ≥ 44 px em 1024×768, 390×844 e 844×390. Capturas em `docs/evidence/command-v1/`.
 
 O estado do mundo usado no harness é uma fixture montada a partir de `shared/world/scenario.json`; não prova persistência, isolamento por reino nem tempo real — isso é papel de `world.test.ts`.
+
+## 2026-11-11 — Nova visão, Fase A (fundar e expandir) — branch `claude/fase-a-capital-expansao`
+
+### Servidor real — CI do GitHub (Node 22, PostgreSQL 16)
+
+Run 43059823651, commit `32d77b0`: `npm run typecheck` PASS · `npm test` **68/68** PASS · `npm run build` PASS.
+
+Testes novos em `tests/integration/play.test.ts` (servidor real, Postgres real, 5 jogadores em 2 mundos, WebSocket):
+
+| Verificação | Resultado |
+|---|---|
+| estado exige sessão; mundo começa sem nações e sem controle | PASS |
+| nome, cor, bandeira e imagem inválidos são recusados sem criar nada | PASS |
+| fundação entrega a região inicial e avisa em tempo real só o mesmo mundo | PASS |
+| imagem de bandeira é servida com o tipo certo e só para o mesmo mundo | PASS |
+| uma nação por jogador; ponto, nome e cor vizinha exclusivos | PASS |
+| mesmo ponto pode ser fundado em outro mundo (isolamento) | PASS |
+| duas fundações simultâneas no mesmo ponto: uma vence (200 e 409) | PASS |
+| expansão recusa região desconhecida, própria, de outra nação e não vizinha | PASS |
+| duração vem do servidor; `seconds`, `endsAt` e `from` enviados pelo cliente são ignorados | PASS |
+| uma ocupação por nação e uma por região, com 5 pedidos paralelos | PASS |
+| ocupação vencida conclui pelo worker sem nenhuma requisição e avisa o mundo | PASS |
+| leitura do estado e novo pedido também concluem; concluir duas vezes não duplica | PASS |
+
+`tests/unit/play.test.ts` (14 testes): integridade das 1.589 regiões e 279 pontos (ids únicos, vizinhança simétrica, região exclusiva por ponto), funções territoriais, fórmula de expansão, nível e metas, validação de bandeiras e de imagens.
+
+Os 54 testes anteriores (Fase A clássica, mundo geopolítico, múltiplas instâncias, layout) continuam passando.
+
+### Interface — navegador automatizado com SERVIDOR FALSO
+
+`tests/e2e/play-visual.cjs`, Chromium headless (SwiftShader), 390×844 e 1280×800, dois navegadores independentes, contra `tests/e2e/fixtures/play-mock-server.ts` com durações divididas por 4. **14/14** verificações: tela inicial, modos bloqueados, nome obrigatório, cartão do ponto, fundação, segundo jogador vê a nação sem recarregar, ponto tomado não abre cartão, ocupação com progresso, conquista, recarregar mantém o estado, ranking, mudo, sem rolagem horizontal, sem erros de JavaScript. Capturas em `docs/evidence/play-a/`.
+
+Este passeio **não** prova persistência, concorrência nem tempo real do servidor de verdade: o servidor falso guarda tudo em memória. Essas garantias vêm da tabela acima.
+
+### Deploy de prévia (Vercel + banco real)
+
+`kingdoms-unbound-qg7pnw5ke-test11-1d8d.vercel.app`: `GET /api/meta` responde 200 com `mode` e `playRulesVersion` (migração 3 aplicada) e `/world/regions.topo.json` é servido. O fluxo completo no navegador contra esse deploy **não foi executado**: o ambiente de desenvolvimento não alcança `*.vercel.app`.
+
+### Não executado
+
+iPhone/Safari físico, PWA instalada, áudio em aparelho real (só a ausência de erros foi verificada), FPS e memória em aparelho, carga com muitos jogadores, passeio de dois navegadores contra o servidor real.
+
+## 2026-11-11 — Medieval removido, Fase B e Partida Rápida — branch `claude/fase-a-capital-expansao`
+
+### Servidor real — CI do GitHub (Node 22, PostgreSQL 16)
+
+Run 43066960419, commit `ed2c3dd`: typecheck PASS · `npm test` **72/72** PASS (7 arquivos) · build PASS.
+
+`tests/integration/economy.test.ts` (servidor real, dois jogadores, WebSocket):
+
+| Verificação | Resultado |
+|---|---|
+| saldo inicial e produção iguais à fórmula compartilhada; economia é privada | PASS |
+| construir desconta o custo do servidor uma vez; custo, nível e prazo enviados pelo cliente são ignorados | PASS |
+| outro jogador vê o canteiro de obras em tempo real | PASS |
+| recusa sem cobrar: tipo repetido, porto longe do litoral, região alheia, tipo inexistente | PASS |
+| limite de 2 obras simultâneas; sem recursos não cria nada | PASS |
+| obra vencida conclui pelo worker sem requisição; produção e energia sobem | PASS |
+| meia hora offline acumula a produção certa; dez horas param no estoque máximo | PASS |
+| três melhorias simultâneas: só uma passa; construção alheia dá 404; nível máximo é respeitado | PASS |
+| expansão passa a custar recursos e é recusada sem saldo | PASS |
+
+`tests/integration/quick.test.ts`:
+
+| Verificação | Resultado |
+|---|---|
+| cria mundo próprio com arena de 40 regiões e 3 bots; pedir de novo devolve a mesma partida | PASS |
+| campanha continua separada; cabeçalho de mundo alheio não dá acesso | PASS |
+| fundação só dentro da arena; relógio de 15 min começa na fundação; expansão fora da arena recusada | PASS |
+| bots agem pelas mesmas regras e só dentro da arena | PASS |
+| mais da metade da arena encerra com vitória, classificação e aviso em tempo real | PASS |
+| depois do fim, construir e expandir são recusados | PASS |
+| abandonar encerra e põe quem saiu em último | PASS |
+| fim do tempo decide por regiões; partida sem fundação expira sem vencedor | PASS |
+
+`multi-instance.test.ts` agora prova que uma obra concluída por dois workers concorrentes é anunciada uma única vez. Unitários novos (`tests/unit/economy.test.ts`, 12): fórmulas de produção, energia, eficiência, jazidas, custos e tempos progressivos, projeção com teto, regras de construção, arenas conectadas com pontos suficientes nos 8 teatros, identidades dos bots e regra de vitória.
+
+### Interface — navegador automatizado com SERVIDOR FALSO
+
+`tests/e2e/play-visual.cjs` contra `tests/e2e/fixtures/play-mock-server.ts` (memória, durações ÷ 4), Chromium headless, 390×844 e 1280×800, dois navegadores: **21/21** verificações nos dois tamanhos, incluindo construir pelo painel, obra concluída sozinha com aviso, painel de economia com 7 linhas, partida rápida com 3 bots, relógio após a fundação e tela de fim de partida. Capturas em `docs/evidence/play-b/`. Este passeio não prova persistência nem concorrência do servidor real.
+
+### Prévia (Vercel + banco real)
+
+`kingdoms-unbound-215efdnld-test11-1d8d.vercel.app`: `GET /api/meta` 200 com `quick: true` e os mundos renomeados (migração 4 aplicada). Fluxo no navegador contra a prévia **não executado** (o ambiente não alcança `*.vercel.app`).
+
+### Não executado
+
+iPhone/Safari físico, som em aparelho, FPS e memória, carga, partida rápida inteira de 15 minutos com bots no servidor real (os testes forçam o tempo).
+
+## 2026-11-11 — Construção por toque e desempenho do mapa
+
+### Unidade (local, com o mesmo código dos testes do CI)
+`tests/unit/play.test.ts` 14/14, `economy.test.ts` 12/12 (espaços por área), `geo.test.ts` 2/2 (ponto dentro/fora da região, ponto livre a 25 km).
+
+### Integração (CI, PostgreSQL real)
+`tests/integration/economy.test.ts`, `quick.test.ts` e `multi-instance.test.ts` passam a construir por ponto `[lon, lat]`: dentro do território, a menos de 25 km (`too_close`), em região alheia (`not_owner`), no oceano e fora do mapa (400). Resultado: ver o CI do commit.
+
+### Interface — navegador automatizado com SERVIDOR FALSO
+`tests/e2e/play-visual.cjs`: **22/22** em 390×844 e **22/22** em 1280×800. Novo fluxo: abrir a barra, escolher Cidade, tocar no mapa; escolher Depósito, tocar em outro ponto; a obra termina sozinha e avisa; as duas construções aparecem nas coordenadas tocadas (±0,5°). Capturas em `docs/evidence/play-c/`.
+
+### Desempenho (Chromium headless, viewport de celular, DPR 3, sem limitação de CPU)
+
+| Situação | Antes | Depois |
+|---|---|---|
+| Parado (pontos pulsando) | ~333 ms/quadro (3 fps) | 16,7 ms (60 fps) |
+| Arrastando | ~303 ms (3 fps) | 16,7 ms (60 fps) |
+| Zoom por roda | ~281 ms (4 fps) | 27,6 ms médio (36 fps), p90 16,7 ms |
+
+Medido em máquina de nuvem sem GPU; um aparelho real pode ter números diferentes. **Não executado:** medição em iPhone/Android físico.
+
+### Prévia (Vercel + banco real)
+`kingdoms-unbound-g1e3xbxn3-test11-1d8d.vercel.app` (commit `157f516`): `GET /api/meta` 200. CI do mesmo commit: verde (typecheck + integração com PostgreSQL, incluindo a migração 5). Na primeira tentativa o CI pegou um erro real (parâmetro de longitude tipado como inteiro na busca de vizinhas), corrigido em `157f516`.
+
+## 2026-11-11 — Fase C: Logística
+
+### Unidade (local)
+`tests/unit/logistics.test.ts` **10/10**: alcance e vizinhança (não cruza região não vizinha), menor árvore, obras em andamento e nações diferentes fora da ferrovia, bônus com qualidade e teto, prévia de trechos, conexão entre aliados (mais próximo, tipos certos, sem aliança nada), produção com +4%, depósito ligado +50%, bônus de aliado na produção. `play.test.ts` 14/14 (metas de ferrovia), `economy.test.ts` 12/12, `geo.test.ts` 2/2.
+
+### Integração (CI, PostgreSQL real)
+`tests/integration/logistics.test.ts`: duas construções concluídas ligam sozinhas e a produção do servidor é igual à da função compartilhada (com bônus); aliança criada é avisada a todos; ao aprovar a entrada, o saldo dos dois é acertado no instante e a conexão com aliado aparece na produção; ao sair, a conexão some e o saldo é acertado antes. Resultado: ver o CI do commit.
+
+### Interface — navegador automatizado com SERVIDOR FALSO
+`tests/e2e/play-visual.cjs`: **25/25** em 390×844 e **25/25** em 1280×800. Novos: a ferrovia surge sozinha entre a cidade e o depósito e avisa o bônus; o mapa desenha o trecho; o painel de economia mostra "1 trecho de ferrovia … +4%". O servidor falso não tem alianças: a conexão entre aliados só é coberta pelo teste de integração.
+
+### Desempenho (mesmo método do relatório anterior)
+Parado 60 fps, arraste 60 fps, zoom por roda 37 fps — sem regressão com as ferrovias.
+
+### Resultado
+CI do commit `e04337b`: verde — typecheck e **87/87** testes (10 arquivos), incluindo `tests/integration/logistics.test.ts` 3/3 e `tests/unit/logistics.test.ts` 10/10. Prévia `kingdoms-unbound-2x8ucicjf-test11-1d8d.vercel.app`: `GET /api/meta` 200 com `economyRulesVersion: 2`.
+
+## 2026-11-11 — Fase D: Sistema militar
+
+### Unidade (local)
+`tests/unit/military.test.ts` **13/13**: recrutamento e teto, projeção de recrutas, oito unidades completas, exigências de instalação e pesquisa (obra no nível 0 não libera), tempo de treino (×3 sem base, cortes com teto), custo do lote, regras de pesquisa (centro tecnológico, uma por vez, nível máximo), custo/tempo crescentes, fórmula do poder (unidades + infraestrutura), bônus de pesquisa por grupo e de fortificação só na defesa, manutenção na produção com Logística militar, saldo caindo até zero com produção negativa. Demais: logistics 10/10, play 14/14, economy 12/12, geo 2/2.
+
+### Integração (CI, PostgreSQL real)
+`tests/integration/military.test.ts`: nação nova com 40 recrutas e poder 0; treino sem base só de infantaria, com tempo ×3, gastando dinheiro e recrutas; mecanizado recusado; segundo lote começa quando o primeiro termina; falta de recrutas e quantidades inválidas recusadas; lotes concluídos entram no exército, cobram manutenção e o poder é avisado ao outro jogador; base militar concluída acelera recrutas e soma infraestrutura ao poder; pesquisa exige centro tecnológico, uma de cada vez, e ao concluir reforça as tropas em 10% e libera mecanizados.
+
+### Interface — navegador automatizado com SERVIDOR FALSO
+`tests/e2e/play-visual.cjs`: **31/31** em 390×844 e **31/31** em 1280×800. Novos: tela Exército com poder 0 e recrutas; unidade bloqueada explica e oferece construir a base; lote de 10 infantarias entra na fila, termina sozinho, avisa e o poder vira 11; aba de pesquisa lista as 10 tecnologias e pede o centro tecnológico. O servidor falso reproduz as regras compartilhadas, mas persistência e concorrência só são provadas no teste de integração.
+
+### Desempenho
+Parado 60 fps, arraste 60 fps, zoom por roda 41 fps (mesmo método): sem regressão.
+
+### Resultado
+CI do commit `fc7e637`: verde — typecheck e **106/106** testes (12 arquivos), incluindo `tests/integration/military.test.ts` 6/6. Duas falhas reais pegas pelo CI antes disso e corrigidas: um tipo opcional no nome da instalação exigida, e treino/pesquisa que não concluíam antes as obras já vencidas (o centro tecnológico pronto não liberava a pesquisa no mesmo pedido). Prévia `kingdoms-unbound-9my943epz-test11-1d8d.vercel.app`: `GET /api/meta` 200 com `militaryRulesVersion: 1`.
+
+## 2026-11-11 — Fase E: Guerras
+
+### Unidade (local)
+`tests/unit/war.test.ts` **15/15**: porcentagens e divisão das tropas (navios só por mar, mísseis nunca), guarnição 1/√regiões, combate sem resistência quase sem perdas, com resistência baixas dos dois lados, forças iguais fracassam no tempo-limite, determinismo e progressão, reforço e míssil mudando o resultado, pesquisa e fortificação, tempo-base por área, tropas engajadas, origem por terra/mar, estimativas e risco, alcance e tempo de voo, chance de interceptação com teto, sorteio reproduzível e bem distribuído. Demais: military 13/13, economy 12/12, play 14/14, logistics 10/10, geo 2/2.
+
+### Integração (CI, PostgreSQL real)
+`tests/integration/war.test.ts`: recusa abaixo de 25%, a capital, regiões sem fronteira e as próprias; operação tira tropas dos dois lados e avisa o defensor com as tropas dele; uma operação por região; só o defensor reforça e o fim previsto muda; ao vencer, região, bandeira e construção passam ao atacante, sobreviventes voltam e as baixas ficam registradas; míssil exige estoque, alcance e alvo inimigo, um por silo; no impacto a fábrica cai de nível e o alvo perde 6% das tropas em casa; com antimísseis nível 4 e pesquisa 3, a chance é 85% e o resultado segue o sorteio reproduzível.
+
+### Interface — navegador automatizado com SERVIDOR FALSO
+- `tests/e2e/war-visual.cjs` (novo, `MOCK_WAR=1`: o servidor falso cria uma nação rival vizinha e dá tropas, silo e mísseis só para o passeio): **14/14** em 390×844 e **14/14** em 1280×800 — cartão da região inimiga com inteligência e ATACAR, seleção 25–100%, resumo antes de confirmar, seta e selo de batalha no mapa, acompanhamento com %, conquista com transferência, silo com estoque e alcance, mira com círculo, confirmação, sequência do míssil (preparação, abertura, lançamento, trajeto, impacto) e resultado.
+- `tests/e2e/play-visual.cjs`: 31/31 (pesquisa agora com 12 tecnologias).
+- O servidor falso reproduz as regras compartilhadas; persistência, concorrência e o reforço do defensor só são provados no teste de integração.
+
+### Desempenho
+Mapa sem guerra: 60 fps parado e arrastando, 41 fps no zoom por roda. **Não medido:** quadros por segundo com várias operações e mísseis ao mesmo tempo.
+
+### Resultado
+CI do commit `c0d2cea`: verde — typecheck e **128/128** testes (14 arquivos), incluindo `tests/integration/war.test.ts` 7/7. Prévia `kingdoms-unbound-ibgrrrfym-test11-1d8d.vercel.app`: `GET /api/meta` 200 com `warRulesVersion: 1`.
+
+## Animação de mísseis e bombas
+- `tests/e2e/war-visual.cjs` **16/16** (390×844, servidor falso): acrescenta o lançamento de uma bomba com fotos de ignição, voo, clarão, bola de fogo e fumaça (15–19), e verifica que a bomba é desenhada como bomba. `play-visual.cjs` 32/32. Unitários war 16/16, play 14/14, economy 12/12.
+- Revisão visual das fotos: sequência legível no zoom da partida. **Não medido:** fps com vários mísseis simultâneos (as partículas são poucas e só existem durante o ataque).
+
+## Fase F — Diplomacia (2026-11-12)
+
+### Unitários
+`tests/unit/diplomacy.test.ts` **7/7**: penalidade da quebra (10% das tropas e 20% dos recursos, para baixo), envio limitado ao armazém de quem recebe, regra de resposta dos bots, tropas de aliados de cada lado, aliado do atacante acelera a conquista, aliado do defensor vira a batalha, divisão dos sobreviventes sem perder unidade. Demais: war 16/16, play 14/14, economy 12/12, military 12/12, logistics 10/10, geo 2/2.
+
+### Integração (CI, PostgreSQL real)
+`tests/integration/diplomacy.test.ts` **8/8**: pedido avisa o outro lado; repetido, a si mesmo e resposta de quem não recebeu são recusados; recusa avisa quem pediu; aceite deixa as duas nações na mesma aliança, avisa o mundo e impede ataques entre elas; envio de recursos (armazém cheio não cobra; só a aliados); aliado ajuda a defender, a operação registra o aliado e os sobreviventes voltam a ele; quebra com −10% das tropas, −20% dos recursos, bloqueio de 30 min só para quem rompeu, registro em `audit_logs`; pedido cruzado forma na hora; sair pela rota antiga também aplica a penalidade; bot aceita pela regra e recusa quem já rompeu com ele.
+
+### Interface — navegador automatizado com SERVIDOR FALSO
+- `tests/e2e/diplomacy-visual.cjs` (novo, `MOCK_WAR=1 MOCK_DIPLO=1`): **23/23** em 390×844 — cartão de pedido recebido e recusa, contador no dock, painel com as nações, aceite com cerimônia, arco de aliança no mapa, cartão do território aliado, envio de recursos, aviso de aliado sob ataque, ajuda enviada registrada, confirmação mostrando a penalidade, animação de quebra, penalidade e bloqueio aplicados, sem erros de JavaScript.
+- `war-visual.cjs` 16/16 e `play-visual.cjs` 32/32 continuam passando.
+
+### Resultado
+CI do commit `1ed5693`: verde — typecheck e **147/147** testes (16 arquivos). Prévia `kingdoms-unbound-e0zcbm6w8-test11-1d8d.vercel.app`: `GET /api/meta` 200; migração 10 (`diplomacy`) aplicada no banco compartilhado.
+
+### Bots em produção (verificação pendente da rodada anterior)
+Partidas rápidas 1008–1010 no banco: bots com 26–28 regiões e 15–33 construções cada partida — os bots voltaram a progredir.

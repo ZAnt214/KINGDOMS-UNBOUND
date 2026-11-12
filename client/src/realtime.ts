@@ -1,4 +1,4 @@
-import { syncClock } from './api';
+import { getWorld, syncClock } from './api';
 
 export type RealtimeStatus = 'connecting' | 'online' | 'offline';
 type Listener = (event: { type: string; [k: string]: any }) => void;
@@ -39,7 +39,8 @@ export class Realtime {
     if (this.stopped) return;
     this.setStatus('connecting');
     const proto = location.protocol === 'https:' ? 'wss' : 'ws';
-    const ws = new WebSocket(`${proto}://${location.host}/ws`);
+    const world = getWorld();
+    const ws = new WebSocket(`${proto}://${location.host}/ws${world ? `?world=${world}` : ''}`);
     this.ws = ws;
     ws.onopen = () => {
       this.retry = 0;

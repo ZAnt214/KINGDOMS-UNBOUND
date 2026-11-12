@@ -1,9 +1,8 @@
-import { ALLIANCE_MAX_MEMBERS, hasAlliancePermission } from '../../../shared/rules.js';
+import { ALLIANCE_MAX_MEMBERS, hasAlliancePermission } from '../../../shared/social.js';
 import type { GovernorCtx } from '../auth.js';
 import { type Db, type Tx, tx } from '../db.js';
 import { bad, conflict, forbidden, notFound } from '../http.js';
 import type { Hub } from '../hub.js';
-import { mapCitySummary } from './city.js';
 
 async function audit(client: Tx, actor: number, action: string, targetType: string, targetId: string | number, data = {}) {
   await client.query(
@@ -28,11 +27,38 @@ async function lockAlliance(client: Tx, allianceId: number) {
   return rows[0];
 }
 
+/**
+ * Quem depende da composição das alianças. A logística (Fase C) liga construções de aliados, então a
+ * economia precisa acertar o saldo de todos os envolvidos ANTES da mudança (mesma transação) e
+ * avisar a nova produção DEPOIS.
+ */
+export interface MembershipHooks {
+  before(client: Tx, governorIds: number[]): Promise<void>;
+  after(governorIds: number[], changed: { governorId: number; allianceId: number | null; kingdomId: number }): Promise<void>;
+  /** Quem sai de uma aliança com outros membros sofre a penalidade da quebra (Fase F). */
+  leaving?(client: Tx, governorId: number, formers: number[], allianceId: number): Promise<unknown>;
+  /** Avisos da penalidade, depois da transação. */
+  left?(kingdomId: number, governorId: number, formers: number[], result: unknown): Promise<void>;
+}
+
+async function membersOf(client: Tx, allianceId: number): Promise<number[]> {
+  const { rows } = await client.query('SELECT governor_id FROM alliance_members WHERE alliance_id = $1', [allianceId]);
+  return rows.map((r) => Number(r.governor_id));
+}
+
 export class AllianceService {
   constructor(
     private db: Db,
     private hub: Hub,
+    private hooks: MembershipHooks | null = null,
   ) {}
+
+  /** Acerta a economia de quem será afetado pela mudança de membros (dentro da transação). */
+  private async beforeChange(client: Tx, allianceId: number, governorId: number): Promise<number[]> {
+    const affected = [...new Set([governorId, ...(await membersOf(client, allianceId))])];
+    if (this.hooks) await this.hooks.before(client, affected);
+    return affected;
+  }
 
   async list(gov: GovernorCtx, q: string) {
     const { rows } = await this.db.query(
@@ -57,8 +83,8 @@ export class AllianceService {
     // Isolamento por reino: alianças de outro reino não são visíveis.
     if (!a.rows[0] || a.rows[0].kingdom_id !== gov.kingdomId) throw notFound('Aliança não encontrada.');
     const members = await this.db.query(
-      `SELECT g.id AS governor_id, g.name, g.power, m.rank, m.joined_at, c.x, c.y
-         FROM alliance_members m JOIN governors g ON g.id = m.governor_id JOIN cities c ON c.governor_id = g.id
+      `SELECT g.id AS governor_id, g.name, g.power, m.rank, m.joined_at
+         FROM alliance_members m JOIN governors g ON g.id = m.governor_id
         WHERE m.alliance_id = $1 ORDER BY m.rank DESC, g.power DESC`,
       [allianceId],
     );
@@ -121,7 +147,8 @@ export class AllianceService {
       await audit(client, gov.id, 'alliance.created', 'alliance', id, input);
       return id;
     });
-    await this.afterMembershipChange(gov.id, allianceId);
+    // Aliança de um membro só não cria conexões; o aviso serve para os outros verem a nova aliança.
+    await this.afterMembershipChange(gov.id, allianceId, [gov.id], allianceId, gov.kingdomId);
     return { allianceId };
   }
 
@@ -155,6 +182,7 @@ export class AllianceService {
   }
 
   async decide(gov: GovernorCtx, applicationId: number, approve: boolean) {
+    let affected: number[] = [];
     const result = await tx(this.db, async (client) => {
       const actor = await lockMembership(client, gov.id);
       const ap = await client.query(`SELECT * FROM alliance_applications WHERE id = $1 FOR UPDATE`, [applicationId]);
@@ -174,6 +202,7 @@ export class AllianceService {
         }
         const count = await client.query('SELECT COUNT(*)::int AS n FROM alliance_members WHERE alliance_id = $1', [actor.allianceId]);
         if (count.rows[0].n >= ALLIANCE_MAX_MEMBERS) throw conflict('alliance_full', 'A aliança está cheia.');
+        affected = await this.beforeChange(client, actor.allianceId, Number(app.governor_id));
         await client.query('INSERT INTO alliance_members (governor_id, alliance_id, rank) VALUES ($1, $2, 1)', [
           app.governor_id,
           actor.allianceId,
@@ -193,13 +222,15 @@ export class AllianceService {
       });
       return { allianceId: actor.allianceId, applicantId: Number(app.governor_id) };
     });
-    if (approve) await this.afterMembershipChange(result.applicantId, result.allianceId);
+    if (approve) await this.afterMembershipChange(result.applicantId, result.allianceId, affected, result.allianceId, gov.kingdomId);
     else this.hub.toGovernor(result.applicantId, { type: 'alliance.updated', reason: 'rejected' });
     this.hub.toAlliance(result.allianceId, { type: 'alliance.updated', allianceId: result.allianceId });
     return { ok: true };
   }
 
   async leave(gov: GovernorCtx) {
+    let affected: number[] = [];
+    let penalty: { formers: number[]; result: unknown } | null = null;
     const result = await tx(this.db, async (client) => {
       const m = await lockMembership(client, gov.id);
       if (!m) throw bad('not_member', 'Você não está em uma aliança.');
@@ -210,6 +241,9 @@ export class AllianceService {
       ]);
       const disband = others.rows[0].n === 0;
       if (m.rank === 5 && !disband) throw conflict('leader_must_transfer', 'Transfira a liderança antes de sair.');
+      affected = await this.beforeChange(client, m.allianceId, gov.id);
+      const formers = affected.filter((id) => id !== gov.id);
+      penalty = this.hooks?.leaving ? { formers, result: await this.hooks.leaving(client, gov.id, formers, m.allianceId) } : null;
       await client.query('DELETE FROM alliance_members WHERE governor_id = $1', [gov.id]);
       if (disband) {
         await client.query(`UPDATE alliances SET status = 'disbanded' WHERE id = $1`, [m.allianceId]);
@@ -221,12 +255,15 @@ export class AllianceService {
       await audit(client, gov.id, disband ? 'alliance.disbanded' : 'alliance.left', 'alliance', m.allianceId);
       return m.allianceId;
     });
-    await this.afterMembershipChange(gov.id, result);
+    await this.afterMembershipChange(gov.id, result, affected, null, gov.kingdomId);
     this.hub.toAlliance(result, { type: 'alliance.updated', allianceId: result });
+    const p = penalty as { formers: number[]; result: unknown } | null;
+    if (p?.result && this.hooks?.left) await this.hooks.left(gov.kingdomId, gov.id, p.formers, p.result);
     return { ok: true };
   }
 
   async kick(gov: GovernorCtx, targetId: number) {
+    let affected: number[] = [];
     const allianceId = await tx(this.db, async (client) => {
       const actor = await lockMembership(client, gov.id);
       const target = await lockMembership(client, targetId);
@@ -234,11 +271,12 @@ export class AllianceService {
       if (!hasAlliancePermission(actor.rank, 'kick') || target.rank >= actor.rank) {
         throw forbidden('Você só pode expulsar membros de cargo inferior ao seu (exige R4+).');
       }
+      affected = await this.beforeChange(client, actor.allianceId, targetId);
       await client.query('DELETE FROM alliance_members WHERE governor_id = $1', [targetId]);
       await audit(client, gov.id, 'alliance.kicked', 'governor', targetId, { allianceId: actor.allianceId });
       return actor.allianceId;
     });
-    await this.afterMembershipChange(targetId, allianceId);
+    await this.afterMembershipChange(targetId, allianceId, affected, null, gov.kingdomId);
     this.hub.toAlliance(allianceId, { type: 'alliance.updated', allianceId });
     return { ok: true };
   }
@@ -276,14 +314,10 @@ export class AllianceService {
     return { ok: true };
   }
 
-  /** Atualiza ACL das conexões em tempo real e a etiqueta da cidade no mapa. */
-  private async afterMembershipChange(governorId: number, allianceId: number) {
+  /** Atualiza a ACL das conexões em tempo real. */
+  private async afterMembershipChange(governorId: number, allianceId: number, affected: number[], now: number | null, kingdomId: number) {
     await this.hub.refreshGovernor(governorId);
     this.hub.toGovernor(governorId, { type: 'membership.changed', allianceId });
-    const c = await this.db.query('SELECT id, kingdom_id FROM cities WHERE governor_id = $1', [governorId]);
-    if (c.rows[0]) {
-      const summary = await mapCitySummary(this.db, c.rows[0].id);
-      if (summary) this.hub.toKingdom(c.rows[0].kingdom_id, { type: 'map.city', city: summary });
-    }
+    if (this.hooks) await this.hooks.after(affected, { governorId, allianceId: now, kingdomId });
   }
 }

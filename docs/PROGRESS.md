@@ -120,3 +120,152 @@ Baseada em `work/city-reference-art` (`c5f4751`). Decisão em `docs/adr/0003-map
 ### 2026-11-11 — Entrada rápida no lugar da tela de login
 
 A pedido, o jogo deixou de abrir no formulário de login: cria uma conta de comandante pelas rotas de cadastro existentes e abre direto na aba Comando. As credenciais geradas ficam no navegador (`localStorage`), então a conta se perde se os dados do site forem apagados. O formulário continua em `/?login=1` e após "Sair"; os testes E2E usam esse caminho. A CI de `c894089` passou (typecheck, integração com Postgres, build).
+
+## 2026-11-11 — Nova visão, Fase A: fundar no mapa e expandir (branch `claude/fase-a-capital-expansao`)
+
+Baseada em `work/world-map-command-center` (`5ca2115`). Decisões em `docs/adr/0004-regioes-como-unidade-de-conquista.md`; fórmulas em `docs/PLAY_RULES.md`.
+
+**Entregue e funcionando de ponta a ponta**
+- [x] Tela inicial, seleção de modo (Campanha aberta; Partida rápida e Equipe bloqueadas com o motivo) e tela de identidade: nome, 16 cores, 12 bandeiras prontas, editor e envio de imagem validado.
+- [x] Mapa neutro com 279 pontos de partida; tocar mostra capital, país, área inicial, fronteiras e prévia tracejada; CONFIRMAR LOCALIZAÇÃO funda a nação no servidor.
+- [x] Fundação animada: feixe de luz, cor se espalhando a partir da capital, bandeira fincada, som.
+- [x] Expansão para regiões neutras vizinhas com duração do servidor; preenchimento progressivo sincronizado com o relógio do servidor; clarão, bandeira e som na conclusão.
+- [x] Domínio de país (100% das regiões) com bandeira no país e aviso.
+- [x] HUD: nação e nível, regiões e países, meta atual, Território / Expandir / Ranking, ocupação em andamento, configurações (música, efeitos, mudo, reduzir animações, sair).
+- [x] Tempo real entre jogadores do mesmo mundo (`play.nation`, `play.occupation`, `play.region`) e releitura ao reconectar.
+
+**Não existe ainda (e não aparece como se existisse):** recursos e produção, construções, ferrovias, exército, ataques a outras nações, mísseis, diplomacia da nova visão, temporada de 10 dias, partida rápida, equipes, travessia marítima.
+
+**Dívidas**
+- [ ] O único custo de expandir é o tempo (ver PLAY_RULES).
+- [ ] Jogadores em ilhas não têm para onde expandir até existir Marinha (o cartão do ponto avisa antes).
+- [ ] Governador e cidade clássicos ainda são criados para cada jogador.
+- [ ] Sem moderação de imagens de bandeira; contas de início rápido são descartáveis.
+- [ ] Teste em iPhone/Safari físico e medição de FPS em aparelho.
+
+## 2026-11-11 — Medieval removido, Fase B e Partida Rápida com bots
+
+Mesma branch (`claude/fase-a-capital-expansao`). Decisões em `docs/adr/0005-economia-e-partida-rapida.md`; regras em `docs/PLAY_RULES.md`.
+
+**Removido:** todo o jogo medieval (cidade, civilizações, mapa do reino, centro de comando com blocos), seus testes e a documentação da visão antiga. Alianças e chat continuam no servidor, sem interface. Tabelas antigas ficam no banco sem uso.
+
+**Fase B — entregue**
+- [x] Seis recursos (dinheiro, materiais, metal, petróleo, componentes, especiais) e energia como oferta × demanda; cada um com finalidade.
+- [x] Produção automática do território e das construções, acertada pelo relógio do servidor, com estoque máximo, retorno decrescente por nível e jazidas por região.
+- [x] Sete construções (cidade, depósito, fábrica, usina, porto, refinaria, centro tecnológico), níveis 1–5, custo e tempo progressivos, até 2 obras simultâneas, espaços por região, porto só no litoral.
+- [x] Painel de construção com nome, ícone, nível, custo (em vermelho o que falta), tempo, produção prevista, benefícios e CONSTRUIR/MELHORAR.
+- [x] Construções no mapa com ícone próprio, anel de progresso da obra e salto de conclusão; som de canteiro e de obra pronta.
+- [x] HUD: recursos ao vivo no topo, painel de economia, botão Construções no dock, metas de construção.
+- [x] Expansão passa a custar recursos.
+
+**Partida rápida — entregue**
+- [x] Mundo próprio com arena de 40 regiões em um de 8 teatros, 3 bots que jogam pelas mesmas regras, 15 minutos, ritmo acelerado.
+- [x] Vitória por maioria ou por regiões ao fim do tempo; abandono resolve a partida; expira sem fundação; classificação gravada e tela de fim de partida.
+- [x] Um usuário pode estar na campanha e numa partida rápida ao mesmo tempo (migração 4).
+
+**Pendências**
+- [ ] Ferrovias, conexões e bônus logístico (Fase C).
+- [ ] Vitória por 100% do território depende de ataques (Fase E).
+- [ ] Temporada de 10 dias da campanha e modo Equipe (Fase G).
+- [ ] Numa função serverless, bots e fim da partida avançam enquanto alguém está com a partida aberta.
+- [ ] Remover `pixi.js` e `@fontsource/cinzel` do `package.json` e regenerar o lock num ambiente com acesso ao npm.
+- [ ] Apagar as tabelas do jogo medieval numa migração própria.
+- [ ] Teste em iPhone/Safari físico e medição de FPS.
+
+## 2026-11-11 — Construção por toque em qualquer ponto e desempenho
+
+**Construção mais rápida**
+- [x] Barra de construções fixa embaixo: escolher o tipo e tocar no mapa. Dois toques por construção, sem abrir cartão nem folha. A barra fica aberta para várias obras seguidas e mostra custo, tempo e produção do tipo escolhido.
+- [x] Posição livre dentro do território, gravada em longitude/latitude (migração 5). O servidor valida o ponto pelo polígono da região, distância mínima de 25 km e espaços por área.
+- [x] Prévia no mapa enquanto o dedo/mouse passa: o ícone fica verde onde pode construir e vermelho onde não pode, com o motivo ao tocar.
+- [x] Bots usam as mesmas regras, escolhendo um ponto livre dentro da própria região.
+
+**Desempenho**
+- [x] Mapa base (terra, fronteiras, litoral, nomes) desenhado uma vez numa camada em cache; arrastar e dar zoom só reposiciona essa imagem e redesenha nítido quando o gesto para.
+- [x] Nível de detalhe das linhas conforme o zoom; sem `shadowBlur`; vinheta em CSS; cache de medidas de texto.
+- [x] O mapa só redesenha quando algo muda ou há animação ativa.
+- [x] Interface React atualiza só os pequenos componentes com relógio (recursos, relógio da partida, obras), não a tela inteira.
+- [x] Medição no navegador automatizado (celular, DPR 3): de 3 fps para 60 fps parado e arrastando, 36 fps no zoom por roda (ver TEST_REPORT).
+
+## 2026-11-11 — Fase C: Logística
+
+Decisões em `docs/adr/0006-logistica-derivada.md`; regras em `docs/PLAY_RULES.md`.
+
+- [x] Ferrovias automáticas entre construções próprias a até 300 km, em regiões iguais ou vizinhas, pelo menor traçado (sem poluir o mapa).
+- [x] Bônus de produção por trecho (+4%, +1% por nível do lado mais fraco, teto de 15%) e +50% de estoque para depósito/porto ligado.
+- [x] Conexão entre aliados: fábrica ↔ cidade/porto aliado, +5% para os dois. Servidor acerta o saldo de todos os afetados antes de entrar/sair da aliança; testado com banco real.
+- [x] No mapa: trilho claro com dormentes (de perto), desenhado aos poucos com uma luz na ponta quando surge; conexão entre aliados em tracejado dourado; som de vagão.
+- [x] Prévia ao construir (mouse): linhas verdes mostram os trechos que vão surgir naquele ponto.
+- [x] Painel da construção mostra trechos e bônus; painel de economia mostra a rede logística.
+- [x] Metas de ferrovia; bots ligam suas construções pelas mesmas regras.
+
+**Pendências**
+- [ ] Botão de pedir aliança no jogo (Fase F). Até lá a conexão entre aliados existe e é testada no servidor, mas o jogador não tem como formar aliança pela tela.
+- [ ] Prévia de trechos no toque (celular): hoje o toque já constrói; a prévia aparece só com mouse.
+
+## 2026-11-11 — Fase D: Sistema militar
+
+Regras em `docs/PLAY_RULES.md` (seção Sistema militar); migração 6 (`military`, `army`, `training`, `research`).
+
+- [x] Formação de exército progressiva: recrutas crescem sozinhos; sem base militar só infantaria, 3× mais lenta.
+- [x] Seis instalações militares no mesmo fluxo de construção (base militar, centro de treinamento, produção militar, base aérea, base naval, centro de defesa).
+- [x] Oito unidades (infantaria, mecanizados, blindados, artilharia, forças especiais, defesa terrestre, aviação, marinha) com custo, recrutas, tempo, ataque, defesa e manutenção.
+- [x] Treinamento em fila de até 3 lotes, concluído pelo relógio do servidor; manutenção descontada da produção.
+- [x] Pesquisa militar com 10 tecnologias e 3 níveis, no centro tecnológico.
+- [x] Poder militar calculado pelo servidor, público no ranking e no cartão da nação, com detalhamento para o dono.
+- [x] Tela Exército (novo botão no dock), avisos e sons de tropas prontas e pesquisa concluída; ícones vetoriais próprios para instalações e unidades.
+- [x] Bots constroem instalações e treinam pelas mesmas regras.
+
+**Fora desta fase (Fase E):** ataques, escolha de porcentagem das tropas, batalhas, ocupação de território inimigo, mísseis e interceptação. Nenhum botão de ataque aparece.
+
+## 2026-11-11 — Fase E: Guerras
+
+Regras em `docs/PLAY_RULES.md` (seção Guerra); migração 7.
+
+- [x] Ataque terrestre a regiões inimigas com fronteira, e naval por mar com navios (até 700 km de litoral).
+- [x] Seleção de 25/50/75/100% das tropas; antes de confirmar, tropas e poder enviados, poder estimado do adversário, risco, duração e território disputado.
+- [x] Combate automático, determinístico e progressivo, com baixas dos dois lados; ocupação de 0 a 100% acompanhada no mapa (preenchimento na cor do atacante, seta animada e selo de batalha com anel de progresso).
+- [x] Conquista: região, bandeira e construções passam ao vencedor; sobreviventes voltam.
+- [x] Defesa: aviso ao atacado, reforço com 25–100% das tropas, contra-ataque e míssil contra a origem.
+- [x] Mísseis: silo, estoque, alcance, mira com círculo de alcance, confirmação, preparação, abertura do silo, lançamento, trajeto em arco com rastro, impacto com onda de choque, e sons próprios de cada fase.
+- [x] Interceptação por sistema antimísseis e pesquisa, com animação do interceptador e explosão ciano.
+- [x] Expansão por mar para regiões neutras com navios.
+- [x] Bots defendem e atacam pelas mesmas regras.
+
+**Decisões**
+- A região da capital não pode ser tomada por terra (evita eliminar uma nação de vez antes de existir a regra de derrota); mísseis podem atingi-la.
+- A interceptação é decidida no lançamento (sorteio reproduzível) e é pública desde então, para a animação do interceptador começar a tempo. Um antimíssil construído durante o voo não conta.
+
+**Fora desta fase:** pedir aliança e ajuda de aliados (Fase F, diplomacia); bots lançando mísseis.
+
+## 2026-11-11 — Recursos infinitos para contas novas (fase de testes)
+
+- [x] `users.unlimited` (migração 8): com ela, gastos e recrutas não descontam; a tela mostra ∞.
+- [x] A pedido do dono do jogo, **toda conta criada a partir de agora nasce com recursos infinitos**. Para desligar sem mudar código: variável `KU_UNLIMITED_NEW_ACCOUNTS=0` na Vercel. Contas já existentes não foram alteradas. Bots não são afetados.
+
+## 2026-11-11 — Ajustes pedidos depois da Fase E
+
+- [x] **Partida rápida até 100%:** acabou o fim por tempo, por "mais da metade" e por "todas as regiões ocupadas". Vence quem conquistar a arena inteira; o jogador que perder todas as regiões perde. Capitais podem ser tomadas (defesa +50%). Bots atacam qualquer vizinho, inclusive capitais.
+- [x] **Silo simples:** com o silo pronto, já lança míssil ou bomba pesada, pagando cada lançamento. Saíram a unidade "míssil", o estoque e a pesquisa Foguetes balísticos. Atalho "Míssil ou bomba" no cartão da região inimiga.
+- [x] **Animação de mísseis e bombas:** contagem e faróis girando no silo, vapor e tampas abrindo; ignição com clarão, coluna de fumaça e tremor curto da câmera; corpo apontado na direção do voo com chama tremulante, rastro de fumaça que se abre e sombra correndo no chão; mira girando com contagem até o impacto; impacto com clarão, bola de fogo, duas ondas de choque, estilhaços com gravidade, fumaça subindo e marca queimada. A bomba é maior, escura, com arco mais alto e explosão maior. Interceptação com rastro ciano, explosão no ar e estilhaços caindo. Tremor desligado com movimento reduzido; partículas sorteadas pelo id (iguais em toda tela).
+- [x] Campanha: nação sem regiões volta à escolha de ponto e pode fundar de novo.
+- Migração 9 (`kingdoms.started_at`, `strikes.weapon`).
+
+## 2026-11-11 — Tropas na hora e bots parados
+
+- [x] Tropas criadas na hora: com a instalação e os recursos, sem fila, tempo, recrutas ou pesquisa obrigatória (a pesquisa vira só bônus).
+- [x] Bots parados na partida rápida: na Vercel, um passo dos bots podia ficar congelado no meio quando a função terminava, e a trava "já estou jogando" nunca soltava naquela instância. Agora a trava vence em 20 s e o passo pedido pela leitura do estado não depende do worker. Erros reais dos bots passam a ir para o log (antes eram engolidos).
+- Bots compram tropas com até 25% do dinheiro por vez.
+
+## 2026-11-12 — Fase F: Diplomacia
+
+- [x] Pedido de aliança no cartão do território de outra nação e no painel Diplomacia; aceitar/recusar pelo cartão dourado sobre o mapa ou pelo painel; pedido cruzado forma na hora; validade 24 h (campanha) / 10 min (partida rápida).
+- [x] Cerimônia de aliança (bandeiras se encontram, selo dourado, som próprio) e arco dourado entre as capitais no mapa; território aliado com contorno dourado tracejado.
+- [x] Painel Diplomacia (dock): aliados com poder e regiões, pedidos recebidos e enviados, bloqueios ativos e todas as outras nações com *Pedir aliança*.
+- [x] Envio de recursos a aliados (só o que cabe no armazém de quem recebe).
+- [x] Proteção e operações conjuntas: aliados mandam tropas para defender ou atacar; sobreviventes voltam a quem mandou; aviso dourado "Aliado sob ataque".
+- [x] Quebra com penalidade automática (−10% tropas, −20% recursos, 30 min sem atacar ex-aliados), confirmação mostrando a penalidade antes, animação de quebra e aviso aos ex-aliados. A rota antiga de sair da aliança aplica a mesma penalidade.
+- [x] Bots respondem pedidos por regra pública, não atacam aliados e ajudam a defender aliados.
+- Migração 10 (`alliance_requests`, `alliance_breaks`, `gifts`, `operations.allies`).
+
+**Fora desta fase:** chat de aliança dentro do jogo (existe na API antiga), alianças entre bots, vitória compartilhada por aliança (Fase G).

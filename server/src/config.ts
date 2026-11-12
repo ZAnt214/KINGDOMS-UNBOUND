@@ -17,3 +17,10 @@ export const config = {
   /** Tentativas de login/cadastro por minuto e por IP. */
   authRatePerMinute: Number(process.env.AUTH_RATE_PER_MINUTE ?? 10),
 };
+
+/**
+ * Contas criadas a partir de agora nascem com recursos infinitos (users.unlimited), a pedido do dono
+ * do jogo durante os testes. Ligado por padrão; KU_UNLIMITED_NEW_ACCOUNTS=0 desliga sem mudar código.
+ * Lido a cada cadastro, para os testes poderem alternar.
+ */
+export const unlimitedNewAccounts = () => process.env.KU_UNLIMITED_NEW_ACCOUNTS !== '0';

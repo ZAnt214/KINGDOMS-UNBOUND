@@ -1,6 +1,11 @@
 import { Router } from 'express';
 import { z } from 'zod';
-import { BUILDING_TYPES, BUILDINGS, CIVILIZATIONS, RULES_VERSION } from '../../shared/rules.js';
+import { ECONOMY_RULES_VERSION, STRUCTURE_TYPES } from '../../shared/play/economy.js';
+import { WAR_RULES_VERSION } from '../../shared/play/war.js';
+import { MILITARY, MILITARY_RULES_VERSION, TECH_TYPES, UNIT_TYPES } from '../../shared/play/military.js';
+import type { MilitaryService } from './services/military.js';
+import type { WarService } from './services/war.js';
+import { MODES_AVAILABLE, PLAY_RULES_VERSION } from '../../shared/play/rules.js';
 import {
   clearSessionCookie,
   createSession,
@@ -12,14 +17,18 @@ import {
   SESSION_COOKIE,
   verifyPassword,
 } from './auth.js';
-import { config } from './config.js';
+import { config, unlimitedNewAccounts } from './config.js';
 import { type Db, tx } from './db.js';
 import { conflict, handler, HttpError, notFound, parse, RateLimiter } from './http.js';
+import type { FoundInput } from '../../shared/play/types.js';
 import type { Hub } from './hub.js';
 import { AllianceService } from './services/alliance.js';
+import type { DiplomacyService } from './services/diplomacy.js';
 import { ChatService } from './services/chat.js';
-import type { WorldService } from './services/world.js';
-import { CityService, civilizationExists, mapCitiesInArea, mapCitySummary } from './services/city.js';
+import type { EconomyService } from './services/economy.js';
+import type { MatchService } from './services/match.js';
+import type { NationService } from './services/nation.js';
+import type { TerritoryService } from './services/territory.js';
 
 const id = z.coerce.number().int().positive();
 const credentials = z.object({
@@ -32,24 +41,31 @@ const credentials = z.object({
   password: z.string().min(8, 'mínimo de 8 caracteres').max(128),
 });
 
-export function apiRouter(db: Db, hub: Hub, services: { city: CityService; alliance: AllianceService; chat: ChatService; world: WorldService }) {
+export function apiRouter(
+  db: Db,
+  hub: Hub,
+  services: { alliance: AllianceService; chat: ChatService; nation: NationService; territory: TerritoryService; economy: EconomyService; match: MatchService; military: MilitaryService; war: WarService; diplomacy: DiplomacyService },
+) {
   const r = Router();
-  const { city, alliance, chat, world } = services;
+  const { alliance, chat, nation, territory, economy, match, military, war, diplomacy } = services;
   const authLimiter = new RateLimiter(config.authRatePerMinute, 60);
 
   r.get(
     '/meta',
     handler(async () => {
       const k = await db.query(
-        `SELECT k.id, k.name, k.width, k.height, k.seed, k.status, COUNT(g.id)::int AS population
-           FROM kingdoms k LEFT JOIN governors g ON g.kingdom_id = k.id GROUP BY k.id ORDER BY k.id`,
+        `SELECT k.id, k.name, k.status, k.mode, COUNT(g.id)::int AS population
+           FROM kingdoms k LEFT JOIN governors g ON g.kingdom_id = k.id
+          WHERE k.mode = 'campaign' GROUP BY k.id ORDER BY k.id`,
       );
       return {
-        rulesVersion: RULES_VERSION,
+        playRulesVersion: PLAY_RULES_VERSION,
+        economyRulesVersion: ECONOMY_RULES_VERSION,
+        militaryRulesVersion: MILITARY_RULES_VERSION,
+        warRulesVersion: WAR_RULES_VERSION,
+        modes: MODES_AVAILABLE,
         serverTime: Date.now(),
-        civilizations: CIVILIZATIONS,
-        buildings: BUILDING_TYPES.map((t) => BUILDINGS[t]),
-        kingdoms: k.rows.map((row) => ({ ...row, capacity: config.kingdomCapacity })),
+        worlds: k.rows.map((row) => ({ ...row, capacity: config.kingdomCapacity })),
       };
     }),
   );
@@ -61,9 +77,11 @@ export function apiRouter(db: Db, hub: Hub, services: { city: CityService; allia
       const { username, password } = parse(credentials, req.body);
       const exists = await db.query('SELECT 1 FROM users WHERE lower(username) = lower($1)', [username]);
       if (exists.rowCount) throw conflict('username_taken', 'Este usuário já existe.');
-      const u = await db.query('INSERT INTO users (username, password_hash) VALUES ($1, $2) RETURNING id', [
+      // Fase de testes: contas novas nascem com recursos infinitos (KU_UNLIMITED_NEW_ACCOUNTS=0 desliga).
+      const u = await db.query('INSERT INTO users (username, password_hash, unlimited) VALUES ($1, $2, $3) RETURNING id', [
         username,
         await hashPassword(password),
+        unlimitedNewAccounts(),
       ]);
       await createSession(db, u.rows[0].id, res);
       return { ok: true };
@@ -100,15 +118,16 @@ export function apiRouter(db: Db, hub: Hub, services: { city: CityService; allia
     '/me',
     handler(async (req) => {
       const auth = requireUser(req);
-      return { userId: auth.userId, username: auth.username, governor: auth.governor, serverTime: Date.now() };
+      return { userId: auth.userId, username: auth.username, governor: auth.governor, worlds: auth.worlds, serverTime: Date.now() };
     }),
   );
 
+  // Lugar do usuário num mundo da campanha (um por usuário). Partidas rápidas usam /quick/start.
   r.post(
     '/governor',
     handler(async (req) => {
       const auth = requireUser(req);
-      if (auth.governor) throw conflict('governor_exists', 'Você já possui um governador.');
+      if (auth.worlds.some((w) => w.mode === 'campaign')) throw conflict('governor_exists', 'Você já tem lugar na campanha.');
       const input = parse(
         z.object({
           name: z
@@ -117,74 +136,41 @@ export function apiRouter(db: Db, hub: Hub, services: { city: CityService; allia
             .min(3, 'mínimo de 3 caracteres')
             .max(16, 'máximo de 16 caracteres')
             .regex(/^[\p{L}\p{N}_ ]+$/u, 'use letras, números, espaço e _'),
-          civilization: z.string(),
           kingdomId: id,
         }),
         req.body,
       );
-      if (!civilizationExists(input.civilization)) throw new HttpError(400, 'invalid_civilization', 'Civilização indisponível.');
       const created = await tx(db, async (client) => {
-        const k = await client.query('SELECT id, status FROM kingdoms WHERE id = $1 FOR UPDATE', [input.kingdomId]);
-        if (!k.rows[0] || k.rows[0].status !== 'open') throw notFound('Reino indisponível.');
+        const k = await client.query('SELECT id, status, mode FROM kingdoms WHERE id = $1 FOR UPDATE', [input.kingdomId]);
+        if (!k.rows[0] || k.rows[0].status !== 'open' || k.rows[0].mode !== 'campaign') throw notFound('Mundo indisponível.');
         const pop = await client.query('SELECT COUNT(*)::int AS n FROM governors WHERE kingdom_id = $1', [input.kingdomId]);
-        if (pop.rows[0].n >= config.kingdomCapacity) throw conflict('kingdom_full', 'Este reino está lotado.');
+        if (pop.rows[0].n >= config.kingdomCapacity) throw conflict('kingdom_full', 'Este mundo está lotado.');
         const taken = await client.query('SELECT 1 FROM governors WHERE lower(name) = lower($1)', [input.name]);
-        if (taken.rowCount) throw conflict('name_taken', 'Nome de governador já em uso.');
-        const g = await client.query(
-          'INSERT INTO governors (user_id, kingdom_id, name, civilization) VALUES ($1, $2, $3, $4) RETURNING id',
-          [auth.userId, input.kingdomId, input.name, input.civilization],
-        );
-        const governorId = g.rows[0].id;
-        const c = await city.createCity(client, governorId, input.kingdomId);
-        await client.query(
-          `INSERT INTO audit_logs (actor_governor_id, action, target_type, target_id, data) VALUES ($1, 'governor.created', 'city', $2, $3)`,
-          [governorId, String(c.cityId), { kingdomId: input.kingdomId, x: c.x, y: c.y }],
-        );
-        return { governorId, ...c };
+        if (taken.rowCount) throw conflict('name_taken', 'Nome de comandante já em uso.');
+        const g = await client.query('INSERT INTO governors (user_id, kingdom_id, name) VALUES ($1, $2, $3) RETURNING id', [auth.userId, input.kingdomId, input.name]);
+        const governorId = Number(g.rows[0].id);
+        await client.query(`INSERT INTO audit_logs (actor_governor_id, action, target_type, target_id, data) VALUES ($1, 'governor.created', 'kingdom', $2, '{}')`, [
+          governorId,
+          String(input.kingdomId),
+        ]);
+        return { governorId };
       });
       await hub.refreshUser(auth.userId);
-      const summary = await mapCitySummary(db, created.cityId);
-      if (summary) hub.toKingdom(input.kingdomId, { type: 'map.city', city: summary });
       return created;
     }),
   );
 
-  r.get('/city', handler(async (req) => city.state(requireGovernor(req))));
-
+  // Partida rápida: entrar (ou criar com bots) e abandonar.
   r.post(
-    '/city/upgrade',
+    '/quick/start',
     handler(async (req) => {
-      const gov = requireGovernor(req);
-      const input = parse(
-        z.object({ building: z.enum(BUILDING_TYPES), idempotencyKey: z.string().min(8).max(64) }),
-        req.body,
-      );
-      return city.upgrade(gov, input.building, input.idempotencyKey);
+      const auth = requireUser(req);
+      const out = await match.start(auth.userId);
+      await hub.refreshUser(auth.userId);
+      return out;
     }),
   );
-
-  r.get(
-    '/map/cities',
-    handler(async (req) => {
-      const gov = requireGovernor(req);
-      const q = parse(z.object({ x0: z.coerce.number().int(), y0: z.coerce.number().int(), x1: z.coerce.number().int(), y1: z.coerce.number().int() }), req.query);
-      // Área de interesse limitada pelo servidor.
-      const x1 = Math.min(q.x1, q.x0 + 200);
-      const y1 = Math.min(q.y1, q.y0 + 200);
-      return { cities: await mapCitiesInArea(db, gov.kingdomId, q.x0, q.y0, x1, y1) };
-    }),
-  );
-
-  r.get(
-    '/map/city/:id',
-    handler(async (req) => {
-      const gov = requireGovernor(req);
-      const c = await mapCitySummary(db, parse(id, req.params.id));
-      const own = await db.query('SELECT kingdom_id FROM cities WHERE id = $1', [req.params.id]);
-      if (!c || own.rows[0]?.kingdom_id !== gov.kingdomId) throw notFound('Cidade não encontrada.');
-      return { city: c };
-    }),
-  );
+  r.post('/quick/leave', handler(async (req) => (await match.leave(requireGovernor(req)), { ok: true })));
 
   // Alianças
   r.get('/alliances', handler(async (req) => ({ alliances: await alliance.list(requireGovernor(req), String(req.query.q ?? '').slice(0, 40)) })));
@@ -228,10 +214,132 @@ export function apiRouter(db: Db, hub: Hub, services: { city: CityService; allia
   );
   r.post('/alliance/members/:id/transfer', handler(async (req) => alliance.transfer(requireGovernor(req), parse(id, req.params.id))));
 
-  // Chat
-  // Mundo geopolítico: leitura do estado e alistamento em bloco.
-  r.get('/world', handler(async (req) => world.snapshot(requireGovernor(req))));
-  r.post('/world/enlist', handler(async (req) => world.enlist(requireGovernor(req), parse(z.object({ blocId: id }), req.body).blocId)));
+  // Nações e território (ciclo principal): estado do mundo, fundação e expansão.
+  r.get(
+    '/play/state',
+    handler(async (req) => {
+      const g = requireGovernor(req);
+      // Partida rápida: a leitura também move os bots e confere o fim. Assim a partida anda mesmo
+      // onde o worker não fica vivo entre requisições (funções serverless).
+      if (g.mode === 'quick') {
+        await match.check(g.kingdomId);
+        await match.tick(g.kingdomId);
+      }
+      return nation.snapshot(g);
+    }),
+  );
+  r.get(
+    '/play/colors',
+    handler(async (req) => {
+      const gov = requireGovernor(req);
+      const q = parse(z.object({ pointId: z.string().min(1).max(80) }), req.query);
+      return { blocked: await nation.blockedColors(gov.kingdomId, q.pointId) };
+    }),
+  );
+  r.post(
+    '/play/found',
+    handler(async (req) =>
+      nation.found(
+        requireGovernor(req),
+        parse(
+          z.object({
+            pointId: z.string().min(1).max(80),
+            name: z.string().max(60),
+            color: z.string().max(9),
+            flag: z.unknown(),
+            flagImage: z.string().max(13000).nullish(),
+          }),
+          req.body,
+        ) as FoundInput,
+      ),
+    ),
+  );
+  r.post(
+    '/play/expand',
+    handler(async (req) => territory.expand(requireGovernor(req), parse(z.object({ region: z.string().min(1).max(40) }), req.body).region)),
+  );
+  r.post(
+    '/play/build',
+    handler(async (req) => {
+      const input = parse(
+        z.object({ at: z.tuple([z.number().min(-180).max(180), z.number().min(-90).max(90)]), type: z.enum(STRUCTURE_TYPES), region: z.string().max(40).optional() }),
+        req.body,
+      );
+      return { structure: await economy.build(requireGovernor(req), input.at, input.type, input.region ?? null) };
+    }),
+  );
+  // Fase E: guerra.
+  r.post(
+    '/play/attack',
+    handler(async (req) => {
+      const body = parse(z.object({ region: z.string().min(1).max(40), percent: z.number().int() }), req.body);
+      return { operation: await war.attack(requireGovernor(req), body.region, body.percent) };
+    }),
+  );
+  r.post(
+    '/play/reinforce',
+    handler(async (req) => {
+      const body = parse(z.object({ operationId: id, percent: z.number().int() }), req.body);
+      return { operation: await war.reinforce(requireGovernor(req), body.operationId, body.percent) };
+    }),
+  );
+  r.post(
+    '/play/launch',
+    handler(async (req) => {
+      const body = parse(z.object({ siloId: id, region: z.string().min(1).max(40), weapon: z.enum(['missile', 'bomb']).default('missile') }), req.body);
+      return { strike: await war.launch(requireGovernor(req), body.siloId, body.region, body.weapon) };
+    }),
+  );
+  // Fase F: diplomacia.
+  r.post('/play/pact/request', handler(async (req) => diplomacy.request(requireGovernor(req), parse(z.object({ nationId: id }), req.body).nationId)));
+  r.post(
+    '/play/pact/answer',
+    handler(async (req) => {
+      const body = parse(z.object({ requestId: id, accept: z.boolean() }), req.body);
+      return diplomacy.answer(requireGovernor(req), body.requestId, body.accept);
+    }),
+  );
+  r.post('/play/pact/cancel', handler(async (req) => diplomacy.cancel(requireGovernor(req), parse(z.object({ requestId: id }), req.body).requestId)));
+  r.post('/play/pact/break', handler(async (req) => diplomacy.breakAlliance(requireGovernor(req))));
+  r.post(
+    '/play/pact/gift',
+    handler(async (req) => {
+      const amount = z.number().int().min(0).max(10_000_000).optional();
+      const body = parse(
+        z.object({
+          nationId: id,
+          resources: z.object({ money: amount, materials: amount, metal: amount, oil: amount, tech: amount, special: amount }).strict(),
+        }),
+        req.body,
+      );
+      return diplomacy.gift(requireGovernor(req), body.nationId, body.resources);
+    }),
+  );
+  // Fase D: treinamento e pesquisa militar.
+  r.post(
+    '/play/train',
+    handler(async (req) => {
+      const body = parse(z.object({ unit: z.enum(UNIT_TYPES), amount: z.number().int().min(1).max(MILITARY.maxBatch) }), req.body);
+      return { military: await military.train(requireGovernor(req), body.unit, body.amount) };
+    }),
+  );
+  r.post(
+    '/play/research',
+    handler(async (req) => ({ military: await military.startResearch(requireGovernor(req), parse(z.object({ tech: z.enum(TECH_TYPES) }), req.body).tech) })),
+  );
+  r.post('/play/upgrade', handler(async (req) => ({ structure: await economy.upgrade(requireGovernor(req), parse(z.object({ structureId: id }), req.body).structureId) })));
+  r.get(
+    '/play/flag/:id',
+    handler(async (req, res) => {
+      const gov = requireGovernor(req);
+      const image = await nation.flagImage(gov.kingdomId, parse(id, req.params.id));
+      if (!image) throw notFound('Bandeira não encontrada.');
+      // O conteúdo foi validado na fundação; a versão na URL permite cache longo.
+      res.setHeader('Content-Type', image.type);
+      res.setHeader('Cache-Control', 'private, max-age=31536000, immutable');
+      res.end(image.bytes);
+    }),
+  );
 
   r.get('/chat/channels', handler(async (req) => ({ channels: await chat.channels(requireGovernor(req)) })));
   r.get(
