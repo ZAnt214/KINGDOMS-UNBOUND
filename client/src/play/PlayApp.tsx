@@ -74,7 +74,7 @@ export function PlayApp({ me, enter, reloadMe, onLoginForm, onLogout }: Props) {
       regionCenter: (id: string) => REGION_BY_ID[id]?.at ?? null,
       /** Operações e mísseis desenhados no mapa. */
       operations: () => e.operationList().map((o) => ({ id: o.id, own: !!o.own, against: !!o.against })),
-      missiles: () => e.missileList().map((m) => ({ id: m.id, intercepted: m.intercepted, impactAt: m.impactAt })),
+      missiles: () => e.missileList().map((m) => ({ id: m.id, intercepted: m.intercepted, weapon: m.weapon ?? "missile", flightAt: m.flightAt, interceptAt: m.interceptAt, impactAt: m.impactAt })),
       /** Trechos de ferrovia desenhados no mapa. */
       rails: () => e.railList().map((r) => ({ id: r.id, from: r.from, to: r.to, ally: !!r.ally, own: !!r.own })),
       get zoom() {

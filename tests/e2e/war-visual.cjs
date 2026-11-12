@@ -147,6 +147,42 @@ const stateOf = (page) => page.evaluate(async () => (await fetch('/api/play/stat
     () => check('o resultado do ataque aparece depois do impacto', false),
   );
 
+  // ---------- bomba ----------
+  await A.waitForTimeout(1500);
+  await clickMap(A, silo.at[0], silo.at[1]);
+  await A.waitForSelector('[data-testid=silo-actions]', { timeout: 8000 });
+  await A.click('[data-testid=silo-aim]');
+  await A.waitForSelector('[data-testid=missile-aiming]');
+  await A.waitForTimeout(400);
+  await clickMap(A, cap[0], cap[1]);
+  await A.waitForSelector('[data-testid=missile-confirm]');
+  await A.click('[data-testid=weapon-bomb]');
+  await A.waitForTimeout(200);
+  await A.click('[data-testid=missile-go]');
+  await A.waitForFunction(() => (window.__kuMap.missiles() ?? []).some((x) => x.weapon === 'bomb'), null, { timeout: 8000 }).then(
+    () => check('a bomba é desenhada como bomba', true),
+    () => check('a bomba é desenhada como bomba', false),
+  );
+  const b = await A.evaluate(() => window.__kuMap.missiles().find((x) => x.weapon === 'bomb'));
+  if (b) {
+    const at = async (t) => A.waitForTimeout(Math.max(0, t - (await A.evaluate(() => Date.now()))));
+    await at(b.flightAt + 150);
+    await A.screenshot({ path: `${OUT}/15-bomba-ignicao.png` });
+    await at((b.flightAt + b.impactAt) / 2);
+    await A.screenshot({ path: `${OUT}/16-bomba-voo.png` });
+    if (!b.intercepted) {
+      await at(b.impactAt + 120);
+      await A.screenshot({ path: `${OUT}/17-bomba-clarao.png` });
+      await at(b.impactAt + 700);
+      await A.screenshot({ path: `${OUT}/18-bomba-fogo.png` });
+      await at(b.impactAt + 2200);
+      await A.screenshot({ path: `${OUT}/19-bomba-fumaca.png` });
+    } else {
+      await at(b.interceptAt + 300);
+      await A.screenshot({ path: `${OUT}/17-bomba-interceptada.png` });
+    }
+  }
+
   check('sem erros de JavaScript na página', errors.length === 0, errors.join(' | '));
   await browser.close();
   const failed = checks.filter((c) => !c.ok).length;

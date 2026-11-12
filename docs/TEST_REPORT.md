@@ -280,3 +280,7 @@ Mapa sem guerra: 60 fps parado e arrastando, 41 fps no zoom por roda. **Não med
 
 ### Resultado
 CI do commit `c0d2cea`: verde — typecheck e **128/128** testes (14 arquivos), incluindo `tests/integration/war.test.ts` 7/7. Prévia `kingdoms-unbound-ibgrrrfym-test11-1d8d.vercel.app`: `GET /api/meta` 200 com `warRulesVersion: 1`.
+
+## Animação de mísseis e bombas
+- `tests/e2e/war-visual.cjs` **16/16** (390×844, servidor falso): acrescenta o lançamento de uma bomba com fotos de ignição, voo, clarão, bola de fogo e fumaça (15–19), e verifica que a bomba é desenhada como bomba. `play-visual.cjs` 32/32. Unitários war 16/16, play 14/14, economy 12/12.
+- Revisão visual das fotos: sequência legível no zoom da partida. **Não medido:** fps com vários mísseis simultâneos (as partículas são poucas e só existem durante o ataque).

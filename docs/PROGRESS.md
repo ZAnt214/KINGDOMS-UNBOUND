@@ -247,6 +247,7 @@ Regras em `docs/PLAY_RULES.md` (seção Guerra); migração 7.
 
 - [x] **Partida rápida até 100%:** acabou o fim por tempo, por "mais da metade" e por "todas as regiões ocupadas". Vence quem conquistar a arena inteira; o jogador que perder todas as regiões perde. Capitais podem ser tomadas (defesa +50%). Bots atacam qualquer vizinho, inclusive capitais.
 - [x] **Silo simples:** com o silo pronto, já lança míssil ou bomba pesada, pagando cada lançamento. Saíram a unidade "míssil", o estoque e a pesquisa Foguetes balísticos. Atalho "Míssil ou bomba" no cartão da região inimiga.
+- [x] **Animação de mísseis e bombas:** contagem e faróis girando no silo, vapor e tampas abrindo; ignição com clarão, coluna de fumaça e tremor curto da câmera; corpo apontado na direção do voo com chama tremulante, rastro de fumaça que se abre e sombra correndo no chão; mira girando com contagem até o impacto; impacto com clarão, bola de fogo, duas ondas de choque, estilhaços com gravidade, fumaça subindo e marca queimada. A bomba é maior, escura, com arco mais alto e explosão maior. Interceptação com rastro ciano, explosão no ar e estilhaços caindo. Tremor desligado com movimento reduzido; partículas sorteadas pelo id (iguais em toda tela).
 - [x] Campanha: nação sem regiões volta à escolha de ponto e pode fundar de novo.
 - Migração 9 (`kingdoms.started_at`, `strikes.weapon`).
 

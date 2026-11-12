@@ -189,4 +189,6 @@ export interface MapMissile {
   interceptAt: number;
   impactAt: number;
   intercepted: boolean;
+  /** Arma: a bomba é maior, mais escura e mais lenta. */
+  weapon?: 'missile' | 'bomb';
 }

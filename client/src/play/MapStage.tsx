@@ -287,6 +287,7 @@ export function MapStage(props: Props) {
         interceptAt: x.interceptAt,
         impactAt: x.impactAt,
         intercepted: x.intercepted,
+        weapon: x.weapon,
       })),
     );
   }, [engine, state]);

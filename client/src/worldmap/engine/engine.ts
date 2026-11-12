@@ -53,6 +53,16 @@ const OCEAN_TOP = '#0d3a78';
 const OCEAN_MID = '#0a2857';
 const OCEAN_BOTTOM = '#061634';
 const TAU = Math.PI * 2;
+/** Sorteio determinístico (FNV-1a) para partículas: o mesmo míssil desenha igual em toda tela. */
+function hash32(text: string): number {
+  let h = 0x811c9dc5;
+  for (let i = 0; i < text.length; i++) {
+    h ^= text.charCodeAt(i);
+    h = Math.imul(h, 0x01000193);
+  }
+  return h >>> 0;
+}
+
 /** Espadas cruzadas do selo de batalha (grade 24). */
 const SWORDS = 'M4 4l9 9M4 4h3.5M4 4v3.5M20 4l-9 9M20 4h-3.5M20 4v3.5M9.5 14.5 6 18M14.5 14.5 18 18M4.5 16.5l3 3M19.5 16.5l-3 3';
 /** Duração do desenho de um trecho novo de ferrovia (ms). */
@@ -629,7 +639,7 @@ export class WorldMapEngine {
       this.structures.some((x) => (x.completedAt !== undefined && t - x.completedAt < 900) || (x.building && now < x.building.endAt + 300)) ||
       this.rails.some((r) => r.appearAt !== undefined && t - r.appearAt < RAIL_MS + 200 && t - r.appearAt > -4000);
     const filling = this.fills.some((f) => now < f.endAt + 400);
-    const war = this.operations.length > 0 || this.missiles.some((m) => now < m.impactAt + 2600);
+    const war = this.operations.length > 0 || this.missiles.some((m) => now < m.impactAt + 4300);
     const live = this.routes.length > 0 || this.pointsLive || this.preview !== null || filling || moving || war;
     if (this.anim || this.effects.length || (live && !this.opts.reducedMotion)) this.invalidate();
     else if (live) {
@@ -1434,185 +1444,413 @@ export class WorldMapEngine {
   }
 
   /**
-   * Mísseis, em fases pelo relógio do servidor: preparação (brilho no silo), abertura das tampas,
-   * lançamento, voo em arco com rastro, e no fim interceptação (interceptador e explosão ciano) ou
-   * impacto (clarão, onda de choque e brasas). Efeitos curtos e contidos, sem cobrir o mapa.
+   * Mísseis e bombas, em fases pelo relógio do servidor (todos veem o mesmo):
+   *   1. preparação: anel de contagem no silo, faróis de alerta girando e vapor;
+   *   2. abertura das tampas do silo;
+   *   3. ignição: clarão, coluna de fumaça e tremor curto da câmera;
+   *   4. voo em arco com o corpo apontado na direção do movimento, chama tremulante, rastro de
+   *      fumaça que se abre com o tempo e a sombra correndo no chão (dá a altura);
+   *   5. alvo com mira girando e anel da contagem até o impacto;
+   *   6a. impacto: clarão, bola de fogo, duas ondas de choque, estilhaços com gravidade, fumaça
+   *       subindo e marca queimada que some devagar; a bomba é maior e mais escura;
+   *   6b. interceptação: interceptador ciano sobe do alvo e explode no ar, com estilhaços caindo.
+   * Partículas são determinísticas (sorteio pelo id), poucas e só durante o ataque.
    */
   private drawMissiles() {
     if (!this.missiles.length) return;
     const { ctx } = this;
     const now = this.opts.now();
+    const reduced = !!this.opts.reducedMotion;
+    // Tremor curto da câmera na ignição e no impacto (desligado com movimento reduzido).
+    let shakeX = 0;
+    let shakeY = 0;
+    if (!reduced) {
+      for (const m of this.missiles) {
+        const bomb = m.weapon === 'bomb';
+        for (const [at, amp, ms] of [
+          [m.flightAt, 2, 260],
+          [m.intercepted ? -Infinity : m.impactAt, bomb ? 7 : 4.5, bomb ? 650 : 420],
+        ] as const) {
+          const d = now - at;
+          if (d >= 0 && d < ms) {
+            const k = (1 - d / ms) * amp;
+            shakeX += Math.sin(d * 0.21 + m.impactAt) * k;
+            shakeY += Math.cos(d * 0.17) * k;
+          }
+        }
+      }
+    }
     ctx.save();
+    ctx.translate(shakeX, shakeY);
     ctx.lineCap = 'round';
+    ctx.lineJoin = 'round';
     for (const m of this.missiles) {
-      if (now > m.impactAt + 2600 || now < m.launchedAt - 50) continue;
+      if (now > m.impactAt + 4200 || now < m.launchedAt - 50) continue;
+      const bomb = m.weapon === 'bomb';
+      const seed = hash32(m.id);
+      const rnd = (i: number) => ((hash32(`${m.id}:${i}`) >>> 0) % 10000) / 10000;
       const [x0, y0] = this.toScreen(m.from[0], m.from[1]);
       const [x1, y1] = this.toScreen(m.to[0], m.to[1]);
       const len = Math.hypot(x1 - x0, y1 - y0);
-      const P = this.curve(x0, y0, x1, y1, Math.max(0.18, Math.min(0.6, 70 / Math.max(1, len))));
+      const lift = Math.max(0.2, Math.min(bomb ? 0.75 : 0.6, (bomb ? 95 : 75) / Math.max(1, len)));
+      const P = this.curve(x0, y0, x1, y1, lift);
+      // Chão: linha reta entre silo e alvo (a sombra corre por ela).
+      const G = (u: number): [number, number] => [x0 + (x1 - x0) * u, y0 + (y1 - y0) * u];
       const flight = Math.max(1, m.impactAt - m.flightAt);
       const stopU = m.intercepted ? (m.interceptAt - m.flightAt) / flight : 1;
-      // Alvo marcado durante todo o voo.
-      if (now < (m.intercepted ? m.interceptAt : m.impactAt)) {
-        const k = (now % 1000) / 1000;
+      const end = m.intercepted ? m.interceptAt : m.impactAt;
+      const u = Math.max(0, Math.min(stopU, (now - m.flightAt) / flight));
+      const heat = bomb ? [255, 120, 40] : [255, 175, 70];
+
+      // ----- alvo: mira girando e contagem até o impacto -----
+      if (now < end) {
+        const left = Math.max(0, (end - now) / Math.max(1, end - m.launchedAt));
+        const rot = reduced ? 0 : now / 900;
+        const pulse = reduced ? 0.5 : (now % 900) / 900;
         ctx.beginPath();
-        ctx.arc(x1, y1, 10 + k * 8, 0, TAU);
-        ctx.strokeStyle = `rgba(255, 90, 70, ${0.8 - k * 0.6})`;
+        ctx.arc(x1, y1, 18 + pulse * 10, 0, TAU);
+        ctx.strokeStyle = `rgba(255, 80, 60, ${0.55 * (1 - pulse)})`;
         ctx.lineWidth = 2;
         ctx.stroke();
         ctx.beginPath();
-        ctx.moveTo(x1 - 7, y1);
-        ctx.lineTo(x1 + 7, y1);
-        ctx.moveTo(x1, y1 - 7);
-        ctx.lineTo(x1, y1 + 7);
-        ctx.strokeStyle = 'rgba(255, 120, 100, 0.9)';
-        ctx.lineWidth = 1.5;
+        ctx.arc(x1, y1, 13, -Math.PI / 2, -Math.PI / 2 + TAU * (1 - left));
+        ctx.strokeStyle = 'rgba(255, 110, 90, 0.95)';
+        ctx.lineWidth = 2.5;
         ctx.stroke();
-      }
-      if (now < m.flightAt) {
-        // Preparação e abertura do silo.
-        const q = (now - m.launchedAt) / Math.max(1, m.flightAt - m.launchedAt);
-        const glow = Math.min(1, q / 0.55);
-        for (let i = 0; i < 3; i++) {
-          const k = ((now / 600 + i / 3) % 1) * glow;
+        ctx.save();
+        ctx.translate(x1, y1);
+        ctx.rotate(rot);
+        ctx.strokeStyle = 'rgba(255, 210, 200, 0.95)';
+        ctx.lineWidth = 1.6;
+        for (let k = 0; k < 4; k++) {
+          ctx.rotate(TAU / 4);
           ctx.beginPath();
-          ctx.arc(x0, y0, 8 + k * 18, 0, TAU);
-          ctx.strokeStyle = `rgba(255, 170, 60, ${(1 - k) * 0.7 * glow})`;
-          ctx.lineWidth = 2;
+          ctx.moveTo(7, 0);
+          ctx.lineTo(11, 0);
+          ctx.stroke();
+          ctx.beginPath();
+          ctx.arc(0, 0, 9, 0.25, 0.8);
           ctx.stroke();
         }
-        const open = Math.max(0, (q - 0.55) / 0.45);
+        ctx.restore();
+      }
+
+      // ----- 1–2. preparação e abertura do silo -----
+      if (now < m.flightAt) {
+        const q = (now - m.launchedAt) / Math.max(1, m.flightAt - m.launchedAt);
+        const charge = Math.min(1, q / 0.6);
+        // Faróis de alerta girando.
+        const spin = reduced ? 0 : now / 180;
+        for (let k = 0; k < 2; k++) {
+          const a = spin + k * Math.PI;
+          ctx.beginPath();
+          ctx.moveTo(x0, y0);
+          ctx.arc(x0, y0, 34, a - 0.35, a + 0.35);
+          ctx.closePath();
+          ctx.fillStyle = `rgba(255, 150, 40, ${0.16 * charge})`;
+          ctx.fill();
+        }
+        // Anel de contagem.
         ctx.beginPath();
-        ctx.arc(x0, y0, 7, 0, TAU);
+        ctx.arc(x0, y0, 15, -Math.PI / 2, -Math.PI / 2 + TAU * q);
+        ctx.strokeStyle = `rgba(255, 190, 80, ${0.5 + 0.5 * charge})`;
+        ctx.lineWidth = 3;
+        ctx.stroke();
+        // Vapor saindo pelas frestas.
+        for (let k = 0; k < 4; k++) {
+          const t = ((now / 700 + rnd(k)) % 1) * charge;
+          ctx.beginPath();
+          ctx.arc(x0 + (rnd(k + 10) - 0.5) * 16, y0 - 6 - t * 18, 3 + t * 6, 0, TAU);
+          ctx.fillStyle = `rgba(225, 230, 240, ${0.28 * (1 - t)})`;
+          ctx.fill();
+        }
+        // Poço e tampas deslizando.
+        const open = Math.max(0, (q - 0.6) / 0.4);
+        ctx.beginPath();
+        ctx.arc(x0, y0, 8, 0, TAU);
         ctx.fillStyle = '#05080f';
         ctx.fill();
+        if (open > 0) {
+          const g = ctx.createRadialGradient(x0, y0, 0, x0, y0, 8);
+          g.addColorStop(0, `rgba(255, 220, 140, ${open})`);
+          g.addColorStop(1, 'rgba(255, 120, 40, 0)');
+          ctx.fillStyle = g;
+          ctx.beginPath();
+          ctx.arc(x0, y0, 8, 0, TAU);
+          ctx.fill();
+        }
         ctx.fillStyle = '#9aa7bd';
-        const shift = open * 7;
+        const shift = open * 8;
         ctx.beginPath();
-        ctx.arc(x0 - shift, y0, 7, Math.PI / 2, (3 * Math.PI) / 2);
+        ctx.arc(x0 - shift, y0, 8, Math.PI / 2, (3 * Math.PI) / 2);
         ctx.fill();
         ctx.beginPath();
-        ctx.arc(x0 + shift, y0, 7, -Math.PI / 2, Math.PI / 2);
+        ctx.arc(x0 + shift, y0, 8, -Math.PI / 2, Math.PI / 2);
         ctx.fill();
+        ctx.strokeStyle = 'rgba(6, 12, 26, 0.6)';
+        ctx.lineWidth = 1;
+        ctx.stroke();
         continue;
       }
-      const u = Math.min(stopU, (now - m.flightAt) / flight);
-      const ended = now >= (m.intercepted ? m.interceptAt : m.impactAt);
-      // Fumaça do lançamento.
+
+      // ----- 3. ignição: clarão e coluna de fumaça no silo -----
       const since = now - m.flightAt;
-      if (since < 1800) {
-        const k = since / 1800;
-        for (let i = 0; i < 5; i++) {
-          const a = (i / 5) * TAU + 0.6;
+      if (since < 2600) {
+        const k = since / 2600;
+        for (let i = 0; i < 9; i++) {
+          const a = rnd(i) * TAU;
+          const d = (0.3 + rnd(i + 20)) * k * 22;
           ctx.beginPath();
-          ctx.arc(x0 + Math.cos(a) * k * 14, y0 + Math.sin(a) * k * 6, 4 + k * 7, 0, TAU);
-          ctx.fillStyle = `rgba(200, 205, 215, ${0.35 * (1 - k)})`;
+          ctx.arc(x0 + Math.cos(a) * d, y0 + Math.sin(a) * d * 0.45 - k * 10 * rnd(i + 40), 4 + k * (8 + rnd(i + 30) * 6), 0, TAU);
+          ctx.fillStyle = `rgba(205, 210, 220, ${0.32 * (1 - k)})`;
           ctx.fill();
         }
-        if (since < 220) {
+        if (since < 280) {
+          const f = since / 280;
+          const g = ctx.createRadialGradient(x0, y0, 0, x0, y0, 30);
+          g.addColorStop(0, `rgba(255, 250, 230, ${1 - f})`);
+          g.addColorStop(0.4, `rgba(255, 190, 90, ${0.7 * (1 - f)})`);
+          g.addColorStop(1, 'rgba(255, 120, 40, 0)');
+          ctx.fillStyle = g;
           ctx.beginPath();
-          ctx.arc(x0, y0, 14 * (1 - since / 220) + 4, 0, TAU);
-          ctx.fillStyle = 'rgba(255, 230, 170, 0.85)';
+          ctx.arc(x0, y0, 30, 0, TAU);
           ctx.fill();
         }
       }
-      if (!ended) {
-        // Rastro: segmentos que esmaecem atrás da ogiva.
-        const tail = Math.max(0, u - 0.22);
-        let [px, py] = P(tail);
-        for (let i = 1; i <= 14; i++) {
-          const w = tail + ((u - tail) * i) / 14;
-          const [x, y] = P(w);
+
+      // ----- 4. voo -----
+      if (now < end) {
+        // Sombra correndo no chão e o traçado previsto, bem discretos.
+        ctx.setLineDash([3, 7]);
+        ctx.beginPath();
+        const [gx, gy] = G(u);
+        ctx.moveTo(gx, gy);
+        ctx.lineTo(x1, y1);
+        ctx.strokeStyle = 'rgba(255, 120, 100, 0.35)';
+        ctx.lineWidth = 1.2;
+        ctx.stroke();
+        ctx.setLineDash([]);
+        const h = Math.sin(Math.PI * u);
+        ctx.beginPath();
+        ctx.ellipse(gx, gy, 5 - h * 2, 2.2 - h, 0, 0, TAU);
+        ctx.fillStyle = `rgba(0, 0, 0, ${0.35 - h * 0.2})`;
+        ctx.fill();
+        // Rastro de fumaça: bolinhas deixadas pelo caminho que se abrem e somem com a idade.
+        const puffs = bomb ? 26 : 22;
+        const span = bomb ? 0.3 : 0.38;
+        for (let i = puffs; i >= 1; i--) {
+          const back = (i / puffs) * span;
+          const w = u - back;
+          if (w <= 0) continue;
+          const [px, py] = P(w);
+          const age = back / span;
+          const drift = age * 6;
           ctx.beginPath();
-          ctx.moveTo(px, py);
-          ctx.lineTo(x, y);
-          ctx.strokeStyle = `rgba(255, ${170 + i * 5}, 120, ${(i / 14) * 0.85})`;
-          ctx.lineWidth = 1.2 + (i / 14) * 3;
-          ctx.stroke();
-          px = x;
-          py = y;
+          ctx.arc(px + (rnd(i) - 0.5) * drift, py - age * 4, 1.6 + age * (bomb ? 7 : 5.5), 0, TAU);
+          ctx.fillStyle = bomb ? `rgba(120, 120, 128, ${0.42 * (1 - age)})` : `rgba(225, 228, 236, ${0.45 * (1 - age)})`;
+          ctx.fill();
         }
+        // Corpo apontado na direção do voo, chama tremulante.
         const [hx, hy] = P(u);
+        const [bx, by] = P(Math.max(0, u - 0.01));
+        const ang = Math.atan2(hy - by, hx - bx);
+        const flicker = reduced ? 1 : 0.75 + 0.25 * Math.sin(now / 35 + seed);
+        const glow = ctx.createRadialGradient(hx, hy, 0, hx, hy, bomb ? 16 : 13);
+        glow.addColorStop(0, `rgba(${heat[0]}, ${heat[1]}, ${heat[2]}, 0.55)`);
+        glow.addColorStop(1, `rgba(${heat[0]}, ${heat[1]}, ${heat[2]}, 0)`);
+        ctx.fillStyle = glow;
         ctx.beginPath();
-        ctx.arc(hx, hy, 9, 0, TAU);
-        ctx.fillStyle = 'rgba(255, 170, 70, 0.28)';
+        ctx.arc(hx, hy, bomb ? 16 : 13, 0, TAU);
+        ctx.fill();
+        ctx.save();
+        ctx.translate(hx, hy);
+        ctx.rotate(ang);
+        ctx.scale(1.45, 1.45);
+        const s = bomb ? 1.25 : 1;
+        // Chama.
+        ctx.beginPath();
+        ctx.moveTo(-6 * s, -2.2 * s);
+        ctx.quadraticCurveTo((-6 - 12 * flicker) * s, 0, -6 * s, 2.2 * s);
+        ctx.closePath();
+        ctx.fillStyle = 'rgba(255, 160, 60, 0.9)';
         ctx.fill();
         ctx.beginPath();
-        ctx.arc(hx, hy, 5, 0, TAU);
-        ctx.fillStyle = 'rgba(255, 210, 120, 0.6)';
+        ctx.moveTo(-6 * s, -1.2 * s);
+        ctx.quadraticCurveTo((-6 - 6 * flicker) * s, 0, -6 * s, 1.2 * s);
+        ctx.closePath();
+        ctx.fillStyle = 'rgba(255, 250, 220, 0.95)';
         ctx.fill();
+        // Corpo.
         ctx.beginPath();
-        ctx.arc(hx, hy, 3, 0, TAU);
-        ctx.fillStyle = '#fffbe8';
+        if (bomb) {
+          ctx.ellipse(0, 0, 7 * s, 3.4 * s, 0, 0, TAU);
+        } else {
+          ctx.moveTo(8, 0);
+          ctx.quadraticCurveTo(5, -2.6, 0, -2.4);
+          ctx.lineTo(-6, -2.4);
+          ctx.lineTo(-6, 2.4);
+          ctx.lineTo(0, 2.4);
+          ctx.quadraticCurveTo(5, 2.6, 8, 0);
+        }
+        ctx.fillStyle = bomb ? '#3a3f4a' : '#e9edf3';
         ctx.fill();
+        ctx.strokeStyle = 'rgba(6, 12, 26, 0.85)';
+        ctx.lineWidth = 1;
+        ctx.stroke();
+        // Aletas e faixa.
+        ctx.fillStyle = bomb ? '#262a33' : '#c43c2c';
+        ctx.beginPath();
+        ctx.moveTo(-6 * s, -2.4 * s);
+        ctx.lineTo(-8.5 * s, -5 * s);
+        ctx.lineTo(-3.5 * s, -2.4 * s);
+        ctx.moveTo(-6 * s, 2.4 * s);
+        ctx.lineTo(-8.5 * s, 5 * s);
+        ctx.lineTo(-3.5 * s, 2.4 * s);
+        ctx.fill();
+        if (!bomb) ctx.fillRect(2, -2.5, 1.6, 5);
+        else {
+          ctx.fillStyle = '#ffc53d';
+          ctx.fillRect(-1, -3.3, 1.6, 6.6);
+        }
+        ctx.restore();
       }
+
+      // ----- 6b. interceptação -----
       if (m.intercepted) {
         const [ix, iy] = P(stopU);
-        const lead = 1100;
+        const lead = 1300;
         if (now >= m.interceptAt - lead && now < m.interceptAt) {
-          // Interceptador sobe do alvo até o ponto de encontro.
           const k = (now - (m.interceptAt - lead)) / lead;
-          const Q = this.curve(x1, y1, ix, iy, 0.15);
-          const [qx, qy] = Q(k);
-          const [sx, sy] = Q(Math.max(0, k - 0.3));
-          ctx.beginPath();
-          ctx.moveTo(sx, sy);
-          ctx.lineTo(qx, qy);
-          ctx.strokeStyle = 'rgba(110, 235, 255, 0.85)';
-          ctx.lineWidth = 2;
-          ctx.stroke();
-          ctx.beginPath();
-          ctx.arc(qx, qy, 2.5, 0, TAU);
-          ctx.fillStyle = '#e6fdff';
-          ctx.fill();
-        }
-        if (now >= m.interceptAt) {
-          const k = Math.min(1, (now - m.interceptAt) / 1200);
-          ctx.beginPath();
-          ctx.arc(ix, iy, 6 + k * 30, 0, TAU);
-          ctx.strokeStyle = `rgba(110, 235, 255, ${1 - k})`;
-          ctx.lineWidth = 3 * (1 - k) + 1;
-          ctx.stroke();
-          for (let i = 0; i < 10; i++) {
-            const a = (i / 10) * TAU;
+          const Q = this.curve(x1, y1, ix, iy, 0.2);
+          for (let i = 10; i >= 0; i--) {
+            const w = Math.max(0, k - i * 0.025);
+            const [qx, qy] = Q(w);
             ctx.beginPath();
-            ctx.moveTo(ix + Math.cos(a) * (4 + k * 10), iy + Math.sin(a) * (4 + k * 10));
-            ctx.lineTo(ix + Math.cos(a) * (8 + k * 24), iy + Math.sin(a) * (8 + k * 24));
-            ctx.strokeStyle = `rgba(230, 253, 255, ${1 - k})`;
-            ctx.lineWidth = 1.5;
-            ctx.stroke();
+            ctx.arc(qx, qy, 1 + (i / 10) * 3, 0, TAU);
+            ctx.fillStyle = `rgba(150, 240, 255, ${0.5 * (1 - i / 10)})`;
+            ctx.fill();
           }
-          if (k < 0.2) {
+          const [qx, qy] = Q(k);
+          ctx.beginPath();
+          ctx.arc(qx, qy, 3, 0, TAU);
+          ctx.fillStyle = '#f2feff';
+          ctx.fill();
+          if (k < 0.15) {
             ctx.beginPath();
-            ctx.arc(ix, iy, 10 * (1 - k * 5), 0, TAU);
-            ctx.fillStyle = 'rgba(255, 255, 255, 0.9)';
+            ctx.arc(x1, y1, 10 * (1 - k / 0.15), 0, TAU);
+            ctx.fillStyle = 'rgba(160, 245, 255, 0.7)';
             ctx.fill();
           }
         }
-      } else if (now >= m.impactAt) {
-        const k = Math.min(1, (now - m.impactAt) / 2400);
+        if (now >= m.interceptAt) {
+          const d = now - m.interceptAt;
+          const k = Math.min(1, d / 1500);
+          if (d < 220) {
+            const g = ctx.createRadialGradient(ix, iy, 0, ix, iy, 26);
+            g.addColorStop(0, `rgba(255, 255, 255, ${1 - d / 220})`);
+            g.addColorStop(1, 'rgba(120, 235, 255, 0)');
+            ctx.fillStyle = g;
+            ctx.beginPath();
+            ctx.arc(ix, iy, 26, 0, TAU);
+            ctx.fill();
+          }
+          for (const [r0, r1, a] of [
+            [6, 38, 1],
+            [3, 24, 0.7],
+          ] as const) {
+            ctx.beginPath();
+            ctx.arc(ix, iy, r0 + k * r1, 0, TAU);
+            ctx.strokeStyle = `rgba(120, 235, 255, ${a * (1 - k)})`;
+            ctx.lineWidth = 3 * (1 - k) + 0.6;
+            ctx.stroke();
+          }
+          // Estilhaços caindo, com gravidade.
+          for (let i = 0; i < 14; i++) {
+            const a = rnd(i) * TAU;
+            const v = 10 + rnd(i + 50) * 26;
+            const t = Math.min(1, d / 1800);
+            const px = ix + Math.cos(a) * v * t;
+            const py = iy + Math.sin(a) * v * t + 40 * t * t;
+            ctx.beginPath();
+            ctx.arc(px, py, 1.4 * (1 - t) + 0.3, 0, TAU);
+            ctx.fillStyle = i % 3 ? `rgba(230, 253, 255, ${1 - t})` : `rgba(255, 190, 110, ${1 - t})`;
+            ctx.fill();
+          }
+        }
+        continue;
+      }
+
+      // ----- 6a. impacto -----
+      if (now >= m.impactAt) {
+        const d = now - m.impactAt;
+        const big = bomb ? 1.6 : 1;
+        // Marca queimada que some devagar.
+        const scorch = Math.min(1, d / 4200);
         ctx.beginPath();
-        ctx.arc(x1, y1, 10 + k * 26, 0, TAU);
-        ctx.fillStyle = `rgba(255, 110, 40, ${0.35 * (1 - k)})`;
+        ctx.ellipse(x1, y1, 16 * big, 9 * big, 0, 0, TAU);
+        ctx.fillStyle = `rgba(20, 12, 8, ${0.45 * (1 - scorch)})`;
         ctx.fill();
-        const s = Math.min(1, (now - m.impactAt) / 1100);
-        ctx.beginPath();
-        ctx.arc(x1, y1, 6 + s * 56, 0, TAU);
-        ctx.strokeStyle = `rgba(255, 200, 120, ${0.9 * (1 - s)})`;
-        ctx.lineWidth = 3 * (1 - s) + 0.5;
-        ctx.stroke();
-        if (now - m.impactAt < 260) {
+        // Clarão.
+        if (d < 320) {
+          const f = d / 320;
+          const g = ctx.createRadialGradient(x1, y1, 0, x1, y1, 46 * big);
+          g.addColorStop(0, `rgba(255, 255, 245, ${1 - f})`);
+          g.addColorStop(0.35, `rgba(255, 220, 150, ${0.8 * (1 - f)})`);
+          g.addColorStop(1, 'rgba(255, 140, 60, 0)');
+          ctx.fillStyle = g;
           ctx.beginPath();
-          ctx.arc(x1, y1, 4 + ((now - m.impactAt) / 260) * 16, 0, TAU);
-          ctx.fillStyle = 'rgba(255, 252, 235, 0.95)';
+          ctx.arc(x1, y1, 46 * big, 0, TAU);
           ctx.fill();
         }
-        for (let i = 0; i < 9; i++) {
-          const a = (i / 9) * TAU + 0.3;
-          const dist = 6 + k * (22 + (i % 3) * 8);
+        // Bola de fogo que sobe e esfria.
+        const fb = Math.min(1, d / (bomb ? 1700 : 1300));
+        if (fb < 1) {
+          const r = (8 + fb * 18) * big;
+          const cy = y1 - fb * 14 * big;
+          const g = ctx.createRadialGradient(x1, cy, 0, x1, cy, r);
+          g.addColorStop(0, `rgba(255, 245, 200, ${0.95 * (1 - fb)})`);
+          g.addColorStop(0.45, `rgba(255, ${bomb ? 120 : 150}, 40, ${0.85 * (1 - fb)})`);
+          g.addColorStop(1, `rgba(${bomb ? 120 : 170}, 40, 20, 0)`);
+          ctx.fillStyle = g;
           ctx.beginPath();
-          ctx.arc(x1 + Math.cos(a) * dist, y1 + Math.sin(a) * dist - k * 6, 1.6 * (1 - k) + 0.4, 0, TAU);
-          ctx.fillStyle = `rgba(255, 170, 80, ${1 - k})`;
+          ctx.arc(x1, cy, r, 0, TAU);
+          ctx.fill();
+        }
+        // Duas ondas de choque.
+        for (const [delay, reach, width] of [
+          [0, 70, 3.5],
+          [160, 46, 2],
+        ] as const) {
+          const t = Math.min(1, Math.max(0, d - delay) / 1100);
+          if (d < delay || t >= 1) continue;
+          ctx.beginPath();
+          ctx.ellipse(x1, y1, (6 + t * reach) * big, (4 + t * reach * 0.62) * big, 0, 0, TAU);
+          ctx.strokeStyle = `rgba(255, 225, 170, ${0.9 * (1 - t)})`;
+          ctx.lineWidth = width * (1 - t) + 0.5;
+          ctx.stroke();
+        }
+        // Estilhaços e brasas com gravidade.
+        const n = bomb ? 22 : 15;
+        for (let i = 0; i < n; i++) {
+          const t = Math.min(1, d / 1600);
+          if (t >= 1) break;
+          const a = -Math.PI * (0.1 + rnd(i) * 0.8);
+          const v = (18 + rnd(i + 70) * 34) * big;
+          const px = x1 + Math.cos(a) * v * t;
+          const py = y1 + Math.sin(a) * v * t + 55 * t * t;
+          ctx.beginPath();
+          ctx.arc(px, py, (1.8 * (1 - t) + 0.4) * (bomb ? 1.2 : 1), 0, TAU);
+          ctx.fillStyle = `rgba(255, ${150 + Math.round(rnd(i + 90) * 80)}, 70, ${1 - t})`;
+          ctx.fill();
+        }
+        // Fumaça subindo.
+        const sm = Math.min(1, d / 4000);
+        for (let i = 0; i < (bomb ? 9 : 6); i++) {
+          const t = Math.max(0, sm - i * 0.04);
+          if (t <= 0) continue;
+          ctx.beginPath();
+          ctx.arc(x1 + (rnd(i + 120) - 0.5) * 18 * big, y1 - 6 - t * (30 + rnd(i + 130) * 18) * big, (5 + t * 12) * big, 0, TAU);
+          ctx.fillStyle = bomb ? `rgba(55, 52, 55, ${0.4 * (1 - t)})` : `rgba(90, 88, 92, ${0.35 * (1 - t)})`;
           ctx.fill();
         }
       }

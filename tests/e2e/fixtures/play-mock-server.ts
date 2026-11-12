@@ -618,6 +618,9 @@ function seedWar(w: World, gid: number, point: StartPoint) {
   w.control.set(front, rival);
   w.army.get(rival)!.units = { infantry: 40 };
   w.army.get(gid)!.units = { infantry: 300, armor: 10 };
+  // Saldo para o passeio lançar um míssil e uma bomba.
+  const wal = w.wallet.get(gid);
+  if (wal) for (const r of ['money', 'metal', 'oil'] as const) wal.amounts[r] = Math.max(wal.amounts[r] ?? 0, 5000);
   const at = freePointIn(capital, [...w.structures.values()].map((x) => x.at), 40)!;
   w.structures.set(nextId, { id: nextId, nationId: gid, region: capital, type: 'missile_silo', at, level: 1, building: null });
   nextId++;
